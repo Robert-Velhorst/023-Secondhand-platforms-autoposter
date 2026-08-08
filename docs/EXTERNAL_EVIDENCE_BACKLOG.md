@@ -10,7 +10,6 @@ This is the single list of `Partial` rows in `docs/GOAL_COMPLETION_MATRIX.md`.
 | 53 | Target backup and restore rehearsal followed by reconciliation. | `docs/RELEASE_EVIDENCE_RECORD.md` |
 | 69 | Canary deployment and rollback evidence from the selected host. | `docs/RELEASE_EVIDENCE_RECORD.md` |
 | 81 | Observed real non-technical user walkthrough. | `docs/NON_TECHNICAL_USER_WALKTHROUGH_RECORD.md` |
-| 92 | Fresh-clone verification at the final pushed commit. | `docs/FRESH_CLONE_DRY_RUN.md` |
 | 93 | Manual keyboard, 200% zoom, screen-reader, and operator verification results. | `docs/BROWSER_ACCESSIBILITY_QA.md` and `docs/RELEASE_EVIDENCE_RECORD.md` |
 | 94 | Repeat final no-excuses search after all other launch evidence. | `docs/FINAL_NO_EXCUSES_SEARCH.md` |
 | 100 | Official-provider credentials, account approval, sandbox lifecycle proof, and cleanup evidence if official publishing is enabled. | `docs/OFFICIAL_API_CREDENTIAL_CHECKLIST.md` |

@@ -8,8 +8,8 @@ Statuses use the vocabulary required by the prompt: `Implemented`, `Partial`, `M
 ## Summary
 
 - Total phases: 116.
-- Implemented: 102.
-- Partial: 12.
+- Implemented: 103.
+- Partial: 11.
 - Missing: 0.
 - Blocked: 0.
 - Not applicable: 2.
@@ -110,7 +110,7 @@ Statuses use the vocabulary required by the prompt: `Implemented`, `Partial`, `M
 | 89 | Progressive stabilization gates | Implemented | `docs/PROGRESSIVE_STABILIZATION_GATES.md`. |
 | 90 | No vanity work rule | Implemented | `docs/DEFINITION_OF_DONE.md` requires reachable behavior and evidence. |
 | 91 | Feature-level definition of done | Implemented | `docs/DEFINITION_OF_DONE.md`. |
-| 92 | Fresh-clone dry run | Partial | Existing proof is from an older commit; must be repeated after this branch is pushed. |
+| 92 | Fresh-clone dry run | Implemented | Pushed SHA `7107e42` passed 210 tests from an independent clone; see `docs/FRESH_CLONE_DRY_RUN.md`. |
 | 93 | Manual verification evidence | Partial | Automated/browser evidence exists; real keyboard, zoom, screen-reader, and user evidence remains. |
 | 94 | Final no-excuses search | Partial | Must be rerun after final external evidence and immediately before launch acceptance. |
 | 95 | Completion matrix | Implemented | This file. |

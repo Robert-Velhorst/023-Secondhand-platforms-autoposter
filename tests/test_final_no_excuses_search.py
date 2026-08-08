@@ -11,7 +11,7 @@ def test_final_repository_search_keeps_production_acceptance_open():
         "Real non-technical user walkthrough is not executed",
         "Deployment database, worker, backup, production secrets, and CORS evidence are missing",
         "docs/FINAL_ACCEPTANCE_RECORD.md is not accepted",
-        "Twelve phases remain `Partial`",
+        "Eleven phases remain `Partial`",
         "remains partial",
     ]
     for phrase in required_phrases:

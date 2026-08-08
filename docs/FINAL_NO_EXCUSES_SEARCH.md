@@ -38,7 +38,7 @@ git ls-files | rg "(^|/)(.env($|.)|.*.(db|sqlite|sqlite3)$|uploads?/|secrets?/|t
 - Keyboard, zoom, and screen-reader accessibility QA evidence is not executed.
 - Deployment database, worker, backup, production secrets, and CORS evidence are missing.
 - eBay official API publishing remains unimplemented.
-- Twelve phases remain `Partial`; all require external or human evidence.
+- Eleven phases remain `Partial`; all require external or human evidence.
 - docs/FINAL_ACCEPTANCE_RECORD.md is not accepted.
 
 ## Verdict
