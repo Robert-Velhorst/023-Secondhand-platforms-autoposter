@@ -11,8 +11,8 @@ The final run must be recorded after `docs/RELEASE_EVIDENCE_RECORD.md` is comple
 ## Commands Run
 
 ```bash
-rg -n -S "TODO|FIXME|HACK|not implemented|coming soon|placeholder|console.log|print(" app public migrations scripts docs Readme.md tests -g "!legacy/**"
-rg -n -S "fake|mock" app public migrations scripts Readme.md -g "!legacy/**"
+rg -n -S "TODO|FIXME|HACK|not implemented|coming soon|placeholder|console.log|print(" app public migrations scripts docs README.md tests -g "!legacy/**"
+rg -n -S "fake|mock" app public migrations scripts README.md -g "!legacy/**"
 git ls-files | rg "(^|/)(.env($|.)|.*.(db|sqlite|sqlite3)$|uploads?/|secrets?/|tokens?/)"
 ```
 
