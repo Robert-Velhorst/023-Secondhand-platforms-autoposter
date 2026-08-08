@@ -9,6 +9,7 @@ const state = {
   categoryMappings: [],
   auditEvents: [],
   analytics: null,
+  actionCenter: null,
   validationResults: {},
   qualityResult: null,
   selectedListingId: null,
@@ -64,6 +65,10 @@ const state = {
   pendingRequests: 0,
   locale: localStorage.getItem("autoposterLocale") || document.documentElement.lang || "en",
   localization: null,
+  autosave: {
+    timerId: null,
+    inFlight: false,
+  },
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -100,6 +105,8 @@ const COPY_CATALOG = {
     "dashboard.localOnly": "Local only",
     "dashboard.recentListings": "Recent listings",
     "dashboard.latestJobs": "Latest jobs",
+    "dashboard.actionCenter": "Getting started and action center",
+    "dashboard.derivedLocal": "Derived locally",
     "metric.listings": "Listings",
     "metric.ready": "Ready",
     "metric.needAction": "Need action",
@@ -199,6 +206,8 @@ const COPY_CATALOG = {
     "dashboard.localOnly": "Alleen lokaal",
     "dashboard.recentListings": "Recente advertenties",
     "dashboard.latestJobs": "Laatste taken",
+    "dashboard.actionCenter": "Aan de slag en actiecentrum",
+    "dashboard.derivedLocal": "Lokaal afgeleid",
     "metric.listings": "Advertenties",
     "metric.ready": "Klaar",
     "metric.needAction": "Actie nodig",
@@ -522,6 +531,7 @@ async function loadAll() {
     categoryMappingResult,
     auditResult,
     analytics,
+    actionCenter,
   ] = await Promise.all([
     api("/platforms"),
     apiWithMeta(listingQueryPath()),
@@ -531,6 +541,7 @@ async function loadAll() {
     apiWithMeta(mappingQueryPath()),
     api("/audit-events?limit=8"),
     api("/analytics"),
+    api("/action-center"),
   ]);
   state.platforms = platforms;
   state.listings = listingResult.data;
@@ -547,6 +558,7 @@ async function loadAll() {
     categoryMappingResult.headers.get("X-Total-Count") || state.categoryMappings.length
   );
   state.analytics = analytics;
+  state.actionCenter = actionCenter;
   if (state.selectedListingId && !state.listings.some((listing) => listing.id === state.selectedListingId)) {
     selectListing(null);
   }
@@ -559,10 +571,15 @@ async function refreshJobsOnly() {
   if (!state.token || state.jobPolling.inFlight) return;
   state.jobPolling.inFlight = true;
   try {
-    const [jobResult, analytics] = await Promise.all([apiWithMeta(jobQueryPath()), api("/analytics")]);
+    const [jobResult, analytics, actionCenter] = await Promise.all([
+      apiWithMeta(jobQueryPath()),
+      api("/analytics"),
+      api("/action-center"),
+    ]);
     state.jobs = jobResult.data;
     state.jobQuery.total = Number(jobResult.headers.get("X-Total-Count") || state.jobs.length);
     state.analytics = analytics;
+    state.actionCenter = actionCenter;
     state.jobPolling.lastUpdatedAt = new Date();
     renderDashboard();
     renderJobs();
@@ -612,8 +629,37 @@ function renderDashboard() {
   $("#metricAction").textContent = state.jobs.filter((j) => j.status === "needs_user_action").length;
   $("#metricFailed").textContent = state.jobs.filter((j) => j.status === "failed").length;
   renderAnalytics();
+  renderActionCenter();
   $("#recentListings").innerHTML = state.listings.slice(0, 5).map(listingItemHtml).join("") || `<p class="muted">No listings yet.</p>`;
   $("#latestJobs").innerHTML = state.jobs.slice(0, 5).map(jobItemHtml).join("") || `<p class="muted">No jobs yet.</p>`;
+}
+
+function renderActionCenter() {
+  const center = state.actionCenter;
+  if (!center) {
+    $("#onboardingSteps").innerHTML = `<p class="muted">Loading next actions...</p>`;
+    $("#actionCenterList").innerHTML = "";
+    return;
+  }
+  $("#onboardingSteps").innerHTML = (center.onboarding_steps || []).map((step) => `
+    <button type="button" class="onboarding-step ${step.complete ? "complete" : ""}" data-action-view="${escapeHtml(step.target_view)}">
+      <span aria-hidden="true">${step.complete ? "Done" : "Next"}</span>
+      <span>${escapeHtml(step.label)}</span>
+    </button>
+  `).join("");
+  $("#actionCenterList").innerHTML = (center.reminders || []).map((item) => `
+    <article class="action-item ${escapeHtml(item.severity)}">
+      <div class="pane-head">
+        <strong>${escapeHtml(item.title)}</strong>
+        <span class="${statusClass(item.severity)}">${escapeHtml(item.severity)}</span>
+      </div>
+      <p>${escapeHtml(item.detail)}</p>
+      <div class="recovery-row">
+        <span>${escapeHtml(item.next_action)}</span>
+        <button type="button" class="ghost" data-action-view="${escapeHtml(item.target_view)}" data-action-resource="${escapeHtml(item.resource_type || "")}" data-action-resource-id="${escapeHtml(item.resource_id || "")}">Open</button>
+      </div>
+    </article>
+  `).join("") || `<p class="muted">No outstanding actions.</p>`;
 }
 
 function renderAnalytics() {
@@ -765,6 +811,7 @@ function renderQualityAssistant() {
       <strong>${Number(result.score || 0)}</strong>
       <span class="${statusClass(result.grade)}">${escapeHtml(formatFieldLabel(result.grade))}</span>
       <p>${escapeHtml(result.summary)}</p>
+      <small class="muted">Provider: ${escapeHtml(result.provider)} · deterministic · no external data sent</small>
     </div>
     <div class="quality-checklist">
       ${Object.entries(result.checklist || {}).map(([field, passed]) => `
@@ -782,6 +829,62 @@ function renderQualityAssistant() {
       </section>
     </div>
   `;
+}
+
+function listingFormPayload(form) {
+  return {
+    title: form.title.value,
+    price_cents: Math.round(Number(form.price.value || 0) * 100),
+    condition: form.condition.value,
+    category: form.category.value,
+    location: form.location.value,
+    brand: form.brand.value,
+    model: form.model.value,
+    color: form.color.value,
+    material: form.material.value,
+    category_attributes: parseDeliveryOptions(form.category_attributes.value),
+    weight_grams: Math.round(Number(form.weight_grams.value || 0)),
+    shipping_cost_cents: Math.round(Number(form.shipping_cost.value || 0) * 100),
+    pickup_allowed: form.pickup_allowed.checked,
+    shipping_allowed: form.shipping_allowed.checked,
+    tags: form.tags.value.split(",").map((tag) => tag.trim()).filter(Boolean),
+    description: form.description.value,
+    delivery_options: parseDeliveryOptions(form.delivery_options.value),
+    dimensions: parseDeliveryOptions(form.dimensions.value),
+    notes: form.notes.value,
+    internal_notes: form.internal_notes.value,
+    status: "draft",
+  };
+}
+
+function scheduleListingAutosave() {
+  const listing = selectedListing();
+  if (!listing || state.autosave.inFlight) return;
+  if (state.autosave.timerId) clearTimeout(state.autosave.timerId);
+  $("#editorMessage").textContent = "Unsaved changes";
+  state.autosave.timerId = setTimeout(autosaveSelectedListing, 1200);
+}
+
+async function autosaveSelectedListing() {
+  const listing = selectedListing();
+  if (!listing || state.autosave.inFlight) return;
+  state.autosave.timerId = null;
+  state.autosave.inFlight = true;
+  $("#editorMessage").textContent = "Autosaving...";
+  try {
+    await api(`/listings/${listing.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(listingFormPayload($("#listingForm"))),
+    });
+    markSelectedListingMutated();
+    $("#editorMessage").textContent = "Saved automatically";
+    await loadAll();
+  } catch (error) {
+    showAppError(error, "Autosave failed; your fields remain on screen");
+    $("#editorMessage").textContent = "Autosave failed - use Save to retry";
+  } finally {
+    state.autosave.inFlight = false;
+  }
 }
 
 function qualityIssueHtml(issue) {
@@ -1525,36 +1628,31 @@ $("#recentListings").addEventListener("click", (event) => {
   renderListings();
 });
 
+$("#dashboardView").addEventListener("click", (event) => {
+  const target = event.target.closest("[data-action-view]");
+  if (!target) return;
+  const resourceType = target.dataset.actionResource;
+  const resourceId = Number(target.dataset.actionResourceId || 0);
+  if (resourceType === "listing" && resourceId) selectListing(resourceId);
+  show(target.dataset.actionView);
+  render();
+});
+
+$("#listingForm").addEventListener("input", scheduleListingAutosave);
+$("#listingForm").addEventListener("change", scheduleListingAutosave);
+
 $("#listingForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const listing = selectedListing();
   if (!listing) return;
   const form = event.currentTarget;
+  if (state.autosave.timerId) {
+    clearTimeout(state.autosave.timerId);
+    state.autosave.timerId = null;
+  }
   await api(`/listings/${listing.id}`, {
     method: "PATCH",
-    body: JSON.stringify({
-      title: form.title.value,
-      price_cents: Math.round(Number(form.price.value || 0) * 100),
-      condition: form.condition.value,
-      category: form.category.value,
-      location: form.location.value,
-      brand: form.brand.value,
-      model: form.model.value,
-      color: form.color.value,
-      material: form.material.value,
-      category_attributes: parseDeliveryOptions(form.category_attributes.value),
-      weight_grams: Math.round(Number(form.weight_grams.value || 0)),
-      shipping_cost_cents: Math.round(Number(form.shipping_cost.value || 0) * 100),
-      pickup_allowed: form.pickup_allowed.checked,
-      shipping_allowed: form.shipping_allowed.checked,
-      tags: form.tags.value.split(",").map((tag) => tag.trim()).filter(Boolean),
-      description: form.description.value,
-      delivery_options: parseDeliveryOptions(form.delivery_options.value),
-      dimensions: parseDeliveryOptions(form.dimensions.value),
-      notes: form.notes.value,
-      internal_notes: form.internal_notes.value,
-      status: "draft",
-    }),
+    body: JSON.stringify(listingFormPayload(form)),
   });
   await savePlatformOverrides();
   markSelectedListingMutated();
@@ -1569,6 +1667,7 @@ $("#applyTemplateButton").addEventListener("click", () => {
   const description = $("#listingForm").description;
   description.value = [description.value.trim(), template.body.trim()].filter(Boolean).join("\n\n");
   $("#editorMessage").textContent = "Template applied";
+  scheduleListingAutosave();
 });
 
 $("#duplicateButton").addEventListener("click", async () => {

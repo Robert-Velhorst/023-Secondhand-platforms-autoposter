@@ -1,16 +1,17 @@
 from pathlib import Path
 
 
-def test_final_no_excuses_search_is_marked_pre_final_until_release_evidence_exists():
+def test_final_repository_search_keeps_production_acceptance_open():
     content = Path("docs/FINAL_NO_EXCUSES_SEARCH.md").read_text(encoding="utf-8")
 
     required_phrases = [
-        "pre-final search",
-        "not the final release search",
+        "final repository search",
+        "not final production-launch acceptance",
         "not release-ready",
         "Real non-technical user walkthrough is not executed",
         "Deployment database, worker, backup, production secrets, and CORS evidence are missing",
         "docs/FINAL_ACCEPTANCE_RECORD.md is not accepted",
+        "Twelve phases remain `Partial`",
         "remains partial",
     ]
     for phrase in required_phrases:

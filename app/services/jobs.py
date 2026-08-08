@@ -25,6 +25,7 @@ from app.services.job_state import (
     is_terminal_status,
     transition_job,
 )
+from app.services.operator_controls import job_processing_is_paused
 from app.services.platform_rate_limits import quota_backoff_payload, quota_retry_at_from_outcome
 
 
@@ -406,6 +407,8 @@ def recover_stale_running_jobs(db: Session, stale_after_seconds: int) -> int:
 
 
 def process_due_jobs(db: Session, limit: int) -> int:
+    if job_processing_is_paused(db):
+        return 0
     recover_stale_running_jobs(db, get_settings().job_stale_running_seconds)
     job_ids = claim_due_queued_job_ids(db, limit)
     processed = 0

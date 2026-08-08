@@ -100,6 +100,7 @@ docker compose -f docker-compose.production.yml up --build
 - `PUBLIC_BASE_URL`: public URL used for future generated links and diagnostics.
 - `LOG_LEVEL`: desired logging verbosity for deployment.
 - `LOG_FORMAT`: `text` for local logs or `json` for production log aggregation.
+- `SUGGESTION_PROVIDER`: supported value is `deterministic_local`; listing content is not sent externally.
 
 Legacy Selenium variables are documented in `.env.example` and should only be filled locally.
 
@@ -126,6 +127,7 @@ The schema includes:
 - listing drafts
 - description templates
 - publication attempts
+- persistent operator controls
 
 SQLite is the default for quick local development. PostgreSQL is supported through SQLAlchemy by setting `DATABASE_URL`, for example:
 
@@ -211,6 +213,7 @@ For a seller-facing workflow guide, see `docs/USER_GUIDE.md`. For endpoint-level
 - `POST /api/auth/login`
 - `DELETE /api/auth/me`
 - `GET /api/analytics`
+- `GET /api/action-center`
 - `GET /api/localization`
 - `GET /api/listings`
 - `POST /api/listings`
@@ -241,6 +244,11 @@ Category mappings let a user translate a master listing category into a platform
 The listing editor includes a local quality assistant. It scores buyer-readiness, flags missing or weak fields, and offers deterministic title, description, and tag suggestions from the listing data already entered. It does not call an external AI service or invent product facts.
 
 The dashboard includes local-first Insights from `GET /api/analytics`: inventory value, average price, listing quality, platform coverage, and job outcomes. These are derived from the authenticated user's local records and do not use an external analytics provider.
+
+The dashboard also includes an owner-scoped onboarding/action center. Listing edits are debounced
+and autosaved with visible pending, success, and retry states; the explicit Save action remains
+available. Quality guidance identifies the deterministic local provider and confirms that no
+listing data was transmitted externally.
 
 List endpoints support bounded pagination with `limit` and `offset`. Core list endpoints also expose focused filtering/sorting parameters, such as `/api/listings?search=chair&status=draft&sort=-updated_at`. The Listings screen uses those query parameters for search, status filtering, sorting, and previous/next paging.
 
@@ -274,6 +282,10 @@ python -m app.worker
 ```
 
 Jobs with `next_retry_at` in the future remain queued until their retry time. This keeps assisted posting preparation and future official API publishing out of fragile blocking requests.
+
+Operators can persistently pause or resume new job claims with `python -m app.operator_control`.
+Use `python -m app.reconcile` for a check-only consistency audit and
+`python -m app.support_bundle --output support-bundle.zip` for a sanitized diagnostic archive.
 
 ## Security and compliance
 
@@ -331,7 +343,7 @@ Jobs with `next_retry_at` in the future remain queued until their retry time. Th
 - Fake provider lab: `docs/FAKE_PROVIDER_LAB.md`
 - No mocks in production audit: `docs/NO_MOCKS_PRODUCTION_AUDIT.md`
 - Privacy audit events: `docs/PRIVACY_AUDIT_EVENTS.md`
-- Completion matrix: `docs/COMPLETION_MATRIX.md`
+- Canonical 116-phase completion matrix: `docs/GOAL_COMPLETION_MATRIX.md`
 
 ## Production notes
 

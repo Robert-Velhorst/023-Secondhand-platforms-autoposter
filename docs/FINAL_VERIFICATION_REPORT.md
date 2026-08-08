@@ -1,8 +1,10 @@
 # Final Verification Report
 
-Date: 2026-07-15
+Date: 2026-08-08
 
-Verification target: production-hardening working checkout on 2026-07-15, based on `d96b27e`. Fresh-clone evidence remains recorded separately at `ca42634` in `docs/FRESH_CLONE_DRY_RUN.md`.
+Verification target: `agent/production-launch-hardening` working checkout based on starting commit
+`0fa6d381a47139038d68b857537a02070740efae`. The exact release commit is recorded after the verified
+changes are committed and pushed to the existing draft PR.
 
 ## Verification Command
 
@@ -10,44 +12,46 @@ Verification target: production-hardening working checkout on 2026-07-15, based 
 python scripts/verify.py
 ```
 
-Result: passed from the working checkout. See `docs/FRESH_CLONE_DRY_RUN.md` for the earlier fresh-clone dry run.
+Result: passed from the working checkout.
 
 ## Gate Results
 
 - Ruff lint: passed.
 - Python compile checks: passed.
-- Pytest suite: passed, 196 tests.
-- Doctor diagnostics: passed with local-development warnings.
+- Pytest suite: passed, 210 tests.
+- Focused release suite: passed, 22 tests.
+- Alembic CLI from an empty database: passed at head `20260808_0012`.
+- Doctor: database, migrations, uploads, adapters, and legacy isolation passed; local default-secret warning expected.
+- Reconciliation: passed with zero issues on the fresh migrated database.
+- Operator control: status healthy and job processing not paused.
+- Sanitized support bundle: generated successfully.
+- Production Compose configuration: passed when supplied the required external env file and upload volume.
+- Browser workflow: registration, onboarding, listing creation, autosave, action-center refresh, and 390 x 844 responsive check passed with no console warning/error.
 - Release gate: blocked as expected until external evidence records are complete.
 - Final response preflight: blocked as expected until release gate and final acceptance are ready.
 
-## Expected Local Warnings
+## Expected Local Warning
 
-The doctor command returned `warning` status for expected local-development conditions:
-
-- Development is using the default `SECRET_KEY`.
-- The local SQLite database is not stamped at Alembic head `20260715_0011`.
-
-These warnings do not block local verification, but they remain production launch blockers until deployment uses a strong `SECRET_KEY` and the target database is migrated to Alembic head.
+Doctor reports that development uses the default `SECRET_KEY`. This is correct for this isolated
+local run and does not weaken the production guard, which rejects default or short secrets,
+unrestricted CORS, non-PostgreSQL databases, non-HTTPS public URLs, or unsafe feature flags.
 
 ## Release Gate Snapshot
 
-`python scripts/release_gate.py` currently reports `blocked` and `python scripts/release_gate.py --json` lists the missing evidence fields, per-record counts, and total missing evidence count because:
+`python scripts/release_gate.py --json` reports `blocked` with a total missing evidence count of 77.
+`python scripts/final_response_check.py --json` also reports `blocked` because:
 
-- release readiness still says not release-ready yet
-- release evidence has `Not captured` entries
-- non-technical user walkthrough evidence has `Not captured` entries
-- final acceptance is not accepted
+- release readiness still says not release-ready yet;
+- deployment and security evidence contains `Not captured` fields;
+- the real non-technical user walkthrough contains `Not captured` fields;
+- final acceptance is not accepted.
 
 ## Current Release Assessment
 
-The repository passes its automated verification gate at the verification target above. It is suitable for continued demo and hardening work.
+The repository passes its local implementation and automated verification gate. It is ready for a
+demo/hardening review and for deployment into a supplied staging environment.
 
-It is not yet a final client launch release because the release readiness checklist still requires environment-specific evidence:
-
-- target database migration evidence
-- production secrets and CORS confirmation
-- worker process confirmation
-- backup/restore evidence
-- browser, responsive, and full manual accessibility walkthroughs
-- platform compliance acceptance
+It is not yet a final client launch release. Remaining external gates are target deployment access,
+PostgreSQL migration proof, production secret/CORS/storage confirmation, API and worker process
+evidence, backup/restore proof, edge rate-limit evidence, a real-user walkthrough, manual keyboard/
+zoom/screen-reader QA, acceptance of assisted marketplace posting, and named final signoff.

@@ -496,12 +496,42 @@ class ListingQualitySuggestion(BaseModel):
 
 
 class ListingQualityResult(BaseModel):
+    provider: str = "deterministic_local"
+    deterministic: bool = True
+    external_data_sent: bool = False
     score: int = Field(ge=0, le=100)
     grade: str
     summary: str
     issues: list[ListingQualityIssue] = Field(default_factory=list)
     suggestions: list[ListingQualitySuggestion] = Field(default_factory=list)
     checklist: dict[str, bool] = Field(default_factory=dict)
+
+
+class ActionItem(BaseModel):
+    id: str
+    kind: str
+    severity: str
+    title: str
+    detail: str
+    next_action: str
+    target_view: str
+    resource_type: str | None = None
+    resource_id: int | None = None
+
+
+class OnboardingStep(BaseModel):
+    id: str
+    label: str
+    complete: bool
+    target_view: str
+
+
+class ActionCenterResult(BaseModel):
+    source: str = "derived_local"
+    generated_at: datetime
+    onboarding_complete: bool
+    onboarding_steps: list[OnboardingStep] = Field(default_factory=list)
+    reminders: list[ActionItem] = Field(default_factory=list)
 
 
 class AnalyticsIssueCount(BaseModel):

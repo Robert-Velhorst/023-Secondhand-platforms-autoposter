@@ -12,6 +12,25 @@ Executed UI/UX debugging rounds are summarized in `docs/UI_UX_DEBUGGING_ROUNDS.m
 
 Executed responsive and browser compatibility evidence is recorded in `docs/RESPONSIVE_BROWSER_COMPATIBILITY.md`. This checklist remains open for keyboard, zoom, and screen-reader launch evidence.
 
+## 2026-08-08 Local Browser Evidence
+
+The in-app Chromium browser executed this fresh-account flow against
+`http://127.0.0.1:8013` on the working checkout:
+
+1. register a local test user;
+2. verify the five-step onboarding/action center;
+3. create a first listing;
+4. edit title, price, category, location, and description;
+5. observe the visible `Saved automatically` state and revision increment;
+6. return to the dashboard and verify the first onboarding step changed to `Done`;
+7. verify the missing-image reminder and refreshed local analytics;
+8. reload at a 390 x 844 viewport and confirm navigation, metrics, onboarding, and the reminder remain reachable.
+
+The page reported no browser console warning or error during this flow. The browser screenshot
+transport produced tiled captures, so DOM snapshots and semantic interaction results are the
+authoritative evidence for this run. This does not close the production-candidate keyboard, 200%
+zoom, screen-reader, Firefox, Safari/iOS, or Android checks below.
+
 ## Scope
 
 Run this against the exact deployment candidate and environment that will be shown to users.

@@ -61,7 +61,7 @@ from app.services.jobs import (
     retry_job,
 )
 from app.services.oauth import consume_ebay_authorization_callback, create_ebay_authorization_url
-from app.services.quality import analyze_listing_quality
+from app.services.suggestions import get_suggestion_provider
 from app.storage import (
     delete_stored_file,
     local_storage_path,
@@ -373,7 +373,8 @@ def listing_quality(
     db: Session = Depends(get_db),
 ):
     listing = _load_listing(db, user.id, listing_id)
-    return analyze_listing_quality(listing)
+    settings = get_settings()
+    return get_suggestion_provider(settings.suggestion_provider).analyze(listing)
 
 
 def effective_platform_overrides(

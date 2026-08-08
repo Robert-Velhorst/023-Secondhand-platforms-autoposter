@@ -27,11 +27,13 @@ Use `request_id` when matching browser reports to server logs. Retry only when `
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/health` | Health check with current server time. |
+| `GET` | `/api/health` | Health check with current server time and application version. |
 | `GET` | `/api/localization` | Current locale metadata and catalog status. |
 | `GET` | `/api/metrics` | Lightweight operational counts. |
 | `GET` | `/api/diagnostics` | Doctor checks plus local object counts. |
 | `GET` | `/api/account/readiness` | Authenticated personal-account readiness contract with owner-scoped usage counts and no billing requirement. |
+| `GET` | `/api/action-center` | Authenticated owner-scoped onboarding steps and actionable reminders. |
+| `GET` | `/api/worker-status` | Worker heartbeat readiness plus persistent operator-pause state. |
 
 ## Authentication
 
@@ -64,7 +66,7 @@ Use `request_id` when matching browser reports to server logs. Retry only when `
 | `GET` | `/api/platforms` | Registered platform metadata, capabilities, required fields, supported categories, and compliance notes. |
 | `POST` | `/api/listings/{listing_id}/platforms` | Save platform selection and overrides. |
 | `GET` | `/api/listings/{listing_id}/validate` | Validate readiness and return mapped fields. |
-| `GET` | `/api/listings/{listing_id}/quality` | Run deterministic listing quality analysis with category-specific local guidance. |
+| `GET` | `/api/listings/{listing_id}/quality` | Run deterministic local guidance and return provider/data-transfer disclosure. |
 | `POST` | `/api/listings/{listing_id}/publish` | Queue assisted package jobs. Use `force_new_revision=true` to intentionally regenerate a fresh package. |
 
 Registered production platforms are assisted-only. A successful assisted job returns `needs_user_action`, not API-confirmed marketplace publication.

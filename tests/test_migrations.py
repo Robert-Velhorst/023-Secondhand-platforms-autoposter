@@ -1,3 +1,7 @@
+import os
+import subprocess
+import sys
+
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
@@ -6,6 +10,23 @@ from sqlalchemy.schema import CreateIndex, CreateTable
 
 from app import models  # noqa: F401
 from app.database import Base
+
+
+def test_alembic_cli_uses_database_url_environment(tmp_path):
+    db_path = tmp_path / "cli-migration-test.db"
+    env = os.environ.copy()
+    env["DATABASE_URL"] = f"sqlite:///{db_path.as_posix()}"
+
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "operator_controls" in inspect(create_engine(env["DATABASE_URL"])).get_table_names()
 
 
 def test_alembic_migration_runs_from_empty_database(tmp_path):
@@ -51,6 +72,8 @@ def test_alembic_migration_runs_from_empty_database(tmp_path):
     assert "audit_events" in tables
     assert "login_throttles" in tables
     assert "platform_oauth_states" in tables
+    assert "worker_heartbeats" in tables
+    assert "operator_controls" in tables
     audit_columns = {column["name"] for column in inspect(engine).get_columns("audit_events")}
     assert "user_email_hash" in audit_columns
     assert "event_data" in audit_columns
@@ -69,6 +92,8 @@ def test_alembic_migration_runs_from_empty_database(tmp_path):
     oauth_state_indexes = {index["name"] for index in inspect(engine).get_indexes("platform_oauth_states")}
     assert "ix_platform_oauth_states_state_hash" in oauth_state_indexes
     assert "ix_platform_oauth_states_expires_at" in oauth_state_indexes
+    control_columns = {column["name"] for column in inspect(engine).get_columns("operator_controls")}
+    assert control_columns >= {"job_processing_paused", "reason", "updated_by", "updated_at"}
 
 
 def test_model_schema_renders_for_postgresql_dialect():

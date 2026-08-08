@@ -137,3 +137,10 @@ def test_feature_flags_are_reported_from_settings():
     assert flags["dev_auto_login"].production_allowed is False
     assert flags["auto_create_tables"].enabled is False
     assert flags["inline_job_processing"].enabled is False
+
+
+def test_unimplemented_external_suggestion_provider_is_rejected():
+    settings = Settings(suggestion_provider="external-ai")
+
+    with pytest.raises(RuntimeError, match="SUGGESTION_PROVIDER must be deterministic_local"):
+        validate_startup_safety(settings)

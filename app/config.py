@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     platform_rate_limit_overrides: str = ""
     session_expire_hours: int = 168
     audit_retention_days: int = 365
+    suggestion_provider: str = "deterministic_local"
     default_locale: str = "en"
     supported_locales: str = "en,nl"
     ebay_oauth_client_id: str = ""
@@ -178,6 +179,8 @@ def validate_startup_safety(settings: Settings) -> None:
         problems.append("SESSION_EXPIRE_HOURS must be positive")
     if settings.audit_retention_days < 0:
         problems.append("AUDIT_RETENTION_DAYS must be non-negative")
+    if settings.suggestion_provider.lower() != "deterministic_local":
+        problems.append("SUGGESTION_PROVIDER must be deterministic_local until an approved provider is implemented")
     if not settings.default_locale.strip():
         problems.append("DEFAULT_LOCALE must not be empty")
     if not settings.supported_locale_list:

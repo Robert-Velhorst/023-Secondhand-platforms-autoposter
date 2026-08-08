@@ -316,3 +316,17 @@ class WorkerHeartbeat(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     processed_jobs: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class OperatorControl(Base):
+    """Singleton operational controls shared by API and worker processes."""
+
+    __tablename__ = "operator_controls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    job_processing_paused: Mapped[bool] = mapped_column(Boolean, default=False)
+    reason: Mapped[str] = mapped_column(String(500), default="")
+    updated_by: Mapped[str] = mapped_column(String(120), default="operator-cli")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+    )

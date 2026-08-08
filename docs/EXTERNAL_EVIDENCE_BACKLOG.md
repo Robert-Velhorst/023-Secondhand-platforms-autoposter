@@ -1,18 +1,23 @@
 # External Evidence Backlog
 
-This backlog is the single list of remaining `Partial` phases. A phase can leave this list only when the completion matrix is updated with matching evidence.
+This is the single list of `Partial` rows in `docs/GOAL_COMPLETION_MATRIX.md`.
 
 | Phase | Evidence required | Capture location |
 | --- | --- | --- |
-| 4 | Run Alembic migrations against the target PostgreSQL database and record the applied head. | `docs/RELEASE_EVIDENCE_RECORD.md` |
-| 5 | Capture deployment-specific environment, production startup, CORS, secret, storage, and log-mode evidence from the chosen host. | `docs/RELEASE_EVIDENCE_RECORD.md` |
-| 6 | Capture edge/proxy/CDN/WAF rate-limit evidence for the chosen deployment. | `docs/RELEASE_EVIDENCE_RECORD.md` |
-| 18 | Verify concurrent worker claim and recovery behavior against the target PostgreSQL database. | `docs/RELEASE_EVIDENCE_RECORD.md` |
-| 70 | Complete final launch evidence and make `python scripts/release_gate.py` report `ready`. | `docs/RELEASE_EVIDENCE_RECORD.md` |
-| 74 | Observe a real non-technical user completing the seller flow without substituting internal QA or automation. | `docs/NON_TECHNICAL_USER_WALKTHROUGH_RECORD.md` |
-| 81 | Complete or explicitly accept the external implementation-depth gates. | `docs/FINAL_ACCEPTANCE_RECORD.md` |
-| 85 | Repeat the final no-excuses search after release evidence exists and before final acceptance. | `docs/FINAL_NO_EXCUSES_SEARCH.md` |
-| 87 | Capture an accepted final launch decision with residual risks and owners. | `docs/FINAL_ACCEPTANCE_RECORD.md` |
-| 88 | Prepare the final release response only after release gate and final acceptance are ready. | `docs/FINAL_RESPONSE_REQUIREMENTS.md` |
+| 30 | Target secret-manager configuration, access policy, and rotation rehearsal. | `docs/RELEASE_EVIDENCE_RECORD.md` |
+| 32 | Target host, deployed SHA, API/worker process proof, HTTPS/CORS/storage configuration. | `docs/RELEASE_EVIDENCE_RECORD.md` |
+| 33 | Alembic upgrade and rollback decision against target PostgreSQL. | `docs/RELEASE_EVIDENCE_RECORD.md` |
+| 53 | Target backup and restore rehearsal followed by reconciliation. | `docs/RELEASE_EVIDENCE_RECORD.md` |
+| 69 | Canary deployment and rollback evidence from the selected host. | `docs/RELEASE_EVIDENCE_RECORD.md` |
+| 81 | Observed real non-technical user walkthrough. | `docs/NON_TECHNICAL_USER_WALKTHROUGH_RECORD.md` |
+| 92 | Fresh-clone verification at the final pushed commit. | `docs/FRESH_CLONE_DRY_RUN.md` |
+| 93 | Manual keyboard, 200% zoom, screen-reader, and operator verification results. | `docs/BROWSER_ACCESSIBILITY_QA.md` and `docs/RELEASE_EVIDENCE_RECORD.md` |
+| 94 | Repeat final no-excuses search after all other launch evidence. | `docs/FINAL_NO_EXCUSES_SEARCH.md` |
+| 100 | Official-provider credentials, account approval, sandbox lifecycle proof, and cleanup evidence if official publishing is enabled. | `docs/OFFICIAL_API_CREDENTIAL_CHECKLIST.md` |
+| 103 | Production PostgreSQL/storage/worker migration and cutover proof. | `docs/RELEASE_EVIDENCE_RECORD.md` |
+| 115 | Named human operator completes the runbook and signs readiness. | `docs/FINAL_ACCEPTANCE_RECORD.md` |
 
-Current status: blocked on external evidence. The local repository has controls and templates for every row above, but it does not contain the external observations or deployment records required to mark these phases done.
+Current status: blocked on external evidence for final production launch. Run `python scripts/release_gate.py --json` for the launch-record fields still marked `Not captured`. The repository must not synthesize these observations.
+
+Before the final handoff, repeat `docs/FINAL_NO_EXCUSES_SEARCH.md` and validate every statement in
+`docs/FINAL_RESPONSE_REQUIREMENTS.md`.

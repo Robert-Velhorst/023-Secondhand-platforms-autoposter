@@ -10,17 +10,20 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.doctor import run_checks
 from app.models import CategoryMapping, Listing, ListingTemplate, PlatformAccount, PublishingJob, User
-from app.schemas import AccountReadiness, AccountUsage, AnalyticsResult, UserOut
+from app.schemas import AccountReadiness, AccountUsage, ActionCenterResult, AnalyticsResult, UserOut
+from app.services.action_center import build_action_center
 from app.services.analytics import build_user_analytics
 from app.services.localization import localization_metadata
+from app.services.operator_controls import operator_control_status
 from app.services.worker_health import worker_status
+from app.version import __version__
 
 router = APIRouter(prefix="/api")
 
 
 @router.get("/health", tags=["Health"])
 def health() -> dict:
-    return {"status": "ok", "time": datetime.now(UTC).isoformat()}
+    return {"status": "ok", "version": __version__, "time": datetime.now(UTC).isoformat()}
 
 
 @router.get("/worker-status", tags=["Diagnostics"])
@@ -36,10 +39,12 @@ def diagnostics(db: Session = Depends(get_db)) -> dict:
     doctor = run_checks()
     return {
         "status": doctor["status"],
+        "version": __version__,
         "listings": db.query(Listing).count(),
         "jobs": db.query(PublishingJob).count(),
         "platforms": [platform["key"] for platform in list_platforms()],
         "doctor": doctor,
+        "operator_control": operator_control_status(db),
     }
 
 
@@ -67,6 +72,11 @@ def localization() -> dict:
 @router.get("/analytics", response_model=AnalyticsResult, tags=["Diagnostics"])
 def analytics(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return build_user_analytics(db, user.id)
+
+
+@router.get("/action-center", response_model=ActionCenterResult, tags=["Account"])
+def action_center(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return build_action_center(db, user.id)
 
 
 @router.get("/account/readiness", response_model=AccountReadiness, tags=["Account"])

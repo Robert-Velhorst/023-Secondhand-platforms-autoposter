@@ -94,7 +94,28 @@ Expected production status is `ok`. A warning requires operator review. An error
 - Keep uploads on persistent local storage or private S3-compatible object storage and include that storage in backups.
 - Keep database backups separate from application deploy artifacts.
 - Run `python -m app.audit_retention` on the chosen retention schedule to purge audit events older than `AUDIT_RETENTION_DAYS`.
+- Run `python -m app.reconcile` as a check-only consistency audit. Use `--repair-safe` only after reviewing its image-position-only repair scope.
+- Generate a sanitized diagnostic archive with `python -m app.support_bundle --output support-bundle.zip`; review it before sharing.
 - Do not run legacy Selenium scripts inside the web or worker process.
+
+## Emergency Job Stop
+
+Pause new job claims without deleting queued work:
+
+```bash
+python -m app.operator_control pause --reason "incident reference"
+python -m app.operator_control status
+```
+
+Resume only after the incident owner approves processing:
+
+```bash
+python -m app.operator_control resume --reason "incident resolved"
+```
+
+The control is stored in the database, survives process restarts, and is reflected by
+`GET /api/worker-status` and `GET /api/diagnostics`. It does not interrupt an adapter call that is
+already executing; stop the worker process as well if immediate containment is required.
 
 ## Backup And Restore
 

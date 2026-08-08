@@ -841,3 +841,44 @@ textarea {
     padding: 14px;
   }
 }
+/* Local onboarding and exception-based action center. */
+.action-center-panel {
+  margin: 1rem 0;
+  padding: 1rem;
+  background: var(--surface, #fff);
+  border: 1px solid var(--line, #dce3e8);
+  border-radius: 0.75rem;
+}
+
+.onboarding-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.onboarding-step {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--line, #dce3e8);
+}
+
+.onboarding-step.complete {
+  opacity: 0.72;
+}
+
+.action-item {
+  border-left: 4px solid #5b7083;
+}
+
+.action-item.critical {
+  border-left-color: #b42318;
+}
+
+.action-item.warning {
+  border-left-color: #b7791f;
+}
