@@ -3,6 +3,7 @@ import io
 import json
 import zipfile
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import ValidationError
@@ -63,11 +64,13 @@ from app.services.jobs import (
 from app.services.oauth import consume_ebay_authorization_callback, create_ebay_authorization_url
 from app.services.suggestions import get_suggestion_provider
 from app.storage import (
+    ValidatedUpload,
     delete_stored_file,
     local_storage_path,
     read_validated_image,
     safe_filename,
     store_validated_image,
+    stored_file_bytes,
 )
 
 router = APIRouter(prefix="/api")
@@ -197,8 +200,12 @@ def delete_listing(
     db: Session = Depends(get_db),
 ):
     listing = _load_listing(db, user.id, listing_id)
+    image_paths = [image.storage_path for image in listing.images]
     db.delete(listing)
     db.commit()
+    for storage_path in set(image_paths):
+        if not db.query(ListingImage.id).filter(ListingImage.storage_path == storage_path).first():
+            delete_stored_file(storage_path)
 
 
 @router.post("/listings/{listing_id}/duplicate", response_model=ListingOut, tags=["Listings"])
@@ -235,11 +242,25 @@ def duplicate_listing(
     db.add(clone)
     db.flush()
     for image in source.images:
+        content = stored_file_bytes(image.storage_path)
+        if content is None:
+            continue
+        stored_file = store_validated_image(
+            ValidatedUpload(
+                original_filename=image.filename,
+                content=content,
+                content_type=image.content_type,
+                file_size=len(content),
+                checksum_sha256=image.checksum_sha256,
+                extension=Path(image.filename).suffix or ".img",
+            ),
+            clone.id,
+        )
         db.add(
             ListingImage(
                 listing_id=clone.id,
                 filename=image.filename,
-                storage_path=image.storage_path,
+                storage_path=stored_file.storage_path,
                 content_type=image.content_type,
                 file_size=image.file_size,
                 checksum_sha256=image.checksum_sha256,
@@ -286,6 +307,30 @@ async def upload_image(
     return _load_listing(db, user.id, listing.id)
 
 
+@router.get("/listings/{listing_id}/images/{image_id}/content", tags=["Images"])
+def get_image_content(
+    listing_id: int,
+    image_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    listing = _load_listing(db, user.id, listing_id)
+    image = next((item for item in listing.images if item.id == image_id), None)
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+    content = stored_file_bytes(image.storage_path)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Image content is unavailable")
+    return Response(
+        content=content,
+        media_type=image.content_type,
+        headers={
+            "Cache-Control": "private, max-age=300",
+            "Content-Disposition": f'inline; filename="{safe_filename(image.filename)}"',
+        },
+    )
+
+
 @router.patch("/listings/{listing_id}/images/order", response_model=ListingOut, tags=["Images"])
 def reorder_images(
     listing_id: int,
@@ -313,9 +358,11 @@ def delete_image(
     image = next((item for item in listing.images if item.id == image_id), None)
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
-    delete_stored_file(image.storage_path)
+    storage_path = image.storage_path
     db.delete(image)
     db.commit()
+    if not db.query(ListingImage.id).filter(ListingImage.storage_path == storage_path).first():
+        delete_stored_file(storage_path)
     return _load_listing(db, user.id, listing.id)
 
 
@@ -444,11 +491,11 @@ def list_jobs(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    listing_ids = [id_ for (id_,) in db.query(Listing.id).filter(Listing.owner_id == user.id).all()]
     query = (
         db.query(PublishingJob)
         .options(selectinload(PublishingJob.logs))
-        .filter(PublishingJob.listing_id.in_(listing_ids))
+        .join(Listing)
+        .filter(Listing.owner_id == user.id)
     )
     if platform:
         query = query.filter(PublishingJob.platform == platform)

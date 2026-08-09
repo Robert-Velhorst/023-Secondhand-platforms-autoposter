@@ -24,7 +24,7 @@ See `docs/ARCHITECTURE.md` for the current backend route/module layout.
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 copy .env.example .env
 uvicorn app.main:app --reload
 ```
@@ -50,6 +50,16 @@ python -m app.worker
 
 For local development, `JOB_PROCESS_INLINE=true` keeps publish jobs immediately processed in the API request. For production-style operation, set `JOB_PROCESS_INLINE=false` and run the worker process.
 
+## Windows 11 standalone
+
+Build a single-file Windows app with `.\scripts\build-windows.ps1`, then run `dist\SecondhandAutoposter.exe`. It migrates and stores its local database, secret, uploads, and logs under `%LOCALAPPDATA%\SecondhandAutoposter`, starts the worker, binds only to localhost, and opens the dashboard after health succeeds.
+
+To expose that standalone instance through an authenticated ngrok installation, use `.\scripts\start-ngrok.ps1`. The launcher verifies both local and public health and isolates itself from unrelated ngrok tunnels. See `docs/WINDOWS_STANDALONE.md`.
+
+## HAI connector
+
+Settings includes an expiring, revocable HAI connector-token flow. HAI can discover the contract at `/.well-known/hai-connector.json` and consume the owner-scoped incremental feed at `/api/hai/records`. This integration is deliberately read-only and excludes internal notes, credentials, and image binaries. See `docs/HAI_CONNECTOR.md`.
+
 ## Production deployment
 
 Use the separate production Compose definition; it deliberately has no bundled database and runs Alembic before the API and worker can start.
@@ -67,6 +77,7 @@ docker compose -f docker-compose.production.yml up --build
 
 - `SECRET_KEY`: set to a long random value in production.
 - `DATABASE_URL`: SQLAlchemy database URL. Default: `sqlite:///./data/autoposter.db`.
+- `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT_SECONDS`, `DB_POOL_RECYCLE_SECONDS`: bounded PostgreSQL connection-pool controls.
 - `UPLOAD_DIR`: image upload directory. Default: `./data/uploads`.
 - `STORAGE_BACKEND`: storage adapter. Supported values: `local`, `s3`.
 - `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT_URL`, `S3_KEY_PREFIX`: optional S3-compatible object storage settings used when `STORAGE_BACKEND=s3`.
@@ -214,11 +225,13 @@ For a seller-facing workflow guide, see `docs/USER_GUIDE.md`. For endpoint-level
 - `DELETE /api/auth/me`
 - `GET /api/analytics`
 - `GET /api/action-center`
+- `GET /api/dashboard`
 - `GET /api/localization`
 - `GET /api/listings`
 - `POST /api/listings`
 - `PATCH /api/listings/{id}`
 - `POST /api/listings/{id}/images`
+- `GET /api/listings/{id}/images/{image_id}/content`
 - `GET /api/listings/{id}/validate`
 - `GET /api/listings/{id}/quality`
 - `POST /api/listings/{id}/publish`
@@ -232,6 +245,8 @@ For a seller-facing workflow guide, see `docs/USER_GUIDE.md`. For endpoint-level
 - `POST /api/category-mappings`
 - `GET /api/export`
 - `POST /api/import`
+- `POST /api/hai/tokens`
+- `GET /api/hai/records`
 
 Interactive API docs are available at `http://127.0.0.1:8000/docs`.
 
@@ -294,6 +309,7 @@ Use `python -m app.reconcile` for a check-only consistency audit and
 - Older PBKDF2 hashes are still accepted and upgraded on successful login.
 - Bearer sessions can be revoked with `POST /api/auth/logout`.
 - Authentication is bearer-only: send tokens in the `Authorization` header. The app does not set session cookies.
+- Uploaded image content is owner-authenticated; raw filesystem and S3 object locations are not exposed by listing responses.
 - Failed login attempts are rate-limited per email/IP window.
 - External calls are isolated behind adapter interfaces.
 - The default integrations are assisted-only where official automation credentials are absent.

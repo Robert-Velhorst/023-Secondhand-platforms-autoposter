@@ -29,10 +29,11 @@ Use `request_id` when matching browser reports to server logs. Retry only when `
 | --- | --- | --- |
 | `GET` | `/api/health` | Health check with current server time and application version. |
 | `GET` | `/api/localization` | Current locale metadata and catalog status. |
-| `GET` | `/api/metrics` | Lightweight operational counts. |
-| `GET` | `/api/diagnostics` | Doctor checks plus local object counts. |
+| `GET` | `/api/metrics` | Authenticated, owner-scoped operational counts. |
+| `GET` | `/api/diagnostics` | Authenticated doctor checks plus owner-scoped object counts. |
 | `GET` | `/api/account/readiness` | Authenticated personal-account readiness contract with owner-scoped usage counts and no billing requirement. |
 | `GET` | `/api/action-center` | Authenticated owner-scoped onboarding steps and actionable reminders. |
+| `GET` | `/api/dashboard` | Authenticated combined analytics, action-center, recent-listing, and latest-job payload. |
 | `GET` | `/api/worker-status` | Worker heartbeat readiness plus persistent operator-pause state. |
 
 ## Authentication
@@ -56,6 +57,7 @@ Use `request_id` when matching browser reports to server logs. Retry only when `
 | `DELETE` | `/api/listings/{listing_id}` | Delete a listing. |
 | `POST` | `/api/listings/{listing_id}/duplicate` | Duplicate a listing. |
 | `POST` | `/api/listings/{listing_id}/images` | Upload a validated image. |
+| `GET` | `/api/listings/{listing_id}/images/{image_id}/content` | Read private image content from local or S3 storage as the owner. |
 | `PATCH` | `/api/listings/{listing_id}/images/order` | Reorder uploaded images. |
 | `DELETE` | `/api/listings/{listing_id}/images/{image_id}` | Delete an image. |
 
@@ -116,6 +118,19 @@ Listing payloads include `category_attributes`, a bounded JSON object for catego
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/audit-events` | Review the signed-in user's sanitized privacy activity with optional `action`, `limit`, and `offset` controls. |
+
+## HAI Read-Only Connector
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/.well-known/hai-connector.json` | Public discovery metadata and read-only capability declaration. |
+| `GET` | `/api/hai/tokens` | List the signed-in user's connector token metadata. |
+| `POST` | `/api/hai/tokens` | Create an expiring connector token; plaintext is returned once. |
+| `DELETE` | `/api/hai/tokens/{token_id}` | Revoke an owned connector token. |
+| `GET` | `/api/hai/status` | Verify an HAI bearer token and owner-scoped feed state. |
+| `GET` | `/api/hai/records` | Read incremental owner-scoped listing upserts and deletion tombstones. |
+
+The last two endpoints require a `hai_...` connector token, not a normal user session. See `docs/HAI_CONNECTOR.md`.
 
 ## Pagination
 

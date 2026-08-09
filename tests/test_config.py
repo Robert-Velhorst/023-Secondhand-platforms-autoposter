@@ -38,6 +38,37 @@ def test_production_like_configuration_profile_passes_startup_safety():
     validate_startup_safety(settings)
 
 
+def test_standalone_profile_allows_loopback_sqlite_with_secure_defaults():
+    settings = Settings(
+        app_env="standalone",
+        secret_key="standalone-secret-with-enough-entropy-32chars",
+        database_url="sqlite:///./data/standalone.db",
+        public_base_url="http://127.0.0.1:8000",
+        cors_origins="http://127.0.0.1:8000",
+        auto_create_tables=False,
+        dev_auto_login=False,
+        job_process_inline=False,
+    )
+
+    validate_startup_safety(settings)
+
+
+def test_standalone_profile_rejects_insecure_non_loopback_public_url():
+    settings = Settings(
+        app_env="standalone",
+        secret_key="standalone-secret-with-enough-entropy-32chars",
+        database_url="sqlite:///./data/standalone.db",
+        public_base_url="http://example.test",
+        cors_origins="http://example.test",
+        auto_create_tables=False,
+        dev_auto_login=False,
+        job_process_inline=False,
+    )
+
+    with pytest.raises(RuntimeError, match="PUBLIC_BASE_URL"):
+        validate_startup_safety(settings)
+
+
 def test_platform_rate_limit_overrides_are_platform_specific():
     settings = Settings(platform_rate_limit_seconds=60, platform_rate_limit_overrides="marktplaats=120, ebay=300")
 

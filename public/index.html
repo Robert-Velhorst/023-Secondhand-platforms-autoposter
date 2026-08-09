@@ -374,6 +374,25 @@
                   <p id="dataPortabilityMessage" class="muted"></p>
                 </div>
                 <div class="section-line"></div>
+                <h3 data-i18n="settings.hai">HAI connection</h3>
+                <div class="list hai-connector-panel">
+                  <p class="muted" data-i18n="settings.haiHelp">Create a read-only connector token for HAI. The token can read your listing feed, but cannot post, edit, or export credentials.</p>
+                  <form id="haiTokenForm" class="hai-token-form">
+                    <label data-i18n-label="settings.haiName">Connection name<input id="haiTokenName" value="Local HAI" maxlength="120" required /></label>
+                    <label data-i18n-label="settings.haiExpiry">Expires after
+                      <select id="haiTokenExpiry">
+                        <option value="30">30 days</option>
+                        <option value="90" selected>90 days</option>
+                        <option value="180">180 days</option>
+                        <option value="365">365 days</option>
+                      </select>
+                    </label>
+                    <button type="submit" data-i18n="settings.haiCreate">Create read-only token</button>
+                  </form>
+                  <div id="haiTokenOnce" class="hai-token-once hidden" role="status" aria-live="polite"></div>
+                  <div id="haiTokenList" class="list"></div>
+                </div>
+                <div class="section-line"></div>
                 <h3 data-i18n="settings.diagnostics">Diagnostics</h3>
                 <div class="list">
                   <button id="runDiagnosticsButton" type="button" class="ghost" data-i18n="settings.runDiagnostics">Run diagnostics</button>

@@ -74,6 +74,8 @@ def test_alembic_migration_runs_from_empty_database(tmp_path):
     assert "platform_oauth_states" in tables
     assert "worker_heartbeats" in tables
     assert "operator_controls" in tables
+    assert "hai_connector_tokens" in tables
+    assert "hai_listing_changes" in tables
     audit_columns = {column["name"] for column in inspect(engine).get_columns("audit_events")}
     assert "user_email_hash" in audit_columns
     assert "event_data" in audit_columns
@@ -94,6 +96,10 @@ def test_alembic_migration_runs_from_empty_database(tmp_path):
     assert "ix_platform_oauth_states_expires_at" in oauth_state_indexes
     control_columns = {column["name"] for column in inspect(engine).get_columns("operator_controls")}
     assert control_columns >= {"job_processing_paused", "reason", "updated_by", "updated_at"}
+    hai_token_columns = {column["name"] for column in inspect(engine).get_columns("hai_connector_tokens")}
+    assert hai_token_columns >= {"user_id", "token_hash", "scope", "expires_at", "revoked_at"}
+    hai_change_columns = {column["name"] for column in inspect(engine).get_columns("hai_listing_changes")}
+    assert hai_change_columns >= {"owner_id", "listing_id", "action", "changed_at"}
 
 
 def test_model_schema_renders_for_postgresql_dialect():

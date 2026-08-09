@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.adapters import list_platforms
 from app.config import get_settings
@@ -10,7 +10,14 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.doctor import run_checks
 from app.models import CategoryMapping, Listing, ListingTemplate, PlatformAccount, PublishingJob, User
-from app.schemas import AccountReadiness, AccountUsage, ActionCenterResult, AnalyticsResult, UserOut
+from app.schemas import (
+    AccountReadiness,
+    AccountUsage,
+    ActionCenterResult,
+    AnalyticsResult,
+    DashboardResult,
+    UserOut,
+)
 from app.services.action_center import build_action_center
 from app.services.analytics import build_user_analytics
 from app.services.localization import localization_metadata
@@ -35,13 +42,15 @@ def worker_status_endpoint(response: Response, db: Session = Depends(get_db)) ->
 
 
 @router.get("/diagnostics", tags=["Diagnostics"])
-def diagnostics(db: Session = Depends(get_db)) -> dict:
+def diagnostics(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
     doctor = run_checks()
+    listing_query = db.query(Listing).filter(Listing.owner_id == user.id)
+    job_query = db.query(PublishingJob).join(Listing).filter(Listing.owner_id == user.id)
     return {
         "status": doctor["status"],
         "version": __version__,
-        "listings": db.query(Listing).count(),
-        "jobs": db.query(PublishingJob).count(),
+        "listings": listing_query.count(),
+        "jobs": job_query.count(),
         "platforms": [platform["key"] for platform in list_platforms()],
         "doctor": doctor,
         "operator_control": operator_control_status(db),
@@ -49,16 +58,26 @@ def diagnostics(db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/metrics", tags=["Diagnostics"])
-def metrics(db: Session = Depends(get_db)) -> dict:
-    listing_statuses = dict(db.query(Listing.status, func.count(Listing.id)).group_by(Listing.status).all())
+def metrics(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    listing_statuses = dict(
+        db.query(Listing.status, func.count(Listing.id))
+        .filter(Listing.owner_id == user.id)
+        .group_by(Listing.status)
+        .all()
+    )
     job_statuses = dict(
-        db.query(PublishingJob.status, func.count(PublishingJob.id)).group_by(PublishingJob.status).all()
+        db.query(PublishingJob.status, func.count(PublishingJob.id))
+        .join(Listing)
+        .filter(Listing.owner_id == user.id)
+        .group_by(PublishingJob.status)
+        .all()
     )
     return {
-        "listings_total": db.query(Listing).count(),
-        "publishing_jobs_total": db.query(PublishingJob).count(),
-        "users_total": db.query(User).count(),
-        "platform_accounts_total": db.query(PlatformAccount).count(),
+        "listings_total": db.query(Listing).filter(Listing.owner_id == user.id).count(),
+        "publishing_jobs_total": (
+            db.query(PublishingJob).join(Listing).filter(Listing.owner_id == user.id).count()
+        ),
+        "platform_accounts_total": db.query(PlatformAccount).filter(PlatformAccount.owner_id == user.id).count(),
         "listing_statuses": listing_statuses,
         "publishing_job_statuses": job_statuses,
     }
@@ -79,16 +98,41 @@ def action_center(user: User = Depends(get_current_user), db: Session = Depends(
     return build_action_center(db, user.id)
 
 
+@router.get("/dashboard", response_model=DashboardResult, tags=["Account"])
+def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> DashboardResult:
+    recent_listings = (
+        db.query(Listing)
+        .options(selectinload(Listing.images), selectinload(Listing.platform_mappings))
+        .filter(Listing.owner_id == user.id)
+        .order_by(Listing.updated_at.desc(), Listing.id.desc())
+        .limit(5)
+        .all()
+    )
+    latest_jobs = (
+        db.query(PublishingJob)
+        .options(selectinload(PublishingJob.logs))
+        .join(Listing)
+        .filter(Listing.owner_id == user.id)
+        .order_by(PublishingJob.created_at.desc(), PublishingJob.id.desc())
+        .limit(5)
+        .all()
+    )
+    return DashboardResult(
+        analytics=build_user_analytics(db, user.id),
+        action_center=build_action_center(db, user.id),
+        recent_listings=recent_listings,
+        latest_jobs=latest_jobs,
+    )
+
+
 @router.get("/account/readiness", response_model=AccountReadiness, tags=["Account"])
 def account_readiness(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> AccountReadiness:
-    listing_ids = [id_ for (id_,) in db.query(Listing.id).filter(Listing.owner_id == user.id).all()]
-    job_count = 0
-    if listing_ids:
-        job_count = db.query(PublishingJob).filter(PublishingJob.listing_id.in_(listing_ids)).count()
+    listing_count = db.query(Listing).filter(Listing.owner_id == user.id).count()
+    job_count = db.query(PublishingJob).join(Listing).filter(Listing.owner_id == user.id).count()
     return AccountReadiness(
         user=UserOut.model_validate(user),
         usage=AccountUsage(
-            listings=len(listing_ids),
+            listings=listing_count,
             publishing_jobs=job_count,
             platform_accounts=db.query(PlatformAccount).filter(PlatformAccount.owner_id == user.id).count(),
             templates=db.query(ListingTemplate).filter(ListingTemplate.owner_id == user.id).count(),

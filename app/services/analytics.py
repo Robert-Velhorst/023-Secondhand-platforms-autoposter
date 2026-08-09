@@ -15,12 +15,8 @@ def build_user_analytics(db: Session, owner_id: int) -> dict[str, Any]:
         .filter(Listing.owner_id == owner_id)
         .all()
     )
-    listing_ids = [listing.id for listing in listings]
-    jobs = []
-    mappings = []
-    if listing_ids:
-        jobs = db.query(PublishingJob).filter(PublishingJob.listing_id.in_(listing_ids)).all()
-        mappings = db.query(PlatformListingMapping).filter(PlatformListingMapping.listing_id.in_(listing_ids)).all()
+    jobs = db.query(PublishingJob).join(Listing).filter(Listing.owner_id == owner_id).all()
+    mappings = db.query(PlatformListingMapping).join(Listing).filter(Listing.owner_id == owner_id).all()
 
     quality_results = [analyze_listing_quality(listing) for listing in listings]
     issue_counter: Counter[str] = Counter()

@@ -10,6 +10,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,6 +41,28 @@ class User(Base, TimestampMixin):
         cascade="all, delete-orphan", back_populates="user"
     )
     listings: Mapped[list["Listing"]] = relationship(cascade="all, delete-orphan", back_populates="owner")
+
+
+class HaiConnectorToken(Base):
+    """Owner-scoped, read-only credential used only by the HAI export API."""
+
+    __tablename__ = "hai_connector_tokens"
+    __table_args__ = (
+        Index("ix_hai_connector_tokens_user_created_at", "user_id", "created_at"),
+        Index("ix_hai_connector_tokens_expires_at", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    scope: Mapped[str] = mapped_column(String(80), default="hai:read")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    user: Mapped[User] = relationship()
 
 
 class UserSession(Base):
@@ -115,6 +138,19 @@ class Listing(Base, TimestampMixin):
     drafts: Mapped[list["ListingDraft"]] = relationship(
         cascade="all, delete-orphan", back_populates="listing"
     )
+
+
+class HaiListingChange(Base):
+    """Append-only cursor source so HAI can observe updates and deletions."""
+
+    __tablename__ = "hai_listing_changes"
+    __table_args__ = (Index("ix_hai_listing_changes_owner_id_id", "owner_id", "id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    listing_id: Mapped[int] = mapped_column(Integer, index=True)
+    action: Mapped[str] = mapped_column(String(20))
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
 class ListingImage(Base, TimestampMixin):
@@ -330,3 +366,29 @@ class OperatorControl(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, onupdate=now_utc
     )
+
+
+def _record_hai_listing_change(_mapper, connection, target: Listing, action: str) -> None:
+    connection.execute(
+        HaiListingChange.__table__.insert().values(
+            owner_id=target.owner_id,
+            listing_id=target.id,
+            action=action,
+            changed_at=now_utc(),
+        )
+    )
+
+
+@event.listens_for(Listing, "after_insert")
+def _record_hai_listing_insert(_mapper, connection, target: Listing) -> None:
+    _record_hai_listing_change(_mapper, connection, target, "upsert")
+
+
+@event.listens_for(Listing, "after_update")
+def _record_hai_listing_update(_mapper, connection, target: Listing) -> None:
+    _record_hai_listing_change(_mapper, connection, target, "upsert")
+
+
+@event.listens_for(Listing, "after_delete")
+def _record_hai_listing_delete(_mapper, connection, target: Listing) -> None:
+    _record_hai_listing_change(_mapper, connection, target, "delete")

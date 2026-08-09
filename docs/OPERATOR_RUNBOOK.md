@@ -15,7 +15,7 @@ This runbook is for deploying and operating the production-safe assisted-posting
    - `JOB_PROCESS_INLINE=false`
    - `LOG_LEVEL=INFO`
    - `LOG_FORMAT=json` when logs are collected by a structured log system
-2. Install dependencies from `requirements.txt`.
+2. Install runtime dependencies from `requirements.txt`. Contributors and reviewers should install `requirements-dev.txt` instead.
 3. Run migrations:
 
 ```bash

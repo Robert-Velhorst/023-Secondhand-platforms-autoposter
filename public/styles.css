@@ -741,6 +741,28 @@ textarea {
   gap: 10px;
 }
 
+.hai-token-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 220px) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.hai-token-once {
+  display: grid;
+  gap: 8px;
+  border: 2px solid var(--warn);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-wrap: anywhere;
+}
+
+.hai-token-once code {
+  display: block;
+  user-select: all;
+  white-space: pre-wrap;
+}
+
 .diagnostic-checks {
   display: grid;
   gap: 8px;
@@ -834,6 +856,10 @@ textarea {
   .quality-score,
   .template-apply-row,
   .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hai-token-form {
     grid-template-columns: 1fr;
   }
 

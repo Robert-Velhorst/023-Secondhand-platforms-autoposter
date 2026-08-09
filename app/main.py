@@ -10,6 +10,7 @@ from app.database import init_db
 from app.middleware import setup_middleware
 from app.observability import configure_logging
 from app.routes.auth import router as auth_router
+from app.routes.hai import router as hai_router
 from app.routes.system import router as system_router
 
 
@@ -27,16 +28,16 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
     app.include_router(system_router)
     app.include_router(auth_router)
+    app.include_router(hai_router)
     app.include_router(product_router)
 
     public_dir = Path(__file__).resolve().parent.parent / "public"
-    app.mount("/uploads", StaticFiles(directory=settings.upload_path), name="uploads")
     app.mount("/", StaticFiles(directory=public_dir, html=True), name="public")
     return app
 

@@ -2,6 +2,17 @@
 
 Use this record for the final client-launch decision. Leave entries as `Not captured` until the evidence exists; do not replace missing evidence with assumptions.
 
+## Local Hardening Evidence (Not Target-Launch Evidence)
+
+| Gate | Evidence |
+| --- | --- |
+| Automated tests | 226 passed in one complete gate run on 2026-08-09 |
+| Migration drill | Empty SQLite database upgraded to `20260809_0013`; target PostgreSQL evidence still requires deployment input |
+| Windows standalone | Finalized EXE API and worker healthy; SHA-256 recorded in `docs/WINDOWS_STANDALONE.md` |
+| HAI connector | Owner-scoped read-only token and incremental feed tests passed |
+| Ngrok | Launcher fails closed and cleans up; live endpoint blocked by `ERR_NGROK_334` |
+| Dependency audit | Installed environment: no known vulnerabilities; GitHub requirements-file check pending |
+
 ## Release Identity
 
 | Field | Evidence |

@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     app_env: str = "development"
     secret_key: str = "change-me-in-production"
     database_url: str = "sqlite:///./data/autoposter.db"
+    db_pool_size: int = 5
+    db_max_overflow: int = 5
+    db_pool_timeout_seconds: int = 30
+    db_pool_recycle_seconds: int = 1800
     public_base_url: str = "http://127.0.0.1:8000"
     upload_dir: str = "./data/uploads"
     storage_backend: str = "local"
@@ -103,6 +107,10 @@ class Settings(BaseSettings):
         return self.app_env.lower() == "production"
 
     @property
+    def is_standalone(self) -> bool:
+        return self.app_env.lower() == "standalone"
+
+    @property
     def feature_flags(self) -> tuple[FeatureFlag, ...]:
         return build_feature_flags(self)
 
@@ -147,6 +155,8 @@ class Settings(BaseSettings):
 
 def validate_startup_safety(settings: Settings) -> None:
     problems: list[str] = []
+    if settings.app_env.lower() not in {"development", "test", "standalone", "production"}:
+        problems.append("APP_ENV must be development, test, standalone, or production")
     if settings.auth_transport.lower() != "bearer":
         problems.append("AUTH_TRANSPORT must be bearer")
     if settings.storage_backend.lower() not in {"local", "s3"}:
@@ -157,6 +167,14 @@ def validate_startup_safety(settings: Settings) -> None:
         problems.append("LOG_FORMAT must be text or json")
     if settings.max_upload_size_mb <= 0:
         problems.append("MAX_UPLOAD_SIZE_MB must be positive")
+    if settings.db_pool_size <= 0:
+        problems.append("DB_POOL_SIZE must be positive")
+    if settings.db_max_overflow < 0:
+        problems.append("DB_MAX_OVERFLOW must be non-negative")
+    if settings.db_pool_timeout_seconds <= 0:
+        problems.append("DB_POOL_TIMEOUT_SECONDS must be positive")
+    if settings.db_pool_recycle_seconds <= 0:
+        problems.append("DB_POOL_RECYCLE_SECONDS must be positive")
     if settings.login_rate_limit_attempts <= 0:
         problems.append("LOGIN_RATE_LIMIT_ATTEMPTS must be positive")
     if settings.login_rate_limit_window_seconds <= 0:
@@ -202,7 +220,7 @@ def validate_startup_safety(settings: Settings) -> None:
         detail = "; ".join(problems)
         raise RuntimeError(f"Invalid configuration: {detail}")
 
-    if not settings.is_production:
+    if not (settings.is_production or settings.is_standalone):
         return
 
     problems = []
@@ -217,9 +235,15 @@ def validate_startup_safety(settings: Settings) -> None:
         problems.append("CORS_ORIGINS must be restricted in production")
     elif any(urlparse(origin).scheme not in {"http", "https"} or not urlparse(origin).netloc for origin in origins):
         problems.append("CORS_ORIGINS entries must be absolute http(s) origins in production")
-    if not settings.database_url.startswith(("postgresql://", "postgresql+psycopg://")):
+    if settings.is_production and not settings.database_url.startswith(("postgresql://", "postgresql+psycopg://")):
         problems.append("DATABASE_URL must use PostgreSQL in production")
-    if not settings.public_base_url.startswith("https://"):
+    parsed_public_url = urlparse(settings.public_base_url)
+    local_standalone_url = (
+        settings.is_standalone
+        and parsed_public_url.scheme == "http"
+        and parsed_public_url.hostname in {"127.0.0.1", "localhost"}
+    )
+    if not settings.public_base_url.startswith("https://") and not local_standalone_url:
         problems.append("PUBLIC_BASE_URL must use https in production")
 
     if problems:

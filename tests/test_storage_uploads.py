@@ -3,6 +3,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app.config import Settings
+from app.database import SessionLocal
+from app.models import ListingImage
 from app.storage import S3Storage, ValidatedUpload, parse_s3_uri
 from tests.test_api import client
 
@@ -60,6 +62,15 @@ def test_upload_sanitizes_and_records_image_metadata():
     assert image["content_type"] == "image/png"
     assert image["file_size"] == len(PNG_BYTES)
     assert len(image["checksum_sha256"]) == 64
+    assert "storage_path" not in image
+
+    content_response = client.get(
+        f"/api/listings/{listing_id}/images/{image['id']}/content",
+        headers=headers,
+    )
+    assert content_response.status_code == 200
+    assert content_response.content == PNG_BYTES
+    assert content_response.headers["cache-control"].startswith("private")
 
 
 def test_duplicate_image_is_not_added_twice():
@@ -131,11 +142,54 @@ def test_delete_image_removes_local_file():
     )
     assert upload_response.status_code == 200, upload_response.text
     image = upload_response.json()["images"][0]
+    with SessionLocal() as db:
+        storage_path = db.query(ListingImage.storage_path).filter(ListingImage.id == image["id"]).scalar()
+    assert storage_path
 
     delete_response = client.delete(f"/api/listings/{listing_id}/images/{image['id']}", headers=headers)
 
     assert delete_response.status_code == 200, delete_response.text
-    assert not Path(image["storage_path"]).exists()
+    assert not Path(storage_path).exists()
+
+
+def test_image_content_is_owner_scoped_and_duplicates_use_independent_files():
+    owner_headers = auth_headers()
+    other_headers = auth_headers()
+    listing_id = create_listing(owner_headers)
+    upload_response = client.post(
+        f"/api/listings/{listing_id}/images",
+        headers=owner_headers,
+        files={"file": ("original.png", PNG_BYTES, "image/png")},
+    )
+    image = upload_response.json()["images"][0]
+
+    forbidden = client.get(
+        f"/api/listings/{listing_id}/images/{image['id']}/content",
+        headers=other_headers,
+    )
+    assert forbidden.status_code == 404
+
+    duplicate_response = client.post(f"/api/listings/{listing_id}/duplicate", headers=owner_headers)
+    assert duplicate_response.status_code == 200, duplicate_response.text
+    duplicate = duplicate_response.json()
+    duplicate_image = duplicate["images"][0]
+    with SessionLocal() as db:
+        paths = {
+            row.id: row.storage_path
+            for row in db.query(ListingImage).filter(ListingImage.id.in_([image["id"], duplicate_image["id"]])).all()
+        }
+    assert paths[image["id"]] != paths[duplicate_image["id"]]
+
+    client.delete(
+        f"/api/listings/{duplicate['id']}/images/{duplicate_image['id']}",
+        headers=owner_headers,
+    )
+    original_content = client.get(
+        f"/api/listings/{listing_id}/images/{image['id']}/content",
+        headers=owner_headers,
+    )
+    assert original_content.status_code == 200
+    assert original_content.content == PNG_BYTES
 
 
 def test_s3_storage_writes_metadata_and_deletes_objects(monkeypatch):
@@ -147,6 +201,10 @@ def test_s3_storage_writes_metadata_and_deletes_objects(monkeypatch):
 
         def delete_object(self, **kwargs):
             calls.append(("delete", kwargs))
+
+        def get_object(self, **kwargs):
+            calls.append(("get", kwargs))
+            return {"Body": SimpleNamespace(read=lambda: PNG_BYTES)}
 
     def fake_client(service, region_name=None, endpoint_url=None):
         assert service == "s3"
@@ -177,6 +235,7 @@ def test_s3_storage_writes_metadata_and_deletes_objects(monkeypatch):
     storage = S3Storage(settings)
 
     uri = storage.save_listing_image(42, "chair-uuid.png", upload)
+    assert storage.read_bytes(uri) == PNG_BYTES
     storage.delete(uri)
 
     assert uri == "s3://autoposter-images/tenant-a/uploads/42/chair-uuid.png"
@@ -195,6 +254,13 @@ def test_s3_storage_writes_metadata_and_deletes_objects(monkeypatch):
         },
     )
     assert calls[1] == (
+        "get",
+        {
+            "Bucket": "autoposter-images",
+            "Key": "tenant-a/uploads/42/chair-uuid.png",
+        },
+    )
+    assert calls[2] == (
         "delete",
         {
             "Bucket": "autoposter-images",
