@@ -1,6 +1,10 @@
+import base64
 import uuid
 
-from tests.test_api import client
+import pytest
+from fastapi.testclient import TestClient
+
+from tests.test_api import PNG_BYTES, app, client
 
 
 def _register(prefix: str) -> dict[str, str]:
@@ -115,3 +119,69 @@ def test_hai_cursor_rejects_invalid_values():
 
     invalid_padding = client.get("/api/hai/records?cursor=A", headers=hai_headers)
     assert invalid_padding.status_code == 422
+
+
+@pytest.mark.parametrize("cursor", [
+    base64.urlsafe_b64encode(b"9223372036854775808").decode().rstrip("="),
+    base64.urlsafe_b64encode(b"9" * 80).decode().rstrip("="),
+    "MQ!!==",  # Invalid base64 characters must not be silently discarded.
+    "KzE",  # Signed values are not change identifiers.
+    "IDE",  # Whitespace is not part of an identifier.
+])
+def test_hai_malformed_cursor_returns_validation_error_instead_of_server_error(cursor):
+    owner_headers = _register("hai-invalid-cursor")
+    _, hai_headers = _create_hai_token(owner_headers)
+    with TestClient(app, raise_server_exceptions=False) as requests:
+        response = requests.get("/api/hai/records", params={"cursor": cursor}, headers=hai_headers)
+    assert response.status_code == 422, response.text
+
+
+def test_hai_cursor_accepts_database_integer_boundary():
+    owner_headers = _register("hai-boundary-cursor")
+    _, hai_headers = _create_hai_token(owner_headers)
+    cursor = "OTIyMzM3MjAzNjg1NDc3NTgwNw"  # 9223372036854775807
+    response = client.get("/api/hai/records", params={"cursor": cursor}, headers=hai_headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["records"] == []
+    assert response.json()["next_cursor"] == cursor
+    assert response.json()["has_more"] is False
+
+
+def test_hai_incremental_feed_observes_image_addition_and_deletion():
+    owner_headers = _register("hai-images")
+    _, hai_headers = _create_hai_token(owner_headers)
+    listing = client.post("/api/listings", headers=owner_headers, json={"title": "Photo item"}).json()
+    cursor = client.get("/api/hai/records", headers=hai_headers).json()["next_cursor"]
+    uploaded = client.post(
+        f"/api/listings/{listing['id']}/images", headers=owner_headers,
+        files={"file": ("photo.png", PNG_BYTES, "image/png")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    page = client.get("/api/hai/records", params={"cursor": cursor}, headers=hai_headers).json()
+    assert page["records"], "An image addition must invalidate HAI's cached image count"
+    assert page["records"][-1]["metadata"]["image_count"] == 1
+    deleted = client.delete(
+        f"/api/listings/{listing['id']}/images/{uploaded.json()['images'][0]['id']}",
+        headers=owner_headers,
+    )
+    assert deleted.status_code == 200, deleted.text
+    page = client.get("/api/hai/records", params={"cursor": page["next_cursor"]}, headers=hai_headers).json()
+    assert page["records"], "An image deletion must invalidate HAI's cached image count"
+    assert page["records"][-1]["metadata"]["image_count"] == 0
+
+
+def test_hai_incremental_feed_observes_platform_selection_changes():
+    owner_headers = _register("hai-platforms")
+    _, hai_headers = _create_hai_token(owner_headers)
+    listing = client.post("/api/listings", headers=owner_headers, json={"title": "Platform item"}).json()
+    cursor = client.get("/api/hai/records", headers=hai_headers).json()["next_cursor"]
+    for selected, expected in [(True, ["marktplaats"]), (False, [])]:
+        changed = client.post(
+            f"/api/listings/{listing['id']}/platforms", headers=owner_headers,
+            json={"platform": "marktplaats", "selected": selected, "overrides": {}},
+        )
+        assert changed.status_code == 200, changed.text
+        page = client.get("/api/hai/records", params={"cursor": cursor}, headers=hai_headers).json()
+        assert page["records"], "Platform selection changes must appear in incremental sync"
+        assert page["records"][-1]["metadata"]["platforms"] == expected
+        cursor = page["next_cursor"]

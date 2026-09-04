@@ -12,6 +12,10 @@ The app exposes an owner-scoped, read-only connector contract that HAI can consu
 
 The feed is cursor-based. Persist `next_cursor` after each page and pass it as `cursor` on the next request. Upserts contain listing metadata and a source link; deletes are emitted as tombstones. Consumers should deduplicate by record `id` and apply events in cursor order.
 
+Image additions/deletions and marketplace selection changes also emit upserts, so a consumer that has already synced a listing receives updated `image_count` and `platforms` metadata. These changes are recorded in the same database transaction as the underlying edit. Images themselves remain private. Platform status transitions that do not change selection do not add unnecessary connector events.
+
+Cursors are opaque: pass the returned value unchanged. Invalid encoding, signed or non-decimal identifiers, and values outside the supported database integer range return HTTP 422. Do not repeatedly retry those responses as transient server failures.
+
 ## Security Contract
 
 - Connector tokens have only the `hai:read` scope.

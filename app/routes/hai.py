@@ -30,10 +30,14 @@ def _decode_cursor(cursor: str | None) -> int:
         return 0
     try:
         padding = "=" * (-len(cursor) % 4)
-        value = int(base64.urlsafe_b64decode(cursor + padding).decode())
+        decoded = base64.b64decode(cursor + padding, altchars=b"-_", validate=True)
+        if not decoded.isdigit():
+            raise ValueError("HAI cursor must contain an unsigned decimal identifier")
+        value = int(decoded)
     except (binascii.Error, ValueError, UnicodeDecodeError) as exc:
         raise HTTPException(status_code=422, detail="Invalid HAI cursor") from exc
-    if value < 0:
+    # Reject values that cannot be bound as a database integer before querying.
+    if value > 2**63 - 1:
         raise HTTPException(status_code=422, detail="Invalid HAI cursor")
     return value
 

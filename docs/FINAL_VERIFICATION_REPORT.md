@@ -1,5 +1,22 @@
 # Final Verification Report
 
+## HAI integration regression verification — 2026-09-05
+
+Target: working checkout based on `111bff6926316bd0d2c56be34b6800796ff5ce00`, with the HAI cursor and related-record feed fixes described below.
+
+- Reproduced HTTP 500 for oversized HAI cursor integers and incorrect acceptance of malformed cursor content before the fix. Invalid cursors now return HTTP 422; the maximum supported integer remains accepted.
+- Reproduced missing incremental events after image uploads and marketplace selection changes. Image addition/deletion and marketplace selection/deselection now update HAI metadata through transactional change records.
+- `python scripts/verify.py`: passed, including Ruff, compilation, **234 tests**, and doctor. The development default-secret warning remains expected; migrations are at `20260809_0013`.
+- Focused HAI regression suite: **11 passed**.
+- Windows executable rebuilt using Python 3.13.14/PyInstaller 6.22.0. SHA-256: `e7ca55217033b4ec13a169862fd2af711ad563f0e3d533c67ddf8fe338a74113`.
+- Fresh isolated executable run on Windows 11: API and separate worker healthy; browser entry point served; SQLite and persistent secret created; registration, HAI token creation, private image upload, marketplace selection, incremental HAI metadata, and oversized-cursor HTTP 422 all passed through actual HTTP requests.
+- `scripts/start-ngrok.ps1 -VerifyOnly -Port 18762`, with an isolated data directory: passed local API/worker startup and public HTTPS health, then stopped its test services. The earlier endpoint-allocation blocker did not recur in this run. This proves temporary tunnel access; production hosting and HAI-side registration remain separate requirements.
+- Release gate: still blocked, **77 missing evidence fields**. This regression verification does not supply target PostgreSQL deployment proof, a real HAI installation's consumer results, or manual accessibility/client acceptance.
+
+The earlier evidence below is retained as a dated historical record. Its test count and executable hash refer to that earlier build.
+
+## Earlier verification — 2026-08-09
+
 Date: 2026-08-09
 
 Verification target: `agent/production-launch-hardening` working checkout based on starting commit

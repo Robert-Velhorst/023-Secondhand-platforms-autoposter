@@ -11,6 +11,9 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     event,
+    inspect,
+    literal,
+    select,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -392,3 +395,27 @@ def _record_hai_listing_update(_mapper, connection, target: Listing) -> None:
 @event.listens_for(Listing, "after_delete")
 def _record_hai_listing_delete(_mapper, connection, target: Listing) -> None:
     _record_hai_listing_change(_mapper, connection, target, "delete")
+
+
+def _record_hai_related_change(_mapper, connection, target) -> None:
+    # Resolve ownership and append within the same transaction, without loading
+    # a listing or its relationships into the worker/API session.
+    connection.execute(
+        HaiListingChange.__table__.insert().from_select(
+            ["owner_id", "listing_id", "action", "changed_at"],
+            select(Listing.owner_id, Listing.id, literal("upsert"), literal(now_utc()))
+            .where(Listing.id == target.listing_id),
+        )
+    )
+
+
+for _related_model in (ListingImage, PlatformListingMapping):
+    event.listen(_related_model, "after_insert", _record_hai_related_change)
+    event.listen(_related_model, "after_delete", _record_hai_related_change)
+
+
+@event.listens_for(PlatformListingMapping, "after_update")
+def _record_hai_platform_selection_change(mapper, connection, target: PlatformListingMapping) -> None:
+    history = inspect(target).attrs.status.history
+    if history.has_changes() and ("skipped" in history.deleted or "skipped" in history.added):
+        _record_hai_related_change(mapper, connection, target)
