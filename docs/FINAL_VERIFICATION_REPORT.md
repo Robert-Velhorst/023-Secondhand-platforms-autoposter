@@ -1,5 +1,16 @@
 # Final Verification Report
 
+## Test-data isolation verification — 2026-09-05
+
+Target: working checkout based on `f8e765275621fdc2fe5583fc97b5d16332adc9a8`, with centralized pytest configuration and process-specific storage.
+
+- Reproduced a test collection-order bug using a disposable sentinel database: an inherited `DATABASE_URL` could select application data before individual test modules installed their test settings. The worker test fixtures then changed that database. No real application data was used for this reproduction.
+- Pytest now selects isolated SQLite, upload, and secret paths before application database imports, resets inherited deployment/storage settings to test defaults, and stops collection if the database module was already loaded.
+- Real subprocess regression checks passed: the sentinel database remained byte-for-byte unchanged, existing uploads were preserved, production/S3 settings were overridden, two runs used different paths, successful fixtures were removed, and preloaded database imports stopped safely. Failed-run fixtures remain available for diagnosis.
+- Final full local gate passed: Ruff, compilation, **242 tests in 109.55 seconds**, and doctor. The local development default-secret warning remains; the database is at Alembic head `20260809_0013`.
+- Removed the obsolete shared test-database setting from CI. The doctor step remains separate from pytest and checks the operator's current configuration.
+- Application runtime code did not change in this pass; the Windows executable was not rebuilt. Target deployment, live concurrent workers, HAI consumer integration, manual accessibility, and client acceptance remain separate outstanding checks.
+
 ## Read-path resource verification — 2026-09-05
 
 Target: working checkout based on `62c52f7438d1dbb28f9d348f6b57f872dbc56673`, with worker health, analytics, and action-center read optimizations.

@@ -45,7 +45,7 @@ def test_reconciliation_repairs_only_safe_image_positions():
 def test_support_bundle_contains_only_sanitized_operational_evidence(tmp_path):
     db = SessionLocal()
     settings = Settings(
-        database_url="sqlite:///./data/test_autoposter.db",
+        database_url=str(engine.url),
         secret_key="super-secret-value-that-must-not-appear",
         ebay_oauth_client_secret="ebay-secret-that-must-not-appear",
     )

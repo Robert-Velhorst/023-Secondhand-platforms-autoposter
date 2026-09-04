@@ -666,7 +666,9 @@ The gate runs:
 3. the complete pytest suite;
 4. `python -m app.doctor --json`.
 
-The current suite contains 240 tests spanning API behaviour, authentication, owner isolation, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, worker claims/health, migrations, deployment configuration, bounded dashboard reads, HAI, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention.
+The current suite contains 242 tests spanning API behaviour, authentication, owner isolation, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, worker claims/health, migrations, deployment configuration, bounded dashboard reads, HAI, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention.
+
+Pytest creates a separate database, upload directory, and secret directory for each process before importing the application. It ignores inherited deployment/storage values and removes its own fixtures after a successful run; failed fixtures remain under `.tmp/test-runs/` for diagnosis. See [Testing strategy](docs/TESTING_STRATEGY.md) for the isolation contract and explicit PostgreSQL integration checks.
 
 Additional checks:
 

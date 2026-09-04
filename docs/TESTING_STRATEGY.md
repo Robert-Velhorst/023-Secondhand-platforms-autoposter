@@ -54,10 +54,15 @@ GitHub Actions runs the same command on pushes and pull requests to `main` via `
 
 ## Data And Isolation
 
-- Tests use SQLite via `sqlite:///./data/test_autoposter.db`.
-- Test modules reset the SQLAlchemy metadata for isolation.
+- `tests/conftest.py` selects test configuration before application modules are imported. It replaces inherited runtime/deployment values with known test defaults, including local storage and disabled external credentials.
+- Every pytest process receives its own SQLite database, upload directory, and secret directory under `.tmp/test-runs/run-*`. The configured application database and storage paths are ignored by pytest.
+- If an application database was preloaded by a plugin, collection aborts before destructive schema fixtures can run.
+- Test modules reset SQLAlchemy metadata only in the isolated test database. Successful runs dispose the engine and remove their own verified test directory; failed-run fixtures are retained for diagnosis.
+- `tests/test_test_environment.py` launches real pytest subprocesses to verify a sentinel application database remains byte-for-byte unchanged, production/S3 settings are overridden, run paths are unique, successful artifacts are removed, and early application imports fail safely.
 - Platform cooldown tests either disable cooldowns with `PLATFORM_RATE_LIMIT_SECONDS=0` or use `PLATFORM_RATE_LIMIT_OVERRIDES` for platform-specific behavior.
 - Tests do not require browser automation, external marketplace credentials, or real platform network calls.
+
+The doctor step in `scripts/verify.py` runs separately against the operator's current configuration. A target PostgreSQL integration drill must explicitly select a disposable database; setting `DATABASE_URL` while invoking pytest does not opt out of isolation.
 
 ## Coverage Priorities
 
