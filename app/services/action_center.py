@@ -2,47 +2,50 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import String, case, cast, func
+from sqlalchemy.orm import Session
 
-from app.models import Listing, PlatformAccount, PublishingJob
+from app.models import Listing, ListingImage, PlatformAccount, PlatformListingMapping, PublishingJob
 
 
 def build_action_center(db: Session, owner_id: int) -> dict:
-    listings = (
-        db.query(Listing)
-        .options(selectinload(Listing.images), selectinload(Listing.platform_mappings))
-        .filter(Listing.owner_id == owner_id)
-        .order_by(Listing.updated_at.desc())
-        .all()
-    )
-    listing_ids = [listing.id for listing in listings]
-    jobs = []
-    if listing_ids:
-        jobs = (
-            db.query(PublishingJob)
-            .filter(PublishingJob.listing_id.in_(listing_ids))
-            .order_by(PublishingJob.updated_at.desc())
-            .all()
-        )
-    accounts = (
-        db.query(PlatformAccount)
-        .filter(PlatformAccount.owner_id == owner_id)
-        .order_by(PlatformAccount.updated_at.desc())
-        .all()
-    )
+    owned_listings = db.query(Listing.id).filter(Listing.owner_id == owner_id)
+    owned_mappings = db.query(PlatformListingMapping.id).join(Listing).filter(Listing.owner_id == owner_id)
+    owned_jobs = db.query(PublishingJob.id).join(Listing).filter(Listing.owner_id == owner_id)
+    has_listing, has_image, has_platform, has_job, has_completion = db.query(
+        owned_listings.exists(),
+        db.query(ListingImage.id).join(Listing).filter(Listing.owner_id == owner_id).exists(),
+        owned_mappings.filter(PlatformListingMapping.status != "skipped").exists(),
+        owned_jobs.exists(),
+        owned_mappings.filter(PlatformListingMapping.status == "published").exists(),
+    ).one()
 
-    has_listing = bool(listings)
-    has_image = any(listing.images for listing in listings)
-    has_platform = any(
-        mapping.status != "skipped"
-        for listing in listings
-        for mapping in listing.platform_mappings
+    # Each category contributes at most 20 candidates to the global top 20.
+    # Preserve the response's existing severity/lexical-ID order in SQL.
+    jobs = (
+        db.query(PublishingJob.id, PublishingJob.status, PublishingJob.platform, PublishingJob.error_message)
+        .join(Listing)
+        .filter(Listing.owner_id == owner_id, PublishingJob.status.in_(["failed", "needs_user_action"]))
+        .order_by(case((PublishingJob.status == "failed", 0), else_=1), cast(PublishingJob.id, String))
+        .limit(20).all()
     )
-    has_job = bool(jobs)
-    has_completion = any(
-        mapping.status == "published"
-        for listing in listings
-        for mapping in listing.platform_mappings
+    listings = (
+        db.query(Listing.id, Listing.title)
+        .filter(Listing.owner_id == owner_id, ~Listing.images.any())
+        .order_by(cast(Listing.id, String)).limit(20).all()
+    )
+    mappings = (
+        db.query(PlatformListingMapping.id, PlatformListingMapping.platform,
+                 PlatformListingMapping.listing_id, PlatformListingMapping.validation_errors)
+        .join(Listing)
+        .filter(Listing.owner_id == owner_id, PlatformListingMapping.status == "needs_user_action",
+                func.json_array_length(PlatformListingMapping.validation_errors) > 0)
+        .order_by(cast(PlatformListingMapping.id, String)).limit(20).all()
+    )
+    accounts = (
+        db.query(PlatformAccount.id, PlatformAccount.platform, PlatformAccount.display_name, PlatformAccount.status)
+        .filter(PlatformAccount.owner_id == owner_id, PlatformAccount.status.notin_(["ready", "connected", "disabled"]))
+        .order_by(cast(PlatformAccount.id, String)).limit(20).all()
     )
     steps = [
         step("create-listing", "Create your first reusable listing", has_listing, "listings"),
@@ -54,8 +57,6 @@ def build_action_center(db: Session, owner_id: int) -> dict:
 
     reminders: list[dict] = []
     for job in jobs:
-        if job.status not in {"failed", "needs_user_action"}:
-            continue
         failed = job.status == "failed"
         reminders.append(
             action(
@@ -71,38 +72,34 @@ def build_action_center(db: Session, owner_id: int) -> dict:
             )
         )
     for listing in listings:
-        if not listing.images:
-            reminders.append(
-                action(
-                    id=f"listing-{listing.id}-image",
-                    kind="listing_quality",
-                    severity="warning",
-                    title=f"Add an image to {listing.title or 'Untitled listing'}",
-                    detail="Marketplace packages require at least one real item image.",
-                    next_action="Open the listing and upload an item image before validation.",
-                    target_view="listings",
-                    resource_type="listing",
-                    resource_id=listing.id,
-                )
+        reminders.append(
+            action(
+                id=f"listing-{listing.id}-image",
+                kind="listing_quality",
+                severity="warning",
+                title=f"Add an image to {listing.title or 'Untitled listing'}",
+                detail="Marketplace packages require at least one real item image.",
+                next_action="Open the listing and upload an item image before validation.",
+                target_view="listings",
+                resource_type="listing",
+                resource_id=listing.id,
             )
-        for mapping in listing.platform_mappings:
-            if mapping.status == "needs_user_action" and mapping.validation_errors:
-                reminders.append(
-                    action(
-                        id=f"mapping-{mapping.id}-validation",
-                        kind="validation",
-                        severity="warning",
-                        title=f"Complete {mapping.platform.title()} requirements",
-                        detail=f"Missing: {', '.join(mapping.validation_errors)}",
-                        next_action="Open the listing, use the prepublish review fixes, and validate again.",
-                        target_view="listings",
-                        resource_type="listing",
-                        resource_id=listing.id,
-                    )
-                )
+        )
+    for mapping in mappings:
+        reminders.append(
+            action(
+                id=f"mapping-{mapping.id}-validation",
+                kind="validation",
+                severity="warning",
+                title=f"Complete {mapping.platform.title()} requirements",
+                detail=f"Missing: {', '.join(mapping.validation_errors)}",
+                next_action="Open the listing, use the prepublish review fixes, and validate again.",
+                target_view="listings",
+                resource_type="listing",
+                resource_id=mapping.listing_id,
+            )
+        )
     for account in accounts:
-        if account.status in {"ready", "connected", "disabled"}:
-            continue
         reminders.append(
             action(
                 id=f"account-{account.id}-setup",

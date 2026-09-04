@@ -1,5 +1,16 @@
 # Final Verification Report
 
+## Read-path resource verification — 2026-09-05
+
+Target: working checkout based on `62c52f7438d1dbb28f9d348f6b57f872dbc56673`, with worker health, analytics, and action-center read optimizations.
+
+- Full local gate passed: Ruff, compilation, **240 tests**, and doctor. The development default-secret warning remains expected.
+- All six new resource/behavior checks passed on SQLite and on a real, disposable PostgreSQL **16.15** server. The PostgreSQL database migrated from empty to Alembic head `20260809_0013`. Tests cover bounded object loading, exact counts, owner scope, stale/paused worker reporting, all reminder types, priority, and the top-20 limit.
+- Synthetic before/after benchmark returned identical normalized responses for all three paths. Peak Python allocations decreased by 90.4% for worker health, 95.5% for analytics, and 99.2% for action-center reminders. See [Performance and scale](PERFORMANCE_SCALE_BASICS.md) for fixture, timings, method, and limitations.
+- Windows executable rebuilt and exercised through actual HTTP requests with fresh isolated SQLite data: API, separate worker, dashboard aggregates/action center, image upload, HAI incremental metadata, and malformed-cursor handling passed.
+- Executable SHA-256: `a3f1071f9c291bec989700cbe96f5904769d585566a9e8756af8d0dc75ada93f`.
+- Target deployment, concurrent PostgreSQL query/worker measurements, real HAI consumer integration, manual accessibility, and client acceptance are still outside this local verification result. The full product goal remains open.
+
 ## HAI integration regression verification — 2026-09-05
 
 Target: working checkout based on `111bff6926316bd0d2c56be34b6800796ff5ce00`, with the HAI cursor and related-record feed fixes described below.
