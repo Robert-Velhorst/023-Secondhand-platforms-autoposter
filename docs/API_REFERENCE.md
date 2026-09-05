@@ -73,7 +73,11 @@ Use `request_id` when matching browser reports to server logs. Retry only when `
 
 Registered production platforms are assisted-only. A successful assisted job returns `needs_user_action`, not API-confirmed marketplace publication.
 
+`account_ids` is an optional map from a selected platform key to a platform-account ID. Omit a platform's entry to prepare its assisted package without an account. A supplied ID must exist, belong to the listing owner, and match that platform. Unavailable, foreign, wrong-platform, zero, and negative IDs receive the same generic HTTP 404 response without account details. Every selected platform/account is preflighted before `force_new_revision` or queue writes; unused map entries do not select platforms. The service rechecks the account before reusing or inserting a job, on retry, and before passing it to an adapter. A previously queued job whose account no longer matches fails with an account error instead of invoking the adapter. Correct the account/platform association or queue a new package with a suitable account; retry does not replace a job's account ID. Account setup status is metadata, not an additional admission gate for assisted posting.
+
 Listing payloads include `category_attributes`, a bounded JSON object for category-specific item details such as furniture style, vehicle mileage, clothing size, or electronics accessories. These attributes are included in assisted mapped fields and JSON/CSV portability.
+
+Account IDs outside the positive signed-64-bit range are also rejected before a database query, preventing integer-binding errors on SQLite. Existing request parsing of integer-compatible JSON values remains unchanged; authorization always checks the resulting ID.
 
 ## Jobs
 

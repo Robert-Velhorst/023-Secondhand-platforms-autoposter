@@ -55,9 +55,11 @@ from app.schemas import (
 )
 from app.services.audit import record_audit_event
 from app.services.jobs import (
+    PublishingAccountError,
     confirm_manual_completion,
     enqueue_publish_job,
     get_or_create_mapping,
+    load_publishing_account,
     process_job,
     retry_job,
 )
@@ -456,20 +458,28 @@ def publish_listing(
     db: Session = Depends(get_db),
 ):
     listing = _load_listing(db, user.id, listing_id)
-    if payload.force_new_revision:
-        listing.revision += 1
-        db.add(ListingDraft(listing_id=listing.id, payload={"force_new_revision": True}, source="regenerate_package"))
-        db.commit()
-        listing = _load_listing(db, user.id, listing_id)
-    jobs = []
-    for platform_key in payload.platforms:
-        get_adapter(platform_key)
-        account_id = payload.account_ids.get(platform_key)
-        job = enqueue_publish_job(db, listing, platform_key, account_id)
-        if payload.process_now and get_settings().job_process_inline:
-            job = process_job(db, job.id)
-        jobs.append(job)
-    return jobs
+    try:
+        # Validate the entire selection before revision changes or per-job commits.
+        for platform_key in payload.platforms:
+            get_adapter(platform_key)
+            load_publishing_account(db, listing.owner_id, platform_key, payload.account_ids.get(platform_key))
+        if payload.force_new_revision:
+            listing.revision += 1
+            db.add(ListingDraft(
+                listing_id=listing.id, payload={"force_new_revision": True}, source="regenerate_package",
+            ))
+            db.commit()
+            listing = _load_listing(db, user.id, listing_id)
+        jobs = []
+        for platform_key in payload.platforms:
+            account_id = payload.account_ids.get(platform_key)
+            job = enqueue_publish_job(db, listing, platform_key, account_id)
+            if payload.process_now and get_settings().job_process_inline:
+                job = process_job(db, job.id)
+            jobs.append(job)
+        return jobs
+    except PublishingAccountError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 def process_job_task(job_id: int) -> None:
@@ -540,7 +550,10 @@ def retry_publish_job(job_id: int, user: User = Depends(get_current_user), db: S
     )
     if not job or job.listing.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Job not found")
-    return retry_job(db, job)
+    try:
+        return retry_job(db, job)
+    except PublishingAccountError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/jobs/{job_id}/manual-completion", response_model=PublishingJobOut, tags=["Jobs"])

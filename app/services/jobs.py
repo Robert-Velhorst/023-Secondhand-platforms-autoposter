@@ -29,6 +29,31 @@ from app.services.operator_controls import job_processing_is_paused
 from app.services.platform_rate_limits import quota_backoff_payload, quota_retry_at_from_outcome
 
 
+class PublishingAccountError(ValueError):
+    """The selected account is not available to this listing/platform pair."""
+
+
+def load_publishing_account(
+    db: Session, owner_id: int, platform: str, account_id: int | None
+) -> PlatformAccount | None:
+    if account_id is None:
+        return None
+    message = "Selected platform account is unavailable for this listing and platform."
+    # Reject values outside the supported databases' integer range before binding.
+    if not isinstance(account_id, int) or not 0 < account_id < 2**63:
+        raise PublishingAccountError(message)
+    account = (
+        db.query(PlatformAccount)
+        .filter(PlatformAccount.id == account_id, PlatformAccount.owner_id == owner_id,
+                PlatformAccount.platform == platform)
+        .populate_existing()
+        .one_or_none()
+    )
+    if account is None:
+        raise PublishingAccountError(message)
+    return account
+
+
 def idempotency_key(
     *,
     user_id: int,
@@ -68,6 +93,7 @@ def get_or_create_mapping(db: Session, listing_id: int, platform: str) -> Platfo
 def enqueue_publish_job(
     db: Session, listing: Listing, platform: str, account_id: int | None = None
 ) -> PublishingJob:
+    load_publishing_account(db, listing.owner_id, platform, account_id)
     adapter = get_adapter(platform)
     action_type = "publish"
     operation_mode = adapter.automation_mode
@@ -174,10 +200,10 @@ def _process_claimed_job(db: Session, job_id: int) -> PublishingJob:
 
     listing = job.listing
     adapter = get_adapter(job.platform)
-    mapping = get_or_create_mapping(db, listing.id, job.platform)
-    account = db.get(PlatformAccount, job.account_id) if job.account_id else None
 
     try:
+        account = load_publishing_account(db, listing.owner_id, job.platform, job.account_id)
+        mapping = get_or_create_mapping(db, listing.id, job.platform)
         overrides = effective_platform_overrides(db, listing, job.platform, mapping.overrides)
         outcome = adapter.publish_listing(listing, account=account, overrides=overrides)
         quota_retry_at = quota_retry_at_from_outcome(outcome.data)
@@ -267,6 +293,7 @@ def claim_job_for_processing(db: Session, job_id: int, due_only: bool = False) -
 
 
 def retry_job(db: Session, job: PublishingJob) -> PublishingJob:
+    load_publishing_account(db, job.listing.owner_id, job.platform, job.account_id)
     if not is_terminal_status(job.status):
         db.refresh(job)
         return job

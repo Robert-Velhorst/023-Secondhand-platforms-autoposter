@@ -21,7 +21,7 @@ Doctor warnings are allowed for local development defaults; doctor errors fail t
 
 GitHub Actions runs the same command on pushes and pull requests to `main` via `.github/workflows/verify.yml`.
 
-The same workflow also runs a `postgres-workers` job against a disposable PostgreSQL 16 service. Its nineteen job-safety tests use real connections and migrations, not merely compiled PostgreSQL SQL.
+The same workflow also runs a `postgres-workers` job against a disposable PostgreSQL 16 service. Its twenty-three job-safety tests use real connections and migrations, not merely compiled PostgreSQL SQL.
 
 ## Current Test Layers
 
@@ -31,6 +31,7 @@ The same workflow also runs a `postgres-workers` job against a disposable Postgr
 | API smoke and route contract | `tests/test_api.py`, `tests/test_api_hardening.py` | Core listing/account/template flow, platform metadata, direct detail/delete routes, request IDs, metrics, pagination, filters, and structured errors. |
 | Acceptance workflow | `tests/test_acceptance_workflow.py` | Seller setup-to-portability API acceptance flow covering accounts, templates, mappings, listing/image creation, quality, validation, assisted jobs, analytics, export/import, and audit activity. |
 | Owner isolation | `tests/test_owner_isolation.py` | Cross-user visibility and mutation boundaries for owned listings, jobs, accounts, templates, and category mappings. |
+| Publishing-account boundary | `tests/test_publishing_account_boundary.py` | Foreign-owner IDs in accepted numeric forms, wrong/missing/nonpositive IDs, whole-request preflight, valid selected/no-account controls, direct enqueue, retry API/service, worker execution, and stale-job recovery without unauthorized adapter calls. |
 | Auth/security | `tests/test_auth_security.py`, `tests/test_api_rate_limit.py` | Password hashing, login/logout/session behavior, token revocation, bearer-only auth posture, database-backed hashed failed-login throttling with expiry/success clearing/`Retry-After`, and general API throttling. |
 | SaaS/account readiness | `tests/test_saas_readiness.py` | Personal-account readiness contract, billing-free status, workspace deferral, and owner-scoped usage counts. |
 | Storage | `tests/test_storage_uploads.py`, `tests/test_startup_safety.py` | Filename sanitization, MIME/signature validation, duplicate detection, delete/reorder behavior, metadata persistence, local file cleanup, S3-compatible object writes/deletes, and storage config validation. |
@@ -57,7 +58,7 @@ The same workflow also runs a `postgres-workers` job against a disposable Postgr
 
 ## Worker Recovery Tests
 
-`tests/test_worker_resilience.py` runs the real worker loop against a separate SQLite database. Two cases hold and release a real write lock at queue-claim and heartbeat-write boundaries, then verify a new processing cycle, one attempt, a persisted heartbeat, and released connections. Additional injected driver/pool errors verify capped backoff, recovery reset, log privacy, long configured polls, and propagation/cleanup for unexpected failures and shutdown signals. Unsafe startup remains fail-fast. These eleven cases run in the normal verification job; the PostgreSQL job-safety drill remains a separate nineteen-case suite.
+`tests/test_worker_resilience.py` runs the real worker loop against a separate SQLite database. Two cases hold and release a real write lock at queue-claim and heartbeat-write boundaries, then verify a new processing cycle, one attempt, a persisted heartbeat, and released connections. Additional injected driver/pool errors verify capped backoff, recovery reset, log privacy, long configured polls, and propagation/cleanup for unexpected failures and shutdown signals. Unsafe startup remains fail-fast. These eleven cases run in the normal verification job; the PostgreSQL job-safety drill remains a separate twenty-three-case suite.
 
 ## Data And Isolation
 
@@ -85,7 +86,7 @@ Replace the uppercase connection fields with credentials for the disposable test
 
 Coverage includes another request trying to execute a worker's claim, reclaimed-job timestamp freshness, queued/running retry protection, delayed retry requests, disabled inline processing, scheduled backoff, and four simultaneous sessions draining 24 jobs. Both real assisted-package success and missing-field failure paths assert exactly one attempt per job. Image metadata is synthetic; these concurrency cases do not validate image-file delivery or contact marketplaces.
 
-Enqueue coverage verifies unchanged reuse across all six job states and forces two concurrent sessions to observe the same missing key before inserting. The race must produce one job and one queue log while preserving both callers' pending user records. A separate invalid-account case checks that unrelated integrity errors propagate without invalidating the outer session or discarding earlier listing changes. The API revision suite additionally checks that repeating a publish request after validation failure returns HTTP 200 with the original failed job and unchanged attempt count.
+Enqueue coverage verifies unchanged reuse across all six job states and forces two concurrent sessions to observe the same missing key before inserting. The race must produce one job and one queue log while preserving both callers' pending user records. A separate mapper-injected foreign-key failure after account admission checks verifies that unrelated integrity errors propagate without invalidating the outer session or discarding earlier listing changes. Four changed-account cases first enqueue and reuse a valid account, then change its owner or platform through another connection: neither duplicate enqueue nor worker execution may use that now-invalid account, including when a stale account object remains in the session. The API revision suite additionally checks that repeating a publish request after validation failure returns HTTP 200 with the original failed job and unchanged attempt count.
 
 The queue claim transaction remains short and uses PostgreSQL `SKIP LOCKED`; see the [PostgreSQL locking documentation](https://www.postgresql.org/docs/current/sql-select.html#SQL-FOR-UPDATE-SHARE). These cases do not prove exactly-once behavior during external provider calls, lease expiry during unusually long work, distributed cooldown enforcement, or target-host load capacity.
 

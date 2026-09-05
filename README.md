@@ -640,6 +640,7 @@ User JSON/CSV/image exports do not contain the full operational history and are 
 - Argon2 password hashing; successful login upgrades supported older PBKDF2 hashes.
 - Opaque session and HAI tokens stored as hashes, with expiry and revocation.
 - Owner filtering and dedicated cross-user isolation tests.
+- Selected publishing accounts must belong to the listing owner and match its target platform. The API checks all selections before queueing or creating a revision; enqueue, retry, and worker execution recheck the account. Assisted posting without a selected account remains supported.
 - Bearer-only authentication; the app does not set session cookies.
 - Failed-login throttling and API request throttling.
 - Request IDs, structured error envelopes, sanitised logs, audit events, and support bundles.
@@ -678,11 +679,11 @@ The gate runs:
 3. the complete pytest suite;
 4. `python -m app.doctor --json`.
 
-The current suite contains 273 tests spanning API behaviour, authentication, owner isolation, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent enqueue/worker claims/retries/health, worker database-error recovery, migrations, deployment configuration, bounded dashboard reads, HAI, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention.
+The current suite contains 296 tests spanning API behaviour, authentication, owner isolation, publishing-account ownership/platform checks, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent enqueue/worker claims/retries/health, worker database-error recovery, migrations, deployment configuration, bounded dashboard reads, HAI, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention.
 
 Pytest creates a separate database, upload directory, and secret directory for each process before importing the application. It ignores inherited deployment/storage values and removes its own fixtures after a successful run; failed fixtures remain under `.tmp/test-runs/` for diagnosis. See [Testing strategy](docs/TESTING_STRATEGY.md) for the isolation contract and explicit PostgreSQL integration checks.
 
-GitHub's `postgres-workers` job also runs the 19 job-safety checks against a disposable PostgreSQL 16 service. Each case migrates its own newly created schema to Alembic head and removes that schema afterward. This is CI integration evidence, not evidence of a deployed production database.
+GitHub's `postgres-workers` job also runs the 23 job-safety checks against a disposable PostgreSQL 16 service, including changed-account checks through separate database connections. Each case migrates its own newly created schema to Alembic head and removes that schema afterward. This is CI integration evidence, not evidence of a deployed production database.
 
 Additional checks:
 

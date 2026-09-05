@@ -7,16 +7,18 @@ from threading import Barrier, local
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateSchema, DropSchema
 
+from app.adapters import get_adapter
 from app.config import get_settings
 from app.database import Base
-from app.models import Listing, ListingImage, PublicationAttempt, PublishingJob, PublishingJobLog, User
+from app.models import Listing, ListingImage, PlatformAccount, PublicationAttempt, PublishingJob, PublishingJobLog, User
 from app.services.jobs import (
+    PublishingAccountError,
     claim_due_queued_job_ids,
     claim_job_for_processing,
     enqueue_publish_job,
@@ -267,14 +269,58 @@ def test_simultaneous_enqueue_returns_one_job_and_one_queue_log(job_engine):
         ])).count() == 2, "Collision recovery must preserve both callers' pending changes"
 
 
-def test_enqueue_does_not_hide_invalid_account_or_discard_prior_changes(job_engine):
-    with Session(job_engine) as db:
-        listing = db.get(Listing, 1)
-        listing.title = "Keep this caller change"
-        with pytest.raises(IntegrityError):
-            enqueue_publish_job(db, listing, "marktplaats", account_id=999999)
-        assert db.is_active
-        assert db.query(PublishingJob).count() == 1
-        db.commit()
+def test_enqueue_does_not_hide_integrity_errors_or_discard_prior_changes(job_engine):
+    def invalidate_insert(_mapper, _connection, job):
+        # Simulate an independent database integrity failure after admission checks.
+        job.account_id = 999999
+
+    event.listen(PublishingJob, "before_insert", invalidate_insert)
+    try:
+        with Session(job_engine) as db:
+            listing = db.get(Listing, 1)
+            listing.title = "Keep this caller change"
+            with pytest.raises(IntegrityError):
+                enqueue_publish_job(db, listing, "marktplaats")
+            assert db.is_active
+            assert db.query(PublishingJob).count() == 1
+            db.commit()
+    finally:
+        event.remove(PublishingJob, "before_insert", invalidate_insert)
     with Session(job_engine) as db:
         assert db.get(Listing, 1).title == "Keep this caller change"
+
+
+@pytest.mark.parametrize("entrypoint", ["duplicate-enqueue", "worker"])
+@pytest.mark.parametrize("changed_field", ["owner_id", "platform"])
+def test_changed_account_is_revalidated_on_real_connections(job_engine, monkeypatch, entrypoint, changed_field):
+    received = []
+    adapter = get_adapter("marktplaats")
+    publish = adapter.publish_listing
+
+    def capture_account(listing, account=None, overrides=None):
+        received.append(account.id if account else None)
+        return publish(listing, account, overrides)
+
+    monkeypatch.setattr(adapter, "publish_listing", capture_account)
+    with Session(job_engine) as db:
+        db.add(User(id=2, email="other-account-owner@example.com", password_hash="unused"))
+        account = PlatformAccount(owner_id=1, platform="marktplaats", display_name="Selected account")
+        db.add(account)
+        db.commit()
+        listing = db.get(Listing, 1)
+        job = enqueue_publish_job(db, listing, "marktplaats", account.id)
+        assert enqueue_publish_job(db, listing, "marktplaats", account.id).id == job.id
+        with job_engine.begin() as connection:
+            connection.execute(update(PlatformAccount).where(PlatformAccount.id == account.id).values(
+                **{changed_field: 2 if changed_field == "owner_id" else "ebay"}
+            ))
+        assert account.owner_id == 1 and account.platform == "marktplaats"
+        if entrypoint == "duplicate-enqueue":
+            with pytest.raises(PublishingAccountError):
+                enqueue_publish_job(db, listing, "marktplaats", account.id)
+            assert job.status == "queued" and job.attempts == 0
+        else:
+            result = process_job(db, job.id)
+            assert result.status == "failed" and result.attempts == 1
+            assert "account" in result.error_message.lower()
+        assert received == []
