@@ -8,7 +8,7 @@ Secondhand Platforms Autoposter is a self-hosted listing workspace for preparing
 
 ### Which version does this describe?
 
-This README describes the **`agent/production-launch-hardening` review branch**, tracked in [draft pull request #2](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/pull/2), not an approved production release. At the 2026-09-06 repository check, `main` remained at `d96b27e`; the review branch was at `124094b` before this documentation update. The previously reported 190 tests refer to the earlier baseline, not the current review branch. Follow the branch-specific clone instructions below to obtain the code described here.
+This README describes the **`agent/production-launch-hardening` review branch**, tracked in [draft pull request #2](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/pull/2), not an approved production release. At the 2026-09-06 repository check, `main` remained at `d96b27e`; this launcher-hardening update builds on review-branch commit `c0eee9b`. The previously reported 190 tests refer to the earlier baseline, not the current review branch. Follow the branch-specific clone instructions below to obtain the code described here.
 
 In plain language: the local app prepares and organises listings; people still publish them. A Windows build and a manual HAI file handoff have recorded local verification. Production launch, safe ngrok lifecycle handling, automatic HAI synchronization, and acceptance in the target HAI installation are separate unfinished milestones. The `1.0.0-rc.1` version string is not launch approval or proof of a downloadable signed release.
 
@@ -167,11 +167,13 @@ Run the executable by double-clicking it or from PowerShell:
 
 The launcher:
 
-- binds only to `127.0.0.1`/`localhost`;
+- exclusively reserves IPv4 loopback (`127.0.0.1`, also when `localhost` is requested) before changing data;
+- locks its data directory against another cooperating launcher before creating secrets or running migrations;
 - creates or reuses a strong local secret;
 - stores data in `%LOCALAPPDATA%\SecondhandAutoposter` by default;
 - upgrades the local database to Alembic head before serving;
 - starts the API and worker as separate processes;
+- contains the Windows worker and its descendants in an owned process group that is terminated on launcher exit or crash;
 - opens the browser after the health endpoint responds;
 - trusts forwarded proxy headers only from localhost.
 
@@ -184,7 +186,7 @@ $env:AUTOPOSTER_DATA_DIR = "D:\AutoposterData"
 
 The standalone profile is designed for one Windows operator using SQLite and local image storage. It is not a substitute for a multi-user PostgreSQL production deployment. See [Windows standalone and ngrok](docs/WINDOWS_STANDALONE.md).
 
-Use a free local port and stop the previous instance before starting another one against the same data directory. The launcher runs migrations at startup; upgrades require a backup and all older API/worker processes stopped. Local build evidence does not establish Windows code-signing, SmartScreen reputation, an installer, or automatic updates.
+An occupied port or a data directory held by another current launcher causes startup to fail before secrets, migrations, or workers are started. After a forced shutdown, Windows may briefly retain the file lock; retry after the old processes have stopped. Do not delete `.launcher.lock` to bypass it. The lock coordinates this launcher, not older versions, direct worker/API commands, other applications, or two different data directories configured to share one database. Upgrades still require a backup and all older API/worker processes stopped. Local build evidence does not establish Windows code-signing, SmartScreen reputation, an installer, or automatic updates. This launcher protection does **not** repair the separate experimental ngrok script.
 
 ## Local development setup
 
@@ -721,7 +723,7 @@ The gate runs:
 3. the complete pytest suite;
 4. `python -m app.doctor --json`.
 
-The current suite contains 356 tests spanning API behaviour, authentication, owner isolation, publishing-account ownership/platform checks, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent enqueue/worker claims/retries/health, stale-recovery races and batch bounds, claim-fenced results, connection release during adapter calls, worker database-error recovery, migrations, deployment configuration, bounded dashboard reads, HAI incremental feeds and size-limited generic downloads, frontend delivery/cache revalidation, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention.
+The current suite contains 369 cases spanning API behaviour, authentication, owner isolation, publishing-account ownership/platform checks, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent enqueue/worker claims/retries/health, stale-recovery races and batch bounds, claim-fenced results, connection release during adapter calls, worker database-error recovery, launcher port/data ownership and child-process cleanup, migrations, deployment configuration, bounded dashboard reads, HAI incremental feeds and size-limited generic downloads, frontend delivery/cache revalidation, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention. All 369 passed in the recorded Windows run; the Windows-specific owner-crash Job Object case is skipped on other operating systems.
 
 Pytest creates a separate database, upload directory, and secret directory for each process before importing the application. It ignores inherited deployment/storage values and removes its own fixtures after a successful run; failed fixtures remain under `.tmp/test-runs/` for diagnosis. See [Testing strategy](docs/TESTING_STRATEGY.md) for the isolation contract and explicit PostgreSQL integration checks.
 

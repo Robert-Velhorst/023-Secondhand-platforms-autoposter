@@ -3,14 +3,18 @@
 import argparse
 import os
 import secrets
-import subprocess
+import socket
 import sys
 import threading
 import time
 import urllib.error
 import urllib.request
 import webbrowser
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+
+from app.processes import owned_process
 
 
 def resource_root() -> Path:
@@ -94,36 +98,74 @@ def _open_when_ready(url: str) -> None:
             time.sleep(0.5)
 
 
-def serve(host: str, port: int, open_browser: bool) -> int:
-    configure_standalone_environment(port)
-    run_migrations()
-    worker = subprocess.Popen(_worker_command())
-    try:
-        if open_browser:
-            threading.Thread(
-                target=_open_when_ready,
-                args=(f"http://127.0.0.1:{port}",),
-                daemon=True,
-            ).start()
-        import uvicorn
+@contextmanager
+def owned_listener(host: str, port: int) -> Iterator[socket.socket]:
+    """Hold the loopback address continuously, including startup and cleanup."""
+    if host not in {"127.0.0.1", "localhost"}:
+        raise ValueError("Standalone listeners must use IPv4 loopback")
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        if os.name == "nt":
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        listener.bind(("127.0.0.1", port))
+        listener.listen(128)
+        yield listener
 
-        from app.main import app
 
-        uvicorn.run(
-            app,
-            host=host,
-            port=port,
-            proxy_headers=True,
-            forwarded_allow_ips="127.0.0.1",
-            access_log=False,
-        )
-    finally:
-        worker.terminate()
+@contextmanager
+def owned_data_directory(data_dir: Path) -> Iterator[None]:
+    """Serialize cooperating launchers without a stale PID-file heuristic."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    # Keep this file: unlinking it could let two launchers lock different inodes.
+    with (data_dir / ".launcher.lock").open("a+b") as lock:
+        lock.seek(0, os.SEEK_END)
+        if lock.tell() == 0:
+            lock.write(b"\0")
+            lock.flush()
+        lock.seek(0)
         try:
-            worker.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            worker.kill()
-            worker.wait(timeout=5)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise RuntimeError("Standalone data directory is already in use or cannot be locked") from exc
+        try:
+            yield
+        finally:
+            lock.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+def serve(host: str, port: int, open_browser: bool) -> int:
+    with owned_listener(host, port) as listener, owned_data_directory(default_data_dir()):
+        port = listener.getsockname()[1]
+        configure_standalone_environment(port)
+        run_migrations()
+        with owned_process(_worker_command()):
+            if open_browser:
+                threading.Thread(
+                    target=_open_when_ready,
+                    args=(f"http://127.0.0.1:{port}",),
+                    daemon=True,
+                ).start()
+            import uvicorn
+
+            from app.main import app
+
+            server = uvicorn.Server(uvicorn.Config(
+                app, host="127.0.0.1", port=port, proxy_headers=True,
+                forwarded_allow_ips="127.0.0.1", access_log=False,
+            ))
+            # Uvicorn may close its socket; retain our own handle until child cleanup finishes.
+            with listener.dup() as server_socket:
+                server.run(sockets=[server_socket])
     return 0
 
 
@@ -136,8 +178,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error("--port must be between 1 and 65535")
-    configure_standalone_environment(args.port)
     if args.worker_child:
+        configure_standalone_environment(args.port)
         from app.worker import run_forever
 
         run_forever()

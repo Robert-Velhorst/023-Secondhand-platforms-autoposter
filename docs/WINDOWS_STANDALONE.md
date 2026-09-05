@@ -22,7 +22,19 @@ The launcher binds only to `127.0.0.1`, migrates the local database before start
 
 The standalone profile uses SQLite and local image storage. It is intended for one Windows operator; multi-user production deployments should use PostgreSQL and the production Compose definition. Use a free local port and stop previous instances before running migrations against the same data directory. The ngrok helper is experimental and has the unresolved lifecycle risks below; a reserved URL alone is not private access control.
 
+### Startup ownership and shutdown
+
+The current launcher reserves its IPv4 loopback socket and acquires an OS file lock on `.launcher.lock` **before** creating a secret, running migrations, or starting a worker. A duplicate launch fails without those side effects. The original socket remains reserved even if the API server closes its duplicate, and is released only after worker cleanup.
+
+On Windows, the worker starts suspended, is assigned to a private Job Object, and only then runs. Descendants inherit that ownership; closing the job or crashing its owner terminates the owned tree. Cleanup does not enumerate all processes sharing an executable name. This is forced termination, not graceful completion of an in-flight job; the existing stale-job recovery rules still apply.
+
+The data lock covers cooperating launchers using the same directory. It cannot stop an older build, a separately started API/worker, another application, or a different data directory sharing the same configured database. Stop those processes before upgrading. Keep `.launcher.lock` in place: deleting it is not a safe unlock procedure. Windows can briefly delay releasing locks after a crash; retry startup after the prior processes have stopped. See [Microsoft's file-lock lifecycle documentation](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-lockfile).
+
+These protections are a prerequisite for future tunnel orchestration, **not a fix for `start-ngrok.ps1`**. That script can still start a tunnel before this launcher has acquired its port, and still has the separate cleanup, logging, readiness, and environment risks below.
+
 ## Verified Portable Build
+
+The 2026-09-06 launcher-ownership build has SHA-256 `3bffa5882044b5a5c01ecc43e67199dc1e2c5489abd2ba85b9e0bc1b41fe3d4c`. It passed the isolated API/worker, migration, upload, account-isolation, retry/recovery, HAI-download, and frontend-byte/cache checks. See the [launcher verification record](FINAL_VERIFICATION_REPORT.md#launcher-port-data-and-process-ownership--2026-09-06) for process-ownership evidence and limits. This remains a locally built review executable, not a signed production release or proof of safe ngrok use. The hashes below describe earlier builds.
 
 The 2026-09-06 frontend-delivery build has SHA-256 `abb2501ee4f0daca16bb32d0368c408ca5a5ad907d9aca1abc8b4aa5a10e4124`. The isolated executable passed API/worker health, migration head `20260905_0014`, uploads, account isolation, retry/recovery, and HAI-download checks. All four frontend assets, including the icon, matched source bytes and passed cache revalidation with body-free HTTP 304 responses. Test processes were stopped afterward. This verifies the local package, not production deployment or safe ngrok operation. Earlier build hashes below are historical.
 
