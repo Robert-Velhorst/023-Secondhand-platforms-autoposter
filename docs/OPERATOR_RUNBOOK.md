@@ -70,6 +70,18 @@ Do not add a default database password or a bundled database service to this pro
 
 Expected production status is `ok`. A warning requires operator review. An error requires rollback or repair.
 
+## Worker Database Recovery
+
+Runtime queue or heartbeat failures classified as SQLAlchemy `OperationalError`, `InterfaceError`, or pool `TimeoutError` are retried with a fresh session. The delay starts at `JOB_WORKER_POLL_SECONDS`, doubles on consecutive failed cycles, and caps at the greater of 60 seconds or the configured poll interval. One complete successful queue-and-heartbeat cycle resets the delay. The worker logs a recovery message. Database connection/query timeouts are additional to this sleep; an indefinitely blocked driver call cannot be fixed by the retry loop.
+
+Warnings contain the worker ID, `queue` or `heartbeat` phase, exception class, and delay. They deliberately omit exception messages, SQL parameters, and tracebacks that can contain sensitive data. These exception classes are driver categories, not proof that a fault is temporary; persistent permission/schema/connectivity problems still require investigation. See [SQLAlchemy's exception reference](https://docs.sqlalchemy.org/en/20/core/exceptions.html).
+
+No fallback healthy heartbeat is written after a failed cycle. A previously recorded heartbeat can remain fresh until `WORKER_HEARTBEAT_TIMEOUT_SECONDS` elapses; if the database is unavailable, the health endpoint itself may fail. An ambiguous heartbeat commit can already have reached the database. Treat `processed_jobs` as best-effort operational telemetry and use persisted jobs/attempts for reconciliation; the loop does not replay an uncertain counter increment.
+
+Startup validation, automatic table creation, and unrelated programming/integrity errors remain fail-fast. Configure an appropriate service manager/restart policy and alerting. The Windows launcher does not supervise or restart a child that exits from those failures; investigate the cause before restarting the application.
+
+The retry loop does not release already-claimed jobs or replay an interrupted external operation. Existing stale-job recovery remains responsible for abandoned claims. Long-running leases, crash recovery during provider calls, and exactly-once publication need separate proof; current adapters are assisted/manual only. Do not manually requeue work with an uncertain external outcome without reconciliation.
+
 ## Logs
 
 - Web requests are logged on `autoposter.requests` with `request_id`, method, path, status code, and duration.

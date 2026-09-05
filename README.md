@@ -568,6 +568,12 @@ Repeating a queue request with the same idempotency key returns the existing job
 
 Automated checks exercise four concurrent database sessions on SQLite and migrated PostgreSQL, with 24 jobs per scenario and one attempt per job. These checks are not a guarantee of exactly-once external publication: crash recovery during external calls, long-running jobs exceeding the stale timeout, target-environment load, and provider idempotency require separate proof. Current marketplace adapters still prepare local assisted packages only.
 
+### Database-error recovery
+
+The worker retries runtime database operational/interface errors and connection-pool timeouts instead of exiting after one failure. It closes the cycle's sessions before waiting and doubles the delay from `JOB_WORKER_POLL_SECONDS` up to 60 seconds (or the configured poll interval if longer). A complete successful queue-and-heartbeat cycle restores normal polling. Logs identify the worker, failing phase, exception class, and retry delay without including raw database exception text or SQL parameters.
+
+Startup/configuration errors and unrelated programming/integrity errors still stop the process. Monitor heartbeat freshness and logs; a retrying process is not proof of healthy processing. Heartbeat counters are best-effort telemetry, not an exact job ledger, especially when a database commit's result is uncertain. See the [operator runbook](docs/OPERATOR_RUNBOOK.md#worker-database-recovery) for recovery limits and intervention guidance.
+
 ### Emergency controls
 
 ```powershell
@@ -672,7 +678,7 @@ The gate runs:
 3. the complete pytest suite;
 4. `python -m app.doctor --json`.
 
-The current suite contains 262 tests spanning API behaviour, authentication, owner isolation, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent enqueue/worker claims/retries/health, migrations, deployment configuration, bounded dashboard reads, HAI, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention.
+The current suite contains 273 tests spanning API behaviour, authentication, owner isolation, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent enqueue/worker claims/retries/health, worker database-error recovery, migrations, deployment configuration, bounded dashboard reads, HAI, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention.
 
 Pytest creates a separate database, upload directory, and secret directory for each process before importing the application. It ignores inherited deployment/storage values and removes its own fixtures after a successful run; failed fixtures remain under `.tmp/test-runs/` for diagnosis. See [Testing strategy](docs/TESTING_STRATEGY.md) for the isolation contract and explicit PostgreSQL integration checks.
 

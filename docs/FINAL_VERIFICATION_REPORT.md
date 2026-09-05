@@ -1,5 +1,17 @@
 # Final Verification Report
 
+## Worker database-error recovery verification — 2026-09-05
+
+Target: working checkout based on `6d777a8cf577c391f5a5536ddf3d71f80c1fad41`, with runtime worker recovery and eleven new resilience tests.
+
+- Five regression failures reproduced worker termination at real SQLite queue-claim and heartbeat-write locks, plus missing recovery for operational/interface/pool-timeout errors. The fixed loop closes sessions before waiting, uses capped exponential backoff, resets after a complete successful cycle, and logs only safe diagnostic fields. Startup/configuration, programming/integrity errors, and shutdown signals still propagate.
+- Final full local gate passed: Ruff, compilation, **273 tests in 79.02 seconds**, and doctor. The local development default-secret warning remains; the local database is at Alembic head `20260809_0013`.
+- A full-suite test-order failure was traced to Alembic logging configuration disabling existing loggers. The resilience fixture explicitly restores its logger for each test; migration tests followed by resilience tests passed **14 cases in 23.97 seconds**, and the final full gate includes that repair.
+- Independent read-only review found no introduced runtime blocker. Its suggested long-poll and open-session cleanup cases were added before the final full gate. The tests verify actual database effects, released connections, bounded delays, reset after recovery, and suppression of raw SQL/error details in warning logs.
+- Windows executable rebuilt with SHA-256 `68bab4a5d1e371e4a1fd91b8ce367f218ea87a49a2ed427a628450fafc5f9416`. Isolated Windows HTTP workflow passed API/worker health, dashboard, image upload, HAI incremental metadata, malformed-cursor HTTP 422, repeated failed publish HTTP 200, and explicit retry followed by separate-worker `needs_user_action` with two attempts. Test processes were stopped afterward.
+- A separate source-worker process survived a real stop/start of disposable PostgreSQL 16.15 on a fixed local port, resumed with the same worker identity, and processed a new incomplete listing once to `failed` with a recorded heartbeat count of one. The Windows executable's corresponding outage drill reached the capped retry interval without exiting, but Docker's restart command stalled; executable recovery after that outage is not yet verified. This is separate from the successful Windows application workflow above and is not target-deployment evidence.
+- This does not establish production deployment, driver-call timeout guarantees, long-running lease/crash safety, exactly-once external publication, real HAI consumer installation, manual accessibility, or final acceptance. Heartbeat counts remain best-effort telemetry, especially after an ambiguous commit. These limits and intervention steps are documented in the operator runbook.
+
 ## Repeated and concurrent enqueue verification — 2026-09-05
 
 Target: working checkout based on `d90d95e53f97c5d9e9bca67c33267481c9055ec7`, with enqueue idempotency and transaction-isolation repairs.

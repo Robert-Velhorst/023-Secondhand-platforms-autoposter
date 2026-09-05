@@ -55,6 +55,10 @@ The same workflow also runs a `postgres-workers` job against a disposable Postgr
 | Non-technical user evidence controls | `tests/test_non_technical_user_simulation.py`, `docs/NON_TECHNICAL_USER_SIMULATION.md`, `docs/NON_TECHNICAL_USER_WALKTHROUGH_RECORD.md` | Proxy scenario, observed-user record requirements, manual-posting comprehension checks, and explicit external-evidence blocker language. |
 | Legacy isolation | `tests/test_legacy_quarantine.py` | Ensures legacy browser automation imports do not leak into the web app path. |
 
+## Worker Recovery Tests
+
+`tests/test_worker_resilience.py` runs the real worker loop against a separate SQLite database. Two cases hold and release a real write lock at queue-claim and heartbeat-write boundaries, then verify a new processing cycle, one attempt, a persisted heartbeat, and released connections. Additional injected driver/pool errors verify capped backoff, recovery reset, log privacy, long configured polls, and propagation/cleanup for unexpected failures and shutdown signals. Unsafe startup remains fail-fast. These eleven cases run in the normal verification job; the PostgreSQL job-safety drill remains a separate nineteen-case suite.
+
 ## Data And Isolation
 
 - `tests/conftest.py` selects test configuration before application modules are imported. It replaces inherited runtime/deployment values with known test defaults, including local storage and disabled external credentials.

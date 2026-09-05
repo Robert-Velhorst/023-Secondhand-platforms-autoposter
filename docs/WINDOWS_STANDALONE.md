@@ -24,6 +24,8 @@ The standalone profile uses SQLite and local image storage. It is intended for o
 
 ## Verified Portable Build
 
+The 2026-09-05 worker-recovery build has SHA-256 `68bab4a5d1e371e4a1fd91b8ce367f218ea87a49a2ed427a628450fafc5f9416`. Its clean-directory HTTP workflow passed API/worker health, dashboard, image upload, HAI metadata, malformed-cursor rejection, repeated-failure idempotency, and separate-worker retry through `needs_user_action`. See the [verification report](FINAL_VERIFICATION_REPORT.md) for current evidence and limits; the older build below is historical evidence, not the current binary.
+
 The finalized 2026-08-09 local build produced a 43,670,075-byte executable with SHA-256 `6f791859c6bb70101e85b0c5c3ab417f5e962b12b2e52869b1c2df75bcfa1ed2`. A clean-directory runtime test reached Alembic head `20260809_0013`, reported a healthy API and worker, and created the expected database and secret; an exact-source rebuild passed the same API/worker smoke. One-file startup took about 99–130 seconds on this Windows host while Windows extracted/scanned it; later behavior depends on the machine and security software.
 
 ## Ngrok
