@@ -30,6 +30,19 @@ python scripts/verify.py
 
 Doctor warnings must be understood before release; doctor errors block release.
 
+## Claim-fencing upgrade
+
+Revision `20260905_0014` adds nullable `publishing_jobs.claim_token`. This is an internal worker ownership identifier, not an API credential. Existing rows and their history are retained; queued jobs receive an identifier when claimed. Legacy running jobs cannot be executed by the new worker until normal stale recovery returns them to the queue.
+
+1. Pause job processing and stop **all** old API/worker processes, including standalone executables and API processes that can execute jobs inline. Wait for in-flight work to finish where possible; reconcile any uncertain external outcome before retrying it.
+2. Back up the target database and verify the recovery procedure. The automated disposable migration tests are not a backup for your target data.
+3. Install the new release, run `alembic upgrade head`, and check `python -m app.doctor --json` reports head `20260905_0014`.
+4. Start the API and worker from the same release, verify health, and resume processing. Check an assisted job reaches `needs_user_action` and its history is retained.
+
+Do not perform a mixed-version rolling deployment: old workers ignore claim identifiers and can still overwrite newer results. Claim fencing prevents stale **local writes**; it cannot cancel an already-started external request, renew a lease, or guarantee exactly-once marketplace publication. Current adapters prepare assisted packages only.
+
+For rollback, stop every process again and preserve a backup before `alembic downgrade 20260809_0013`. The downgrade removes only the claim column using native `DROP COLUMN`; SQLite requires version 3.35 or later. Do not substitute a table-rebuild/drop operation with foreign keys enabled: it can cascade-delete job logs and attempts. See [SQLite ALTER TABLE](https://www.sqlite.org/lang_altertable.html#alter_table_drop_column). Reverting code also removes claim-fencing protection; reconcile running jobs before restarting an older release.
+
 ## Start Services
 
 Web process:

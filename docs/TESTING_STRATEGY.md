@@ -21,7 +21,7 @@ Doctor warnings are allowed for local development defaults; doctor errors fail t
 
 GitHub Actions runs the same command on pushes and pull requests to `main` via `.github/workflows/verify.yml`.
 
-The same workflow also runs a `postgres-workers` job against a disposable PostgreSQL 16 service. Its thirty-nine job-safety tests use real connections and migrations, not merely compiled PostgreSQL SQL.
+The same workflow also runs a `postgres-workers` job against a disposable PostgreSQL 16 service. Its sixty-one job-safety tests use real connections and migrations, not merely compiled PostgreSQL SQL.
 
 ## Current Test Layers
 
@@ -58,7 +58,7 @@ The same workflow also runs a `postgres-workers` job against a disposable Postgr
 
 ## Worker Recovery Tests
 
-`tests/test_worker_resilience.py` runs the real worker loop against a separate SQLite database. Two cases hold and release a real write lock at queue-claim and heartbeat-write boundaries, then verify a new processing cycle, one attempt, a persisted heartbeat, and released connections. Additional injected driver/pool errors verify capped backoff, recovery reset, log privacy, long configured polls, and propagation/cleanup for unexpected failures and shutdown signals. Unsafe startup remains fail-fast. These eleven cases run in the normal verification job; the PostgreSQL job-safety drill remains a separate thirty-nine-case suite.
+`tests/test_worker_resilience.py` runs the real worker loop against a separate SQLite database. Two cases hold and release a real write lock at queue-claim and heartbeat-write boundaries, then verify a new processing cycle, one attempt, a persisted heartbeat, and released connections. Additional injected driver/pool errors verify capped backoff, recovery reset, log privacy, long configured polls, and propagation/cleanup for unexpected failures and shutdown signals. Unsafe startup remains fail-fast. These eleven cases run in the normal verification job; the PostgreSQL job-safety drill remains a separate sixty-one-case suite.
 
 ## Data And Isolation
 
@@ -73,6 +73,14 @@ The same workflow also runs a `postgres-workers` job against a disposable Postgr
 The doctor step in `scripts/verify.py` runs separately against the operator's current configuration. A target PostgreSQL integration drill must explicitly select a disposable database; setting `DATABASE_URL` while invoking pytest does not opt out of isolation.
 
 ## Coverage Priorities
+
+### Claim-fenced execution
+
+The job-safety suite covers delayed inline and batch claimants, then success/error/quota responses arriving after recovery, reclaim, or a newer completion. Real second connections change authoritative state while a controlled adapter is in progress. Assertions cover the returned job, persisted result, mapping, attempts, logs, and backoff; stale results must not leak into any of them. Connection-pool measurements require zero checked-out connections during adapter execution, with both existing and absent mappings.
+
+Further controls cover malformed adapter status/data, mixed malformed/valid quota headers, propagation of input-read operational/interface/pool-timeout errors, and a real log foreign-key failure rolling back all outcome writes. Migration drills preserve a complete legacy job row and its log/attempt history through downgrade and upgrade, including SQLite with foreign-key enforcement enabled, then process the retained job. SQLite downgrade uses native `DROP COLUMN` rather than dropping/recreating the parent table.
+
+Claim identifiers fence local state only. These tests do not establish lease renewal, cancellation of external work, provider idempotency, or exactly-once marketplace posting. Upgrade instructions require stopping all old API and worker processes before migrating; mixed-version workers are unsafe.
 
 ### PostgreSQL Job Safety Drill
 

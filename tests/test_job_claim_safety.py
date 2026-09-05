@@ -1,22 +1,36 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from importlib import import_module
 from pathlib import Path
 from threading import Barrier, local
 
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, event, update
+from alembic.operations import Operations
+from alembic.runtime.migration import MigrationContext
+from sqlalchemy import create_engine, event, text, update
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, InterfaceError, OperationalError, TimeoutError
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 from app.adapters import get_adapter
+from app.adapters.base import PublishOutcome
 from app.config import get_settings
 from app.database import Base
-from app.models import Listing, ListingImage, PlatformAccount, PublicationAttempt, PublishingJob, PublishingJobLog, User
+from app.models import (
+    Listing,
+    ListingImage,
+    PlatformAccount,
+    PlatformListingMapping,
+    PublicationAttempt,
+    PublishingJob,
+    PublishingJobLog,
+    User,
+)
+from app.services import jobs as job_service
 from app.services.jobs import (
     PublishingAccountError,
     claim_due_queued_job_ids,
@@ -86,6 +100,214 @@ def test_another_request_cannot_execute_a_worker_claim(job_engine):
         assert result.status == "running"
         assert result.attempts == 0
         assert request.query(PublicationAttempt).count() == 0
+
+
+def test_existing_job_survives_claim_migration_and_can_be_processed(job_engine):
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", job_engine.url.render_as_string(hide_password=False).replace("%", "%%"))
+    # SQLite's fixture creates model metadata; PostgreSQL's fixture migrates it.
+    command.stamp(config, "head")
+    with Session(job_engine) as db:
+        db.add(PublishingJobLog(job_id=1, message="Preserve history"))
+        db.add(PublicationAttempt(job_id=1, platform="marktplaats", status="failed", payload_snapshot={"keep": True}))
+        db.commit()
+    migration = import_module("migrations.versions.20260905_0014_job_claim_tokens")
+    # Exercise the downgrade on the real application-style connection, including
+    # SQLite foreign_keys=ON, rather than Alembic's default unconstrained engine.
+    with job_engine.begin() as connection:
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.downgrade()
+    command.stamp(config, "20260809_0013")
+    with job_engine.connect() as connection:
+        before = dict(connection.execute(text("SELECT * FROM publishing_jobs WHERE id = 1")).mappings().one())
+    assert "claim_token" not in before
+    command.upgrade(config, "head")
+    with job_engine.connect() as connection:
+        after = dict(connection.execute(text("SELECT * FROM publishing_jobs WHERE id = 1")).mappings().one())
+    assert after.pop("claim_token") is None
+    assert after == before
+    with Session(job_engine) as db:
+        assert db.query(PublishingJobLog).one().message == "Preserve history"
+        assert db.query(PublicationAttempt).one().payload_snapshot == {"keep": True}
+        job = process_job(db, 1)
+        assert job.status == "failed" and job.attempts == 1
+        assert job.claim_token is None
+
+
+def test_quota_finalization_uses_first_valid_header_mapping(job_engine, monkeypatch):
+    def mixed_headers(listing, account=None, overrides=None):
+        return PublishOutcome(status="failed", data={
+            "rate_limit_headers": "malformed", "quota_headers": {"Retry-After": "60"},
+        })
+
+    monkeypatch.setattr(get_adapter("marktplaats"), "publish_listing", mixed_headers)
+    with Session(job_engine) as db:
+        job = process_job(db, 1)
+        assert job.status == "queued" and job.next_retry_at is not None
+        assert job.claim_token is None
+        assert job.result["rate_limit"]["headers"] == {"Retry-After": "60"}
+
+
+@pytest.mark.parametrize("error_type", [OperationalError, InterfaceError, TimeoutError])
+def test_input_database_outage_is_not_saved_as_adapter_failure(job_engine, error_type):
+    def break_listing_read(_connection, _cursor, statement, parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT") and "FROM listings" in statement:
+            if error_type is TimeoutError:
+                raise error_type("test pool timeout")
+            raise error_type(statement, parameters, RuntimeError("test input outage"))
+
+    event.listen(job_engine, "before_cursor_execute", break_listing_read)
+    try:
+        with Session(job_engine) as db:
+            with pytest.raises(error_type):
+                process_job(db, 1)
+    finally:
+        event.remove(job_engine, "before_cursor_execute", break_listing_read)
+    with Session(job_engine) as db:
+        assert db.get(PublishingJob, 1).status == "running"
+        assert db.query(PublicationAttempt).count() == 0
+        assert db.query(PublishingJobLog).count() == 1
+
+
+@pytest.mark.parametrize("late_outcome", ["success", "error", "quota"])
+@pytest.mark.parametrize("replacement", ["queued", "running", "published"])
+def test_replaced_worker_cannot_save_late_outcome(job_engine, monkeypatch, late_outcome, replacement):
+    with Session(job_engine) as db:
+        db.add(PlatformListingMapping(listing_id=1, platform="marktplaats", status="draft"))
+        db.commit()
+    recovered = []
+
+    def finish_after_replacement(listing, account=None, overrides=None):
+        old = datetime.now(UTC) - timedelta(hours=1)
+        with Session(job_engine) as other:
+            other.execute(update(PublishingJob).where(PublishingJob.id == 1).values(started_at=old))
+            other.commit()
+            recovered.append(recover_stale_running_jobs(other, 60))
+            if replacement != "queued":
+                assert claim_job_for_processing(other, 1)
+            if replacement == "published":
+                job = other.get(PublishingJob, 1)
+                job.status = "published"
+                job.result = {"winner": True}
+                mapping = other.query(PlatformListingMapping).one()
+                mapping.status = "published"
+                mapping.platform_url = "https://example.com/winner"
+                other.commit()
+        if late_outcome == "error":
+            raise RuntimeError("Late adapter error")
+        data = {"late": True}
+        if late_outcome == "quota":
+            data["rate_limit_headers"] = {"Retry-After": "3600"}
+        return PublishOutcome(status="published", data=data, platform_url="https://example.com/late")
+
+    monkeypatch.setattr(get_adapter("marktplaats"), "publish_listing", finish_after_replacement)
+    with Session(job_engine) as worker:
+        result = process_job(worker, 1)
+        assert result.status == replacement
+    assert recovered == [1]
+    with Session(job_engine) as db:
+        job = db.get(PublishingJob, 1)
+        assert job.status == replacement
+        assert job.result == ({"winner": True} if replacement == "published" else {})
+        assert job.error_message is None and job.next_retry_at is None
+        assert job.attempts == 1
+        mapping = db.query(PlatformListingMapping).one()
+        assert mapping.platform_url == ("https://example.com/winner" if replacement == "published" else None)
+        assert db.query(PublicationAttempt).count() == 0
+        assert db.query(PublishingJobLog).count() == 2  # Start plus recovery, no stale completion.
+
+
+@pytest.mark.parametrize("mapping_exists", [False, True])
+def test_adapter_runs_without_holding_database_connection(job_engine, monkeypatch, mapping_exists):
+    if mapping_exists:
+        with Session(job_engine) as db:
+            db.add(PlatformListingMapping(listing_id=1, platform="marktplaats", status="draft"))
+            db.commit()
+    checked_out = []
+    publish = get_adapter("marktplaats").publish_listing
+
+    def inspect_resources(listing, account=None, overrides=None):
+        checked_out.append(job_engine.pool.checkedout())
+        return publish(listing, account, overrides)
+
+    monkeypatch.setattr(get_adapter("marktplaats"), "publish_listing", inspect_resources)
+    with Session(job_engine) as worker:
+        assert process_job(worker, 1).status == "failed"  # Real validation of incomplete fixture.
+    assert checked_out == [0]
+
+
+@pytest.mark.parametrize("entrypoint", ["inline", "batch"])
+def test_delayed_claimant_cannot_start_a_replacement_claim(job_engine, monkeypatch, entrypoint):
+    claim_name = "claim_job_for_processing" if entrypoint == "inline" else "claim_due_queued_job_ids"
+    claim = getattr(job_service, claim_name)
+    original_single_claim = claim_job_for_processing
+
+    def replace_after_claim(*args, **kwargs):
+        result = claim(*args, **kwargs)
+        with Session(job_engine) as replacement:
+            old = datetime.now(UTC) - timedelta(hours=1)
+            replacement.execute(update(PublishingJob).where(PublishingJob.id == 1).values(updated_at=old))
+            replacement.commit()
+            assert recover_stale_running_jobs(replacement, 60) == 1
+            assert original_single_claim(replacement, 1)
+        return result
+
+    monkeypatch.setattr(job_service, claim_name, replace_after_claim)
+    with Session(job_engine) as db:
+        if entrypoint == "inline":
+            process_job(db, 1)
+        else:
+            process_due_jobs(db, 1)
+    with Session(job_engine) as db:
+        job = db.get(PublishingJob, 1)
+        assert job.status == "running" and job.started_at is None
+        assert job.attempts == 0
+        assert db.query(PublicationAttempt).count() == 0
+        assert db.query(PlatformListingMapping).count() == 0
+
+
+@pytest.mark.parametrize("invalid", ["status", "data"])
+def test_invalid_adapter_outcome_is_recorded_as_failure(job_engine, monkeypatch, invalid):
+    def invalid_result(listing, account=None, overrides=None):
+        return PublishOutcome(status="unknown" if invalid == "status" else "published",
+                              data=None if invalid == "data" else {})
+
+    monkeypatch.setattr(get_adapter("marktplaats"), "publish_listing", invalid_result)
+    with Session(job_engine) as db:
+        result = process_job(db, 1)
+        assert result.status == "failed" and result.error_message
+        assert result.claim_token is None
+        assert db.query(PublicationAttempt).one().status == "failed"
+        assert db.query(PlatformListingMapping).count() == 0
+
+
+@pytest.mark.parametrize("mapping_exists", [False, True])
+def test_completion_log_failure_rolls_back_all_outcome_writes(job_engine, mapping_exists):
+    if mapping_exists:
+        with Session(job_engine) as db:
+            db.add(PlatformListingMapping(listing_id=1, platform="marktplaats", status="draft"))
+            db.commit()
+
+    def break_completion_log(_mapper, _connection, log):
+        if log.message != "Publishing job started.":
+            log.job_id = 999999
+
+    event.listen(PublishingJobLog, "before_insert", break_completion_log)
+    try:
+        with Session(job_engine) as db:
+            with pytest.raises(IntegrityError):
+                process_job(db, 1)
+            db.rollback()
+    finally:
+        event.remove(PublishingJobLog, "before_insert", break_completion_log)
+    with Session(job_engine) as db:
+        job = db.get(PublishingJob, 1)
+        assert job.status == "running" and job.claim_token
+        assert job.result == {} and job.finished_at is None
+        assert db.query(PublicationAttempt).count() == 0
+        assert db.query(PublishingJobLog).count() == 1  # Committed start, no partial result.
+        mapping = db.query(PlatformListingMapping).one_or_none()
+        assert (mapping.status if mapping else None) == ("draft" if mapping_exists else None)
 
 
 @pytest.mark.parametrize("batch_claim", [False, True])

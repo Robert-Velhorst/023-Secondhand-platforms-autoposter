@@ -1,5 +1,17 @@
 # Final Verification Report
 
+## Claim-fenced execution verification — 2026-09-05
+
+Target: working checkout based on `c7ec312ff6b5b13ab9917193f4f2d681ecfbf6fc`, with claim identifiers, short adapter-input transactions, and Alembic revision `20260905_0014`.
+
+- Initial red tests reproduced **11 failures in 8.12 seconds**: nine late success/error/quota outcomes overwrote recovered, reclaimed, or completed work; both adapter resource checks found a held database connection. Two delayed-start cases also failed in **3.37 seconds**, proving an old caller could execute a replacement claim.
+- Claims now carry an identifier from acquisition to start and finalization. Only the current claimant can save the job, platform mapping, attempt, or completion log. Adapter input reads finish and release their connection before the call. Recovery/retry/cooldown/completion clear the identifier as appropriate. This does not provide lease renewal or fence provider-side side effects.
+- Review and regression checks additionally reproduced malformed-result failures, mixed quota-header selection, and database input outages being misclassified as adapter failures. These now use validated outcomes, one shared valid-header selector, and propagation to the worker's database-error handling. A constrained SQLite downgrade reproduced lost job history; native column removal now retains the job, its logs, and its attempts.
+- Focused worker/account/rate-limit verification first passed **83 tests in 51.58 seconds**. The final job/migration/worker-resilience/quota checks passed **79 tests in 35.07 seconds**. Independent read-only review found no remaining critical or important defect after the corrections.
+- The final local gate passed Ruff, compilation, **335 tests in 218.37 seconds**, and doctor. Doctor used an isolated verification database at head `20260905_0014`, not the user's existing local or production database. Its only warning was the development default secret.
+- The final-source Windows rebuild and local PostgreSQL run are still in progress at this checkpoint. The old disposable PostgreSQL service became reachable again; its container identity and loopback port were verified before reuse. No unrelated Docker services were changed.
+- Deployment requires stopping every old API/worker process before migration and restarting all of them from the same new release; mixed old/new workers are unsafe. Target deployment/migration evidence, lease renewal, real HAI consumer integration, manual accessibility and user walkthroughs, backups/edge proof, and final acceptance remain open. Marketplace posting remains assisted/manual.
+
 ## Stale-recovery race and resource-bound verification — 2026-09-05
 
 Target: working checkout based on `02e17572f679a1bcdae797327f88e097a16bae78`, with conditional stale recovery, bounded worker recovery, and 16 additional job-safety cases.

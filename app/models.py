@@ -254,6 +254,7 @@ class PublishingJob(Base, TimestampMixin):
     platform: Mapped[str] = mapped_column(String(80), index=True)
     account_id: Mapped[int | None] = mapped_column(ForeignKey("platform_accounts.id"), nullable=True)
     status: Mapped[str] = mapped_column(String(40), default="queued", index=True)
+    claim_token: Mapped[str | None] = mapped_column(String(32), nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3)
     idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)

@@ -13,7 +13,7 @@ REMAINING_HEADERS = ("ratelimit-remaining", "x-ratelimit-remaining", "x-rate-lim
 def quota_retry_at_from_outcome(data: Mapping[str, Any] | None, now: datetime | None = None) -> datetime | None:
     if not isinstance(data, Mapping):
         return None
-    headers = _first_header_mapping(data)
+    headers = quota_headers_from_outcome(data)
     if not headers:
         return None
     return quota_retry_at_from_headers(headers, http_status=_http_status(data), now=now)
@@ -49,7 +49,7 @@ def quota_backoff_payload(retry_at: datetime, headers: Mapping[str, Any]) -> dic
     }
 
 
-def _first_header_mapping(data: Mapping[str, Any]) -> Mapping[str, Any] | None:
+def quota_headers_from_outcome(data: Mapping[str, Any]) -> Mapping[str, Any] | None:
     for key in RATE_LIMIT_HEADER_KEYS:
         value = data.get(key)
         if isinstance(value, Mapping):

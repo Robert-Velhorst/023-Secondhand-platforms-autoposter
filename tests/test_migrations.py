@@ -4,12 +4,43 @@ import sys
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from app import models  # noqa: F401
 from app.database import Base
+
+
+def test_claim_token_migration_preserves_existing_jobs(tmp_path):
+    engine = create_engine(f"sqlite:///{(tmp_path / 'claim-upgrade.db').as_posix()}")
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", str(engine.url))
+    try:
+        command.upgrade(config, "head")
+        command.downgrade(config, "20260809_0013")
+        assert "claim_token" not in {column["name"] for column in inspect(engine).get_columns("publishing_jobs")}
+        with engine.begin() as connection:
+            connection.execute(models.User.__table__.insert(), {"id": 1, "email": "upgrade@example.com",
+                                                                "password_hash": "unused"})
+            connection.execute(models.Listing.__table__.insert(), {"id": 1, "owner_id": 1, "title": "Preserve me"})
+            connection.execute(models.PublishingJob.__table__.insert(), {
+                "id": 1, "listing_id": 1, "platform": "marktplaats", "idempotency_key": "migration-preserve",
+                "status": "running", "attempts": 2, "result": {"existing": True},
+            })
+            before = dict(connection.execute(text("SELECT * FROM publishing_jobs WHERE id = 1")).mappings().one())
+        command.upgrade(config, "head")
+        with engine.connect() as connection:
+            after = dict(connection.execute(text("SELECT * FROM publishing_jobs WHERE id = 1")).mappings().one())
+        assert after.pop("claim_token") is None
+        assert after == before
+        command.downgrade(config, "20260809_0013")
+        with engine.connect() as connection:
+            downgraded = dict(connection.execute(text("SELECT * FROM publishing_jobs WHERE id = 1")).mappings().one())
+        assert downgraded == before
+        command.upgrade(config, "head")
+    finally:
+        engine.dispose()
 
 
 def test_alembic_cli_uses_database_url_environment(tmp_path):

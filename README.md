@@ -562,7 +562,11 @@ Job states are:
 
 Claims use a conditional queued-to-running update; PostgreSQL query construction includes `FOR UPDATE SKIP LOCKED` for concurrent workers. Idempotency keys include the owner, listing revision, platform, account, action, and operation mode. Platform cooldowns can return work to `queued` without counting an adapter attempt. Stale `running` jobs are recovered after `JOB_STALE_RUNNING_SECONDS`.
 
-Recovery checks the selected job version again before returning it to the queue, so an outdated recovery decision cannot replace a newer completion or claim. Competing recoverers record only one successful transition and recovery log. Each worker cycle considers at most its configured batch size of stale candidates, loading only IDs and timestamps; repeated cycles drain the backlog. This does not provide lease renewal or exactly-once external publication during long-running adapter calls.
+Recovery checks the selected job version again before returning it to the queue, so an outdated recovery decision cannot replace a newer completion or claim. Competing recoverers record only one successful transition and recovery log. Each worker cycle considers at most its configured batch size of stale candidates, loading only IDs and timestamps; repeated cycles drain the backlog.
+
+Each claim also carries a random identifier through execution. A delayed worker cannot start a replacement claim or save a late success, error, or quota response after its claim has been replaced. The job result, platform mapping, and attempt/log writes share one guarded transaction. Adapter calls receive detached listing/image/account inputs after the read connection has been released; package preparation does not hold a database transaction open. These safeguards protect local database state, not provider-side effects: lease renewal and exactly-once external publication are not implemented.
+
+Upgrading to Alembic revision `20260905_0014` requires stopping all old API and worker processes first, including inline processing. Back up the database, apply migrations, and restart every process with the new code. Do not mix old and new workers: old code does not enforce claim identifiers. See the [claim-fencing upgrade procedure](docs/OPERATOR_RUNBOOK.md#claim-fencing-upgrade).
 
 Inline requests must claim due queued work; they do not execute a job already claimed by a worker or bypass its scheduled backoff. Retrying an already queued/running job leaves it unchanged. Retrying terminal work uses a conditional version check and, when `JOB_PROCESS_INLINE=false`, leaves execution to the separate worker. A fresh claim clears the previous attempt's start/finish timestamps so it is not immediately recovered as stale.
 
@@ -681,11 +685,11 @@ The gate runs:
 3. the complete pytest suite;
 4. `python -m app.doctor --json`.
 
-The current suite contains 312 tests spanning API behaviour, authentication, owner isolation, publishing-account ownership/platform checks, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent enqueue/worker claims/retries/health, stale-recovery races and batch bounds, worker database-error recovery, migrations, deployment configuration, bounded dashboard reads, HAI, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention.
+The current suite contains 335 tests spanning API behaviour, authentication, owner isolation, publishing-account ownership/platform checks, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent enqueue/worker claims/retries/health, stale-recovery races and batch bounds, claim-fenced results, connection release during adapter calls, worker database-error recovery, migrations, deployment configuration, bounded dashboard reads, HAI, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention.
 
 Pytest creates a separate database, upload directory, and secret directory for each process before importing the application. It ignores inherited deployment/storage values and removes its own fixtures after a successful run; failed fixtures remain under `.tmp/test-runs/` for diagnosis. See [Testing strategy](docs/TESTING_STRATEGY.md) for the isolation contract and explicit PostgreSQL integration checks.
 
-GitHub's `postgres-workers` job also runs the 39 job-safety checks against a disposable PostgreSQL 16 service, including changed-account checks, stale-recovery races, and bounded backlog draining through separate database connections. Each case migrates its own newly created schema to Alembic head and removes that schema afterward. This is CI integration evidence, not evidence of a deployed production database.
+GitHub's `postgres-workers` job also runs the 61 job-safety checks against a disposable PostgreSQL 16 service, including changed-account checks, stale-recovery races, bounded backlog draining, claim-fenced completion, resource release, and migration preservation through separate database connections. Each case migrates its own newly created schema to Alembic head and removes that schema afterward. This is CI integration evidence, not evidence of a deployed production database.
 
 Additional checks:
 
