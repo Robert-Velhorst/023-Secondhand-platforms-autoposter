@@ -743,7 +743,7 @@ textarea {
 
 .hai-token-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(150px, 220px) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   align-items: end;
 }

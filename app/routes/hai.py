@@ -1,20 +1,28 @@
 import base64
 import binascii
+import json
+import re
 import secrets
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, load_only, selectinload
 
 from app.config import get_settings
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import HaiConnectorToken, HaiListingChange, Listing, User
+from app.models import HaiConnectorToken, HaiListingChange, Listing, ListingImage, PlatformListingMapping, User
 from app.schemas import HaiRecord, HaiRecordPage, HaiTokenCreate, HaiTokenCreated, HaiTokenOut
 from app.security import hash_token
 from app.services.audit import record_audit_event
 
 router = APIRouter(tags=["HAI connector"])
+
+HAI_EXPORT_MAX_BYTES = 5 * 1024 * 1024
+HAI_CONTENT_MAX_BYTES = 200_000
+HAI_METADATA_MAX_BYTES = 16_000
 
 
 def _utc(value: datetime) -> datetime:
@@ -178,7 +186,7 @@ def hai_status(user: User = Depends(get_hai_user)) -> dict:
     }
 
 
-def _listing_record(listing: Listing, change: HaiListingChange) -> HaiRecord:
+def _listing_record(listing: Listing, changed_at: datetime, *, image_count: int | None = None) -> HaiRecord:
     settings = get_settings()
     tags = ", ".join(str(tag) for tag in listing.tags if str(tag).strip()) or "none"
     content = "\n".join(
@@ -198,7 +206,7 @@ def _listing_record(listing: Listing, change: HaiListingChange) -> HaiRecord:
         title=listing.title or f"Listing {listing.id}",
         content=content,
         source_url=f"{settings.public_base_url.rstrip('/')}/?listing={listing.id}",
-        updated_at=change.changed_at,
+        updated_at=changed_at,
         metadata={
             "listing_id": listing.id,
             "revision": listing.revision,
@@ -206,7 +214,7 @@ def _listing_record(listing: Listing, change: HaiListingChange) -> HaiRecord:
             "category": listing.category,
             "price_cents": listing.price_cents,
             "currency": listing.currency,
-            "image_count": len(listing.images),
+            "image_count": len(listing.images) if image_count is None else image_count,
             "platforms": sorted(
                 mapping.platform for mapping in listing.platform_mappings if mapping.status != "skipped"
             ),
@@ -260,10 +268,77 @@ def hai_records(
                 )
             )
         else:
-            records.append(_listing_record(listing, change))
+            records.append(_listing_record(listing, change.changed_at))
 
     return HaiRecordPage(
         records=records,
         next_cursor=_encode_cursor(page[-1].id) if page else cursor,
         has_more=has_more,
+    )
+
+
+@router.get("/api/hai/export", response_class=Response)
+def hai_export(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> Response:
+    """Download current owner listings in HAI's generic local-file format."""
+    image_count_query = (
+        select(func.count(ListingImage.id)).where(ListingImage.listing_id == Listing.id).scalar_subquery()
+    )
+    listings = (
+        db.query(Listing, image_count_query)
+        .options(
+            load_only(
+                Listing.title, Listing.description, Listing.price_cents, Listing.currency,
+                Listing.condition, Listing.category, Listing.location, Listing.tags,
+                Listing.status, Listing.revision, Listing.updated_at,
+            ),
+            selectinload(Listing.platform_mappings).load_only(
+                PlatformListingMapping.platform, PlatformListingMapping.status,
+            ),
+        )
+        .filter(Listing.owner_id == user.id)
+        .order_by(Listing.id.asc())
+        .yield_per(100)
+    )
+    body = bytearray(b'{"items":[')
+    for index, (listing, image_count) in enumerate(listings):
+        record = _listing_record(listing, listing.updated_at, image_count=image_count)
+        # HAI validates decoded content bytes and Go's JSON-encoded metadata.
+        metadata_json = json.dumps(record.metadata, ensure_ascii=False, separators=(",", ":"))
+        for character, escaped in (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026"),
+                                   ("\u2028", "\\u2028"), ("\u2029", "\\u2029")):
+            metadata_json = metadata_json.replace(character, escaped)
+        if (len(record.content.encode("utf-8")) > HAI_CONTENT_MAX_BYTES
+                or len(metadata_json.encode("utf-8")) > HAI_METADATA_MAX_BYTES):
+            raise HTTPException(413, "A listing exceeds HAI's content or metadata limit; no feed was exported.")
+        source_uri = record.source_url
+        try:
+            base = urlsplit(get_settings().public_base_url)
+            if (base.scheme not in {"http", "https"} or not base.hostname
+                    or base.username or base.password or base.query or base.fragment
+                    or re.search(r"(token|auth|api[_-]?key|secret|password|bearer)=", source_uri, re.I)):
+                source_uri = ""
+        except ValueError:
+            source_uri = ""
+        item = {
+            "externalId": f"secondhand:listing:{listing.id}",
+            "provider": "generic_json_feed",
+            "itemType": "document",
+            "title": record.title,
+            "content": record.content,
+            "sourceUri": source_uri,
+            "metadata": record.metadata,
+        }
+        encoded = json.dumps(item, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        if len(body) + bool(index) + len(encoded) + 2 > HAI_EXPORT_MAX_BYTES:
+            raise HTTPException(413, "HAI feed exceeds 5 MiB; no partial file was exported. Use a managed connector.")
+        if index:
+            body.extend(b",")
+        body.extend(encoded)
+    body.extend(b"]}")
+    return Response(
+        bytes(body), media_type="application/json",
+        headers={
+            "Content-Disposition": 'attachment; filename="autoposter-hai-feed.json"',
+            "Cache-Control": "no-store",
+        },
     )

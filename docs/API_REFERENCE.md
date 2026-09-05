@@ -135,12 +135,13 @@ Queue idempotency covers every job state. A repeated `publish` request with the 
 | `DELETE` | `/api/hai/tokens/{token_id}` | Revoke an owned connector token. |
 | `GET` | `/api/hai/status` | Verify an HAI bearer token and owner-scoped feed state. |
 | `GET` | `/api/hai/records` | Read incremental owner-scoped listing upserts and deletion tombstones. |
+| `GET` | `/api/hai/export` | Download current owner listings as HAI generic JSON (`items`); normal owner bearer session required. |
 
-The last two endpoints require a `hai_...` connector token, not a normal user session. See `docs/HAI_CONNECTOR.md`.
+`/api/hai/status` and `/api/hai/records` require a `hai_...` connector token, not a normal user session. `/api/hai/export` deliberately uses the normal session and rejects connector tokens. It returns a no-store JSON attachment, or HTTP 413 without a partial file if the feed exceeds 5 MiB or HAI's item limits. See [HAI connector](HAI_CONNECTOR.md) for file registration, incremental compatibility gaps, and deletion limitations.
 
 ## Pagination
 
-List endpoints return `X-Total-Count`, `X-Limit`, and `X-Offset` headers. Use `limit` and `offset` to page through results.
+Paginated product collections return `X-Total-Count`, `X-Limit`, and `X-Offset` headers. Use `limit` and `offset` to page through those results. HAI records instead use opaque `cursor`, `next_cursor`, and `has_more` with `limit` from 1 to 250 (default 100). The HAI file export is complete-or-error, not a paginated response.
 
 ## Rate Limiting
 

@@ -174,7 +174,12 @@ const COPY_CATALOG = {
     "settings.importCsv": "Import listings CSV",
     "settings.diagnostics": "Diagnostics",
     "settings.hai": "HAI connection",
-    "settings.haiHelp": "Create a read-only connector token for HAI. The token can read your listing feed, but cannot post, edit, or export credentials.",
+    "settings.haiHelp": "Download a listing file for HAI's local JSON feed. Connector tokens below are for a custom authenticated adapter; HAI's current HTTP reader cannot use them directly.",
+    "settings.haiDownload": "Download HAI feed",
+    "settings.haiDownloadHelp": "Contains your current listing text and safe metadata, without private notes or image files. Maximum 5 MiB; oversized exports fail without a partial file. Importing requires HAI operator setup. This is not automatic sync and does not delete previously imported HAI records.",
+    "settings.haiPreparing": "Preparing HAI feed…",
+    "settings.haiReady": "HAI feed downloaded. Ask your HAI operator to import this file; automatic sync is not configured.",
+    "settings.haiFailed": "HAI feed download failed. No file was exported.",
     "settings.haiName": "Connection name",
     "settings.haiExpiry": "Expires after",
     "settings.haiCreate": "Create read-only token",
@@ -280,7 +285,12 @@ const COPY_CATALOG = {
     "settings.importCsv": "Advertenties CSV importeren",
     "settings.diagnostics": "Diagnostiek",
     "settings.hai": "HAI-koppeling",
-    "settings.haiHelp": "Maak een alleen-lezen koppeltoken voor HAI. Het token kan je advertentiefeed lezen, maar niets plaatsen, wijzigen of inloggegevens exporteren.",
+    "settings.haiHelp": "Download een advertentiebestand voor de lokale JSON-feed van HAI. De koppeltokens hieronder zijn voor een aparte geauthenticeerde adapter; de huidige HTTP-lezer van HAI kan ze niet rechtstreeks gebruiken.",
+    "settings.haiDownload": "HAI-feed downloaden",
+    "settings.haiDownloadHelp": "Bevat je huidige advertentietekst en veilige metadata, zonder privénotities of afbeeldingsbestanden. Maximaal 5 MiB; bij een te grote export wordt geen gedeeltelijk bestand gemaakt. Importeren vereist inrichting door je HAI-beheerder. Dit is geen automatische synchronisatie en verwijdert geen eerder geïmporteerde HAI-records.",
+    "settings.haiPreparing": "HAI-feed voorbereiden…",
+    "settings.haiReady": "HAI-feed gedownload. Vraag je HAI-beheerder dit bestand te importeren; automatische synchronisatie is niet ingesteld.",
+    "settings.haiFailed": "Downloaden van de HAI-feed is mislukt. Er is geen bestand geëxporteerd.",
     "settings.haiName": "Naam van koppeling",
     "settings.haiExpiry": "Verloopt na",
     "settings.haiCreate": "Alleen-lezen token maken",
@@ -2159,6 +2169,21 @@ $("#haiTokenForm").addEventListener("submit", async (event) => {
   state.newHaiToken = created.token;
   state.haiTokens = [created, ...state.haiTokens];
   renderSettings();
+});
+
+$("#exportHaiFeedButton").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const message = $("#haiExportMessage");
+  button.disabled = true;
+  message.textContent = t("settings.haiPreparing");
+  try {
+    await downloadApiFile("/hai/export", "autoposter-hai-feed.json");
+    message.textContent = t("settings.haiReady");
+  } catch (error) {
+    message.textContent = `${t("settings.haiFailed")} ${error instanceof Error ? error.message : ""}`.trim();
+  } finally {
+    button.disabled = false;
+  }
 });
 
 $("#haiTokenList").addEventListener("click", async (event) => {

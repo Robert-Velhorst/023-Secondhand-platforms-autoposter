@@ -376,7 +376,10 @@
                 <div class="section-line"></div>
                 <h3 data-i18n="settings.hai">HAI connection</h3>
                 <div class="list hai-connector-panel">
-                  <p class="muted" data-i18n="settings.haiHelp">Create a read-only connector token for HAI. The token can read your listing feed, but cannot post, edit, or export credentials.</p>
+                  <p class="muted" data-i18n="settings.haiHelp">Download a listing file for HAI's local JSON feed. Connector tokens below are for a custom authenticated adapter; HAI's current HTTP reader cannot use them directly.</p>
+                  <button id="exportHaiFeedButton" type="button" data-i18n="settings.haiDownload">Download HAI feed</button>
+                  <p class="muted" data-i18n="settings.haiDownloadHelp">Contains your current listing text and safe metadata, without private notes or image files. Maximum 5 MiB; oversized exports fail without a partial file. Importing requires HAI operator setup. This is not automatic sync and does not delete previously imported HAI records.</p>
+                  <p id="haiExportMessage" role="status" aria-live="polite"></p>
                   <form id="haiTokenForm" class="hai-token-form">
                     <label data-i18n-label="settings.haiName">Connection name<input id="haiTokenName" value="Local HAI" maxlength="120" required /></label>
                     <label data-i18n-label="settings.haiExpiry">Expires after

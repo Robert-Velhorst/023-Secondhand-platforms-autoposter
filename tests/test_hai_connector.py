@@ -185,3 +185,165 @@ def test_hai_incremental_feed_observes_platform_selection_changes():
         assert page["records"], "Platform selection changes must appear in incremental sync"
         assert page["records"][-1]["metadata"]["platforms"] == expected
         cursor = page["next_cursor"]
+
+
+def test_hai_export_download_has_generic_items_and_only_owner_public_fields():
+    owner = _register("hai-export")
+    foreign = _register("hai-export-foreign")
+    listing = client.post("/api/listings", headers=owner, json={
+        "title": "Éiken bureau", "description": "Solid oak desk.", "price_cents": 7500,
+        "internal_notes": "PRIVATE OWNER NOTE", "notes": "PRIVATE GENERAL NOTE",
+        "tags": ["oak"],
+    }).json()
+    client.post("/api/listings", headers=foreign, json={"title": "FOREIGN SECRET TITLE"})
+    uploaded = client.post(
+        f"/api/listings/{listing['id']}/images", headers=owner,
+        files={"file": ("PRIVATE_FILENAME.png", PNG_BYTES, "image/png")},
+    )
+    assert uploaded.status_code == 200
+    response = client.get("/api/hai/export", headers=owner)
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.headers["content-disposition"] == 'attachment; filename="autoposter-hai-feed.json"'
+    assert response.headers["cache-control"] == "no-store"
+    payload = response.json()
+    assert set(payload) == {"items"}
+    assert len(payload["items"]) == 1
+    item = payload["items"][0]
+    assert item["externalId"] == f"secondhand:listing:{listing['id']}"
+    assert item["provider"] == "generic_json_feed"
+    assert item["itemType"] == "document"
+    assert item["title"] == "Éiken bureau"
+    assert "Solid oak desk." in item["content"]
+    assert "75.00 EUR" in item["content"]
+    assert item["metadata"]["image_count"] == 1
+    assert item["metadata"]["execution_authority"] is False
+    assert item["sourceUri"].endswith(f"/?listing={listing['id']}")
+    for excluded in ("PRIVATE OWNER NOTE", "PRIVATE GENERAL NOTE", "FOREIGN SECRET TITLE", "PRIVATE_FILENAME"):
+        assert excluded not in response.text
+
+
+def test_hai_export_requires_owner_session_not_connector_token():
+    owner = _register("hai-export-auth")
+    _, connector = _create_hai_token(owner)
+    for headers in ({}, connector, {"Authorization": "Bearer invalid"}):
+        assert client.get("/api/hai/export", headers=headers).status_code == 401
+    assert client.get("/api/hai/export", headers=owner).json() == {"items": []}
+
+
+def test_hai_export_refresh_has_current_content_without_deleted_listings():
+    owner = _register("hai-export-refresh")
+    listing = client.post("/api/listings", headers=owner, json={"title": "Before"}).json()
+    first = client.get("/api/hai/export", headers=owner).json()["items"][0]
+    client.patch(f"/api/listings/{listing['id']}", headers=owner, json={"title": "After"})
+    second = client.get("/api/hai/export", headers=owner).json()["items"][0]
+    assert first["externalId"] == second["externalId"]
+    assert second["title"] == "After"
+    client.delete(f"/api/listings/{listing['id']}", headers=owner)
+    assert client.get("/api/hai/export", headers=owner).json() == {"items": []}
+
+
+@pytest.mark.parametrize("case", ["content", "metadata", "feed"])
+def test_hai_export_refuses_consumer_size_overflow_without_partial_download(case):
+    from app.database import SessionLocal
+    from app.models import Listing
+
+    owner = _register(f"hai-export-large-{case}")
+    owner_id = client.get("/api/auth/me", headers=owner).json()["id"]
+    with SessionLocal() as db:
+        if case == "content":
+            rows = [Listing(owner_id=owner_id, title="Too much Unicode", description="🪑" * 50_001)]
+        elif case == "metadata":
+            rows = [Listing(owner_id=owner_id, title="Old imported metadata", category="x" * 16_001)]
+        else:
+            rows = [Listing(owner_id=owner_id, title=f"Bulk {i}", description="x" * 190_000) for i in range(28)]
+        db.add_all(rows)
+        db.commit()
+    response = client.get("/api/hai/export", headers=owner)
+    assert response.status_code == 413, response.text[:300]
+    assert "content-disposition" not in response.headers
+    assert "items" not in response.json()
+
+
+def test_hai_export_includes_more_than_one_api_page_without_n_plus_one_queries():
+    from sqlalchemy import event
+
+    from app.database import SessionLocal, engine
+    from app.models import Listing
+
+    owner = _register("hai-export-batches")
+    owner_id = client.get("/api/auth/me", headers=owner).json()["id"]
+    with SessionLocal() as db:
+        db.add_all([Listing(owner_id=owner_id, title=f"Batch item {i}") for i in range(301)])
+        db.commit()
+    queries = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            queries.append(statement)
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        response = client.get("/api/hai/export", headers=owner)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    assert len(items) == 301
+    assert len({item["externalId"] for item in items}) == 301
+    assert {item["title"] for item in items} == {f"Batch item {i}" for i in range(301)}
+    assert len(queries) <= 12, f"Expected batched queries, got {len(queries)}"
+    assert all("internal_notes" not in query and "storage_path" not in query for query in queries)
+
+
+def test_hai_export_never_embeds_credentials_from_a_misconfigured_source_url(monkeypatch):
+    from app.config import get_settings
+
+    owner = _register("hai-export-url")
+    client.post("/api/listings", headers=owner, json={"title": "Safe item"})
+    monkeypatch.setattr(get_settings(), "public_base_url", "https://user:PRIVATE_PASSWORD@example.com/?token=SECRET")
+    response = client.get("/api/hai/export", headers=owner)
+    assert response.status_code == 200
+    assert response.json()["items"][0]["sourceUri"] == ""
+    assert "PRIVATE_PASSWORD" not in response.text
+    assert "SECRET" not in response.text
+
+
+@pytest.mark.parametrize("character", ["<", ">", "&", "\u2028", "\u2029"])
+def test_hai_export_counts_go_metadata_escaping_before_accepting_a_file(character):
+    from app.database import SessionLocal
+    from app.models import Listing
+
+    owner = _register("hai-export-escaped")
+    owner_id = client.get("/api/auth/me", headers=owner).json()["id"]
+    with SessionLocal() as db:
+        # Go escapes each character to six ASCII bytes: 2700 * 6 already exceeds 16000.
+        db.add(Listing(owner_id=owner_id, title="Escaped metadata", category=character * 2700))
+        db.commit()
+    response = client.get("/api/hai/export", headers=owner)
+    assert response.status_code == 413
+    assert "content-disposition" not in response.headers
+
+
+def test_hai_export_accepts_exact_content_byte_limit_then_rejects_one_more_byte():
+    from app.database import SessionLocal
+    from app.models import Listing
+
+    owner = _register("hai-export-boundary")
+    owner_id = client.get("/api/auth/me", headers=owner).json()["id"]
+    empty_content = (
+        "Title: Boundary\nDescription: \nCategory: unspecified\nCondition: used\n"
+        "Status: draft\nPrice: 0.00 EUR\nLocation: unspecified\nTags: none"
+    )
+    with SessionLocal() as db:
+        listing = Listing(owner_id=owner_id, title="Boundary", description="x" * (200_000 - len(empty_content)))
+        db.add(listing)
+        db.commit()
+        listing_id = listing.id
+    response = client.get("/api/hai/export", headers=owner)
+    assert response.status_code == 200, response.text[:200]
+    assert len(response.json()["items"][0]["content"].encode("utf-8")) == 200_000
+    with SessionLocal() as db:
+        db.get(Listing, listing_id).description += "x"
+        db.commit()
+    assert client.get("/api/hai/export", headers=owner).status_code == 413

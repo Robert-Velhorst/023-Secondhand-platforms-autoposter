@@ -10,7 +10,7 @@ Secondhand Platforms Autoposter is a self-hosted listing workspace for preparing
 
 This README describes the **`agent/production-launch-hardening` review branch**, tracked in [draft pull request #2](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/pull/2), not an approved production release. At the 2026-09-06 repository check, `main` remained at `d96b27e`; the review branch was at `124094b` before this documentation update. The previously reported 190 tests refer to the earlier baseline, not the current review branch. Follow the branch-specific clone instructions below to obtain the code described here.
 
-In plain language: the local app prepares and organises listings; people still publish them. A Windows build has recorded local verification. Production launch, safe ngrok lifecycle handling, and a working connection to the current HAI consumer are separate unfinished milestones. The `1.0.0-rc.1` version string is not launch approval or proof of a downloadable signed release.
+In plain language: the local app prepares and organises listings; people still publish them. A Windows build and a manual HAI file handoff have recorded local verification. Production launch, safe ngrok lifecycle handling, automatic HAI synchronization, and acceptance in the target HAI installation are separate unfinished milestones. The `1.0.0-rc.1` version string is not launch approval or proof of a downloadable signed release.
 
 ## Contents
 
@@ -293,7 +293,13 @@ Treat an ngrok URL as internet exposure. Use a strong account password, do not e
 
 ## HAI connector
 
-The application exposes an app-side, owner-scoped, **read-only** API intended for HAI integration, using a separate token instead of the user's normal login token. **The current HAI generic-feed consumer is not directly compatible.**
+The application offers a **HAI-compatible local-file download** and a separate owner-scoped, **read-only** incremental API. **HAI's current HTTP consumer is not directly compatible with the incremental API.**
+
+### Download a file for HAI
+
+Sign in, open **Settings → HAI connection → Download HAI feed**, and save `autoposter-hai-feed.json`. Give the file to your authorised HAI operator to place under HAI's allowlisted feeds directory and register as `local_json_file` / `generic_json_feed`, using a distinct account label for this Autoposter installation and owner. No connector token is needed for this manual download; it uses your normal signed-in session.
+
+The file contains all currently stored owner listings (including archived listings), in HAI's `items` format with stable listing IDs. It excludes private notes, credentials, filenames, and image bytes. Exports over 5 MiB, or listings exceeding HAI's per-item limits, return an error **without a partial file**. Refresh the file to share later changes. An omitted/deleted listing does not remove previously ingested HAI operations. This is a controlled file handoff, not automatic synchronization or production HAI acceptance. The [connector guide](docs/HAI_CONNECTOR.md) explains setup and verification.
 
 ### Test the app-side connector
 
@@ -323,7 +329,7 @@ Source comparison against [HAI's generic-feed parser at commit `91c8620`](https:
 | Identity/type fields | `id`, `source_url`, listing metadata | Requires `externalId`, `provider`, and `itemType`; uses `sourceUri` |
 | Incremental sync | Caller advances the cursor and applies deletion tombstones | Reports a cursor but does not advance the fetch URL or apply Autoposter tombstones |
 
-Registering the URL alone is therefore insufficient: authenticated fetching fails, and even a manually fetched `records` envelope can be interpreted as zero items by that parser. An authenticated adapter or explicitly managed file-conversion bridge, cursor/retry handling, deletion policy, and real ingestion evidence are still needed. No such bridge or HAI-compatible feed-download feature is currently shipped here. Do not remove authentication or claim end-to-end HAI completion to work around the mismatch. See [HAI connector](docs/HAI_CONNECTOR.md) for the protocol and acceptance checklist.
+Registering the incremental URL alone is therefore insufficient: authenticated fetching fails, and even a manually fetched `records` envelope can be interpreted as zero items by that parser. The new file download handles the generic format for a manual handoff; an authenticated automatic adapter, cursor/retry handling, deletion policy, and target-installation ingestion evidence are still needed. Do not remove authentication or claim end-to-end automatic HAI completion to work around the mismatch. See [HAI connector](docs/HAI_CONNECTOR.md) for the protocol and acceptance checklist.
 
 ## Architecture
 
@@ -337,7 +343,8 @@ flowchart LR
     W --> P["Assisted platform adapters"]
     P --> M["Copy-ready package + marketplace link"]
     M -->|"Seller signs in and submits"| X["External marketplace"]
-    H["HAI: compatible consumer still needed"] -.->|"Required authenticated adapter"| R["Read-only incremental connector"]
+    U -->|"Authenticated download + operator import"| H["HAI generic local-file consumer"]
+    H -.->|"Automatic authenticated adapter still needed"| R["Read-only incremental connector"]
     R --> A
 ```
 
@@ -350,7 +357,7 @@ flowchart LR
 | `app/api.py` | Listings, images, platform mappings, jobs, accounts, templates, category mappings, audit events, and import/export routes |
 | `app/routes/auth.py` | Registration, login, logout, current user, and account deletion |
 | `app/routes/system.py` | Health, worker status, diagnostics, metrics, localisation, analytics, action centre, dashboard, and account readiness |
-| `app/routes/hai.py` | HAI discovery, connector-token lifecycle, status, and incremental read feed |
+| `app/routes/hai.py` | HAI discovery, connector-token lifecycle, status, incremental read feed, and generic file export |
 | `app/models.py` | SQLAlchemy domain and operational models |
 | `app/storage.py` | Validated local and S3-compatible image persistence/retrieval |
 | `app/adapters/` | Honest marketplace capability, validation, mapping, and assisted-package contracts |
@@ -567,6 +574,7 @@ All product endpoints are under `/api` unless noted. Authenticated calls use `Au
 | `DELETE` | `/api/hai/tokens/{token_id}` | Revoke a connector token |
 | `GET` | `/api/hai/status` | Verify a `hai_...` token |
 | `GET` | `/api/hai/records` | Pull owner-scoped incremental listing changes |
+| `GET` | `/api/hai/export` | Download a HAI generic JSON file using the owner's normal bearer session; connector tokens cannot call it |
 
 Paginated product collections such as listings and jobs use bounded `limit`/`offset` and return `X-Total-Count`, `X-Limit`, and `X-Offset`. This is not universal: HAI records use `cursor`, `limit` (1–250, default 100), `next_cursor`, and `has_more`; token metadata and platform capabilities have their own response contracts. See [API reference](docs/API_REFERENCE.md) and the running `/docs` schema for payload and error-shape details.
 
@@ -713,7 +721,7 @@ The gate runs:
 3. the complete pytest suite;
 4. `python -m app.doctor --json`.
 
-The current suite contains 335 tests spanning API behaviour, authentication, owner isolation, publishing-account ownership/platform checks, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent enqueue/worker claims/retries/health, stale-recovery races and batch bounds, claim-fenced results, connection release during adapter calls, worker database-error recovery, migrations, deployment configuration, bounded dashboard reads, HAI, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention.
+The current suite contains 349 tests spanning API behaviour, authentication, owner isolation, publishing-account ownership/platform checks, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent enqueue/worker claims/retries/health, stale-recovery races and batch bounds, claim-fenced results, connection release during adapter calls, worker database-error recovery, migrations, deployment configuration, bounded dashboard reads, HAI incremental feeds and size-limited generic downloads, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention.
 
 Pytest creates a separate database, upload directory, and secret directory for each process before importing the application. It ignores inherited deployment/storage values and removes its own fixtures after a successful run; failed fixtures remain under `.tmp/test-runs/` for diagnosis. See [Testing strategy](docs/TESTING_STRATEGY.md) for the isolation contract and explicit PostgreSQL integration checks.
 
