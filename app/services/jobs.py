@@ -1,7 +1,7 @@
 import hashlib
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, desc, or_
+from sqlalchemy import and_, case, desc, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.adapters import get_adapter
@@ -110,19 +110,20 @@ def enqueue_publish_job(
 
 
 def process_job(db: Session, job_id: int) -> PublishingJob:
+    """Claim due work; never execute a claim held by another request or worker."""
+    if not claim_job_for_processing(db, job_id, due_only=True):
+        return db.query(PublishingJob).filter(PublishingJob.id == job_id).one()
+    return _process_claimed_job(db, job_id)
+
+
+def _process_claimed_job(db: Session, job_id: int) -> PublishingJob:
+    """Execute only IDs obtained by this caller's successful claim operation."""
     job = (
         db.query(PublishingJob)
         .filter(PublishingJob.id == job_id)
         .one()
     )
-    if is_terminal_status(job.status) and job.status != FAILED:
-        return job
-    if job.status == QUEUED and not claim_job_for_processing(db, job.id):
-        return db.get(PublishingJob, job.id)
-    if job.status == FAILED:
-        transition_job(job, RUNNING)
-        db.commit()
-    elif job.status != RUNNING:
+    if job.status != RUNNING:
         return job
 
     job = (
@@ -246,21 +247,48 @@ def claim_job_for_processing(db: Session, job_id: int, due_only: bool = False) -
             query.filter(PublishingJob.scheduled_at <= now)
             .filter((PublishingJob.next_retry_at.is_(None)) | (PublishingJob.next_retry_at <= now))
         )
-    claimed = query.update({PublishingJob.status: RUNNING, PublishingJob.updated_at: now}, synchronize_session=False)
+    claimed = query.update({
+        PublishingJob.status: RUNNING,
+        PublishingJob.started_at: None,
+        PublishingJob.finished_at: None,
+        PublishingJob.updated_at: now,
+    }, synchronize_session=False)
     db.commit()
     return claimed == 1
 
 
 def retry_job(db: Session, job: PublishingJob) -> PublishingJob:
-    if job.attempts >= job.max_attempts:
-        job.max_attempts += 1
-    transition_job(job, QUEUED)
-    job.error_message = None
-    job.next_retry_at = None
+    if not is_terminal_status(job.status):
+        db.refresh(job)
+        return job
+    # Compare the observed version as well as status: two retry requests must
+    # not reset work that the other request has already queued or completed.
+    queued = db.query(PublishingJob).filter(
+        PublishingJob.id == job.id,
+        PublishingJob.status == job.status,
+        PublishingJob.updated_at == job.updated_at,
+    ).update({
+        PublishingJob.status: QUEUED,
+        PublishingJob.error_message: None,
+        PublishingJob.next_retry_at: None,
+        PublishingJob.started_at: None,
+        PublishingJob.finished_at: None,
+        PublishingJob.updated_at: datetime.now(UTC),
+        PublishingJob.max_attempts: case(
+            (PublishingJob.attempts >= PublishingJob.max_attempts, PublishingJob.max_attempts + 1),
+            else_=PublishingJob.max_attempts,
+        ),
+    }, synchronize_session=False)
+    db.refresh(job)
+    if not queued:
+        db.commit()
+        return job
     add_log(db, job, "info", "Publishing job queued for retry.")
     db.commit()
     db.refresh(job)
-    return process_job(db, job.id)
+    if get_settings().job_process_inline:
+        return process_job(db, job.id)
+    return job
 
 
 def confirm_manual_completion(
@@ -369,6 +397,8 @@ def claim_due_queued_job_ids_with_locks(db: Session, limit: int) -> list[int]:
     job_ids = [job.id for job in jobs]
     for job in jobs:
         transition_job(job, RUNNING)
+        job.started_at = None
+        job.finished_at = None
         job.updated_at = now
     if jobs:
         db.commit()
@@ -413,6 +443,6 @@ def process_due_jobs(db: Session, limit: int) -> int:
     job_ids = claim_due_queued_job_ids(db, limit)
     processed = 0
     for job_id in job_ids:
-        process_job(db, job_id)
+        _process_claimed_job(db, job_id)
         processed += 1
     return processed

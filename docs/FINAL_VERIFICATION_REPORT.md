@@ -1,5 +1,20 @@
 # Final Verification Report
 
+## Job-claim and concurrent-worker verification — 2026-09-05
+
+Target: working checkout based on `97f8b88baf90040b2dda0e52425fc6f5c7ffa433`, with job-claim and retry repairs.
+
+- Seven failing regression cases reproduced unwanted execution of another worker's running job, immediate stale recovery after reclaiming an old attempt, active-job retries restarting work, retries bypassing `JOB_PROCESS_INLINE=false`, and inline execution bypassing scheduled backoff.
+- Public job processing now requires a successful due-job claim; worker execution uses its already-claimed IDs. Claims clear old attempt timestamps. Retries preserve active work, use a conditional status/version update, and respect the separate-worker setting.
+- Final full local gate passed: Ruff, compilation, **253 tests in 91.13 seconds**, and doctor. The development default-secret warning remains; the local database is at Alembic head `20260809_0013`.
+- The initial **10 job-safety checks passed on PostgreSQL 16.15 in 91.83 seconds**. Each case ran Alembic migrations from empty in a fresh isolated schema. Two scenarios used four simultaneous database sessions to process 24 jobs each: missing-field failures and valid assisted packages, with exactly one recorded attempt per job. The same scenarios passed on SQLite. These are real database/session checks, not separate OS worker-process stress tests.
+- Independent read-only review found no introduced blockers and identified a version-guard coverage gap. An eleventh case now verifies that a delayed retry cannot restart newer work which has already returned to the same terminal status. It failed with the timestamp predicate temporarily removed and passed after restoration; the final full local gate includes it. The CI PostgreSQL job runs all eleven cases.
+- Added a dedicated `postgres-workers` GitHub Actions job to retain the migrated PostgreSQL regression coverage. Test credentials are confined to its disposable service. No production credentials or existing application database were used.
+- PostgreSQL cleanup confirmed zero `jobtest_*` schemas, then the dedicated container was stopped and confirmed absent.
+- Windows executable rebuilt with SHA-256 `0440e8994706825fa6dbba2674cc7800e34bfe85d65245084441b65e927ca69a`. Fresh isolated Windows 11 executable HTTP checks passed: API/worker health, dashboard, private image upload, HAI incremental metadata, and malformed-cursor HTTP 422.
+- The executable's actual separate worker processed an incomplete listing once to `failed`; after correcting the listing, the retry API returned `queued` without increasing attempts, and the worker subsequently produced `needs_user_action` with two total attempts. Test processes were stopped afterward.
+- This does not prove exactly-once external publication, long-running lease-expiry safety, target-environment load, production deployment, a real HAI consumer installation, manual accessibility, or client acceptance. Those requirements remain open.
+
 ## Test-data isolation verification — 2026-09-05
 
 Target: working checkout based on `f8e765275621fdc2fe5583fc97b5d16332adc9a8`, with centralized pytest configuration and process-specific storage.

@@ -31,6 +31,13 @@ os.environ.update({
 get_settings.cache_clear()
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--job-postgres-url",
+        help="Optional disposable PostgreSQL URL for job concurrency tests (database: autoposter_job_test_*).",
+    )
+
+
 def pytest_sessionfinish(session, exitstatus):
     if exitstatus != 0:
         return  # Retain failed-run fixtures for diagnosis.

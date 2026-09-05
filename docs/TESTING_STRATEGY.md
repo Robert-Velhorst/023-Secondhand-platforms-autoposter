@@ -21,6 +21,8 @@ Doctor warnings are allowed for local development defaults; doctor errors fail t
 
 GitHub Actions runs the same command on pushes and pull requests to `main` via `.github/workflows/verify.yml`.
 
+The same workflow also runs a `postgres-workers` job against a disposable PostgreSQL 16 service. Its eleven job-safety tests use real connections and migrations, not merely compiled PostgreSQL SQL.
+
 ## Current Test Layers
 
 | Layer | Files | Purpose |
@@ -36,6 +38,7 @@ GitHub Actions runs the same command on pushes and pull requests to `main` via `
 | Official API foundations | `tests/test_ebay_oauth.py`, `tests/test_platform_rate_limits.py` | eBay OAuth state safety, token exchange, token refresh, secret-store redaction, sandbox Inventory API probe shape, and quota-header backoff. |
 | Jobs/worker | `tests/test_worker.py`, `tests/test_job_state.py`, `tests/test_platform_rate_limits.py`, `tests/test_config.py` | Database-backed queue processing, worker empty-queue behavior, job detail route, filtering/sorting/pagination, atomic claims, PostgreSQL `SKIP LOCKED` claim SQL, stale-running recovery, state transitions, user-confirmed manual completion, platform cooldown overrides, and official API quota-header backoff. |
 | Listing revisions/idempotency | `tests/test_listing_revisions.py` | Revision increments and publish idempotency boundaries. |
+| Concurrent job safety | `tests/test_job_claim_safety.py` | Due-only public claims, worker-owned execution, reclaimed timestamps, active and delayed retry safety, inline-worker separation, real concurrent sessions, and optional migrated PostgreSQL fixtures. |
 | Domain model | `tests/test_domain_model.py` | Listing aggregate cascade behavior for images, drafts, mappings, jobs, logs, and attempts. |
 | Data invariants | `tests/test_data_invariants.py` | Money/weight validation, currency/tag/category-attribute normalization, and listing condition/status choices. |
 | Data portability | `tests/test_data_portability.py` | Sanitized JSON export/import, listing CSV round trip including category attributes, image ZIP export, settings, mappings, and account metadata. |
@@ -66,6 +69,22 @@ The doctor step in `scripts/verify.py` runs separately against the operator's cu
 
 ## Coverage Priorities
 
+### PostgreSQL Job Safety Drill
+
+The default suite runs `tests/test_job_claim_safety.py` on isolated SQLite databases. To run the same cases on PostgreSQL, first provision a **disposable** database whose name starts with `autoposter_job_test_`, then run:
+
+```bash
+python -m pytest -q tests/test_job_claim_safety.py --job-postgres-url "postgresql+psycopg://USER:PASSWORD@HOST:5432/autoposter_job_test_local"
+```
+
+Replace the uppercase connection fields with credentials for the disposable test service only. Do not supply a production database. The fixture rejects other database-name prefixes, creates a random schema with `CREATE SCHEMA` (never reuses one), migrates it from empty to Alembic head, and drops only that schema during cleanup. The account needs permission to create and drop its test schemas. This explicit option does not change the application database selected by the global test-isolation fixture.
+
+Coverage includes another request trying to execute a worker's claim, reclaimed-job timestamp freshness, queued/running retry protection, delayed retry requests, disabled inline processing, scheduled backoff, and four simultaneous sessions draining 24 jobs. Both real assisted-package success and missing-field failure paths assert exactly one attempt per job. Image metadata is synthetic; these concurrency cases do not validate image-file delivery or contact marketplaces.
+
+The queue claim transaction remains short and uses PostgreSQL `SKIP LOCKED`; see the [PostgreSQL locking documentation](https://www.postgresql.org/docs/current/sql-select.html#SQL-FOR-UPDATE-SHARE). These cases do not prove exactly-once behavior during external provider calls, lease expiry during unusually long work, distributed cooldown enforcement, or target-host load capacity.
+
+### Ongoing Priorities
+
 1. Idempotency, retries, and worker concurrency for publishing jobs.
 2. File safety: upload validation, storage paths, duplicate handling, ordering, and deletion.
 3. Data portability and privacy: no password/session/platform secrets in exports.
@@ -75,6 +94,6 @@ The doctor step in `scripts/verify.py` runs separately against the operator's cu
 
 - Browser-executed accessibility, keyboard navigation, and cross-browser matrix tests.
 - Live multi-worker concurrency tests against the target PostgreSQL database.
-- Live PostgreSQL-backed migration and integration test run.
+- Broader PostgreSQL-backed integration coverage beyond the job-safety and dashboard-read drills.
 - Frontend state consistency tests for filters, pagination, and edit modes.
 - Official API/OAuth sandbox tests when future platform API integrations are added.
