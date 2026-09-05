@@ -3,16 +3,23 @@ const state = {
   user: null,
   platforms: [],
   listings: [],
+  recentListings: [],
   jobs: [],
+  latestJobs: [],
   accounts: [],
   templates: [],
   categoryMappings: [],
   auditEvents: [],
+  haiTokens: [],
+  newHaiToken: null,
   analytics: null,
+  actionCenter: null,
   validationResults: {},
   qualityResult: null,
   selectedListingId: null,
   selectedPlatforms: new Set(),
+  imageObjectUrls: [],
+  imageRenderGeneration: 0,
   listingQuery: {
     search: "",
     status: "",
@@ -64,6 +71,10 @@ const state = {
   pendingRequests: 0,
   locale: localStorage.getItem("autoposterLocale") || document.documentElement.lang || "en",
   localization: null,
+  autosave: {
+    timerId: null,
+    inFlight: false,
+  },
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -100,6 +111,8 @@ const COPY_CATALOG = {
     "dashboard.localOnly": "Local only",
     "dashboard.recentListings": "Recent listings",
     "dashboard.latestJobs": "Latest jobs",
+    "dashboard.actionCenter": "Getting started and action center",
+    "dashboard.derivedLocal": "Derived locally",
     "metric.listings": "Listings",
     "metric.ready": "Ready",
     "metric.needAction": "Need action",
@@ -160,6 +173,16 @@ const COPY_CATALOG = {
     "settings.importJson": "Import JSON",
     "settings.importCsv": "Import listings CSV",
     "settings.diagnostics": "Diagnostics",
+    "settings.hai": "HAI connection",
+    "settings.haiHelp": "Download a listing file for HAI's local JSON feed. Connector tokens below are for a custom authenticated adapter; HAI's current HTTP reader cannot use them directly.",
+    "settings.haiDownload": "Download HAI feed",
+    "settings.haiDownloadHelp": "Contains your current listing text and safe metadata, without private notes or image files. Maximum 5 MiB; oversized exports fail without a partial file. Importing requires HAI operator setup. This is not automatic sync and does not delete previously imported HAI records.",
+    "settings.haiPreparing": "Preparing HAI feed…",
+    "settings.haiReady": "HAI feed downloaded. Ask your HAI operator to import this file; automatic sync is not configured.",
+    "settings.haiFailed": "HAI feed download failed. No file was exported.",
+    "settings.haiName": "Connection name",
+    "settings.haiExpiry": "Expires after",
+    "settings.haiCreate": "Create read-only token",
     "settings.runDiagnostics": "Run diagnostics",
     "settings.notRun": "Not run yet.",
     "settings.privacy": "Privacy",
@@ -199,6 +222,8 @@ const COPY_CATALOG = {
     "dashboard.localOnly": "Alleen lokaal",
     "dashboard.recentListings": "Recente advertenties",
     "dashboard.latestJobs": "Laatste taken",
+    "dashboard.actionCenter": "Aan de slag en actiecentrum",
+    "dashboard.derivedLocal": "Lokaal afgeleid",
     "metric.listings": "Advertenties",
     "metric.ready": "Klaar",
     "metric.needAction": "Actie nodig",
@@ -259,6 +284,16 @@ const COPY_CATALOG = {
     "settings.importJson": "JSON importeren",
     "settings.importCsv": "Advertenties CSV importeren",
     "settings.diagnostics": "Diagnostiek",
+    "settings.hai": "HAI-koppeling",
+    "settings.haiHelp": "Download een advertentiebestand voor de lokale JSON-feed van HAI. De koppeltokens hieronder zijn voor een aparte geauthenticeerde adapter; de huidige HTTP-lezer van HAI kan ze niet rechtstreeks gebruiken.",
+    "settings.haiDownload": "HAI-feed downloaden",
+    "settings.haiDownloadHelp": "Bevat je huidige advertentietekst en veilige metadata, zonder privénotities of afbeeldingsbestanden. Maximaal 5 MiB; bij een te grote export wordt geen gedeeltelijk bestand gemaakt. Importeren vereist inrichting door je HAI-beheerder. Dit is geen automatische synchronisatie en verwijdert geen eerder geïmporteerde HAI-records.",
+    "settings.haiPreparing": "HAI-feed voorbereiden…",
+    "settings.haiReady": "HAI-feed gedownload. Vraag je HAI-beheerder dit bestand te importeren; automatische synchronisatie is niet ingesteld.",
+    "settings.haiFailed": "Downloaden van de HAI-feed is mislukt. Er is geen bestand geëxporteerd.",
+    "settings.haiName": "Naam van koppeling",
+    "settings.haiExpiry": "Verloopt na",
+    "settings.haiCreate": "Alleen-lezen token maken",
     "settings.runDiagnostics": "Diagnostiek uitvoeren",
     "settings.notRun": "Nog niet uitgevoerd.",
     "settings.privacy": "Privacy",
@@ -521,7 +556,8 @@ async function loadAll() {
     templateResult,
     categoryMappingResult,
     auditResult,
-    analytics,
+    haiTokens,
+    dashboard,
   ] = await Promise.all([
     api("/platforms"),
     apiWithMeta(listingQueryPath()),
@@ -530,7 +566,8 @@ async function loadAll() {
     apiWithMeta(templateQueryPath()),
     apiWithMeta(mappingQueryPath()),
     api("/audit-events?limit=8"),
-    api("/analytics"),
+    api("/hai/tokens"),
+    api("/dashboard"),
   ]);
   state.platforms = platforms;
   state.listings = listingResult.data;
@@ -543,10 +580,14 @@ async function loadAll() {
   state.templateQuery.total = Number(templateResult.headers.get("X-Total-Count") || state.templates.length);
   state.categoryMappings = categoryMappingResult.data;
   state.auditEvents = auditResult;
+  state.haiTokens = haiTokens;
   state.mappingQuery.total = Number(
     categoryMappingResult.headers.get("X-Total-Count") || state.categoryMappings.length
   );
-  state.analytics = analytics;
+  state.analytics = dashboard.analytics;
+  state.actionCenter = dashboard.action_center;
+  state.recentListings = dashboard.recent_listings;
+  state.latestJobs = dashboard.latest_jobs;
   if (state.selectedListingId && !state.listings.some((listing) => listing.id === state.selectedListingId)) {
     selectListing(null);
   }
@@ -555,14 +596,72 @@ async function loadAll() {
   scheduleJobPolling();
 }
 
+async function loadRequestedListing() {
+  const requestedId = Number(new URLSearchParams(window.location.search).get("listing"));
+  if (!Number.isInteger(requestedId) || requestedId < 1) return;
+  let listing = state.listings.find((item) => item.id === requestedId);
+  if (!listing) {
+    listing = await api(`/listings/${requestedId}`);
+    state.listings = [listing, ...state.listings.filter((item) => item.id !== requestedId)];
+  }
+  selectListing(requestedId);
+  show("listings");
+  renderListings();
+}
+
+async function loadListingPage() {
+  const result = await apiWithMeta(listingQueryPath());
+  state.listings = result.data;
+  state.listingQuery.total = Number(result.headers.get("X-Total-Count") || state.listings.length);
+  if (state.selectedListingId && !state.listings.some((listing) => listing.id === state.selectedListingId)) {
+    selectListing(null);
+  }
+  if (!state.selectedListingId && state.listings.length) selectListing(state.listings[0].id, { resetReview: false });
+  renderListings();
+}
+
+async function loadJobPage() {
+  const result = await apiWithMeta(jobQueryPath());
+  state.jobs = result.data;
+  state.jobQuery.total = Number(result.headers.get("X-Total-Count") || state.jobs.length);
+  renderJobs();
+}
+
+async function loadAccountPage() {
+  const result = await apiWithMeta(accountQueryPath());
+  state.accounts = result.data;
+  state.accountQuery.total = Number(result.headers.get("X-Total-Count") || state.accounts.length);
+  renderAccounts();
+}
+
+async function loadTemplatePage() {
+  const result = await apiWithMeta(templateQueryPath());
+  state.templates = result.data;
+  state.templateQuery.total = Number(result.headers.get("X-Total-Count") || state.templates.length);
+  renderSettings();
+}
+
+async function loadMappingPage() {
+  const result = await apiWithMeta(mappingQueryPath());
+  state.categoryMappings = result.data;
+  state.mappingQuery.total = Number(result.headers.get("X-Total-Count") || state.categoryMappings.length);
+  renderSettings();
+}
+
 async function refreshJobsOnly() {
   if (!state.token || state.jobPolling.inFlight) return;
   state.jobPolling.inFlight = true;
   try {
-    const [jobResult, analytics] = await Promise.all([apiWithMeta(jobQueryPath()), api("/analytics")]);
+    const [jobResult, dashboard] = await Promise.all([
+      apiWithMeta(jobQueryPath()),
+      api("/dashboard"),
+    ]);
     state.jobs = jobResult.data;
     state.jobQuery.total = Number(jobResult.headers.get("X-Total-Count") || state.jobs.length);
-    state.analytics = analytics;
+    state.analytics = dashboard.analytics;
+    state.actionCenter = dashboard.action_center;
+    state.recentListings = dashboard.recent_listings;
+    state.latestJobs = dashboard.latest_jobs;
     state.jobPolling.lastUpdatedAt = new Date();
     renderDashboard();
     renderJobs();
@@ -607,13 +706,43 @@ function render() {
 }
 
 function renderDashboard() {
-  $("#metricListings").textContent = state.listings.length;
-  $("#metricReady").textContent = state.listings.filter((l) => l.platform_mappings.some((m) => m.status === "draft")).length;
-  $("#metricAction").textContent = state.jobs.filter((j) => j.status === "needs_user_action").length;
-  $("#metricFailed").textContent = state.jobs.filter((j) => j.status === "failed").length;
+  const summary = state.analytics?.summary || {};
+  $("#metricListings").textContent = summary.listings_total || 0;
+  $("#metricReady").textContent = summary.ready_listings || 0;
+  $("#metricAction").textContent = summary.needs_action_jobs || 0;
+  $("#metricFailed").textContent = summary.failed_jobs || 0;
   renderAnalytics();
-  $("#recentListings").innerHTML = state.listings.slice(0, 5).map(listingItemHtml).join("") || `<p class="muted">No listings yet.</p>`;
-  $("#latestJobs").innerHTML = state.jobs.slice(0, 5).map(jobItemHtml).join("") || `<p class="muted">No jobs yet.</p>`;
+  renderActionCenter();
+  $("#recentListings").innerHTML = state.recentListings.map(listingItemHtml).join("") || `<p class="muted">No listings yet.</p>`;
+  $("#latestJobs").innerHTML = state.latestJobs.map(jobItemHtml).join("") || `<p class="muted">No jobs yet.</p>`;
+}
+
+function renderActionCenter() {
+  const center = state.actionCenter;
+  if (!center) {
+    $("#onboardingSteps").innerHTML = `<p class="muted">Loading next actions...</p>`;
+    $("#actionCenterList").innerHTML = "";
+    return;
+  }
+  $("#onboardingSteps").innerHTML = (center.onboarding_steps || []).map((step) => `
+    <button type="button" class="onboarding-step ${step.complete ? "complete" : ""}" data-action-view="${escapeHtml(step.target_view)}">
+      <span aria-hidden="true">${step.complete ? "Done" : "Next"}</span>
+      <span>${escapeHtml(step.label)}</span>
+    </button>
+  `).join("");
+  $("#actionCenterList").innerHTML = (center.reminders || []).map((item) => `
+    <article class="action-item ${escapeHtml(item.severity)}">
+      <div class="pane-head">
+        <strong>${escapeHtml(item.title)}</strong>
+        <span class="${statusClass(item.severity)}">${escapeHtml(item.severity)}</span>
+      </div>
+      <p>${escapeHtml(item.detail)}</p>
+      <div class="recovery-row">
+        <span>${escapeHtml(item.next_action)}</span>
+        <button type="button" class="ghost" data-action-view="${escapeHtml(item.target_view)}" data-action-resource="${escapeHtml(item.resource_type || "")}" data-action-resource-id="${escapeHtml(item.resource_id || "")}">Open</button>
+      </div>
+    </article>
+  `).join("") || `<p class="muted">No outstanding actions.</p>`;
 }
 
 function renderAnalytics() {
@@ -669,7 +798,7 @@ function analyticsBarsHtml(values) {
       ${entries.map(([label, count]) => `
         <div class="analytics-bar-row">
           <span>${escapeHtml(formatFieldLabel(label))}</span>
-          <div><i style="width: ${Math.max(8, (Number(count) / max) * 100)}%"></i></div>
+          <svg viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect width="${Math.max(0, (Number(count) / max) * 100)}" height="8" rx="4"></rect></svg>
           <strong>${Number(count)}</strong>
         </div>
       `).join("")}
@@ -765,6 +894,7 @@ function renderQualityAssistant() {
       <strong>${Number(result.score || 0)}</strong>
       <span class="${statusClass(result.grade)}">${escapeHtml(formatFieldLabel(result.grade))}</span>
       <p>${escapeHtml(result.summary)}</p>
+      <small class="muted">Provider: ${escapeHtml(result.provider)} · deterministic · no external data sent</small>
     </div>
     <div class="quality-checklist">
       ${Object.entries(result.checklist || {}).map(([field, passed]) => `
@@ -782,6 +912,62 @@ function renderQualityAssistant() {
       </section>
     </div>
   `;
+}
+
+function listingFormPayload(form) {
+  return {
+    title: form.title.value,
+    price_cents: Math.round(Number(form.price.value || 0) * 100),
+    condition: form.condition.value,
+    category: form.category.value,
+    location: form.location.value,
+    brand: form.brand.value,
+    model: form.model.value,
+    color: form.color.value,
+    material: form.material.value,
+    category_attributes: parseDeliveryOptions(form.category_attributes.value),
+    weight_grams: Math.round(Number(form.weight_grams.value || 0)),
+    shipping_cost_cents: Math.round(Number(form.shipping_cost.value || 0) * 100),
+    pickup_allowed: form.pickup_allowed.checked,
+    shipping_allowed: form.shipping_allowed.checked,
+    tags: form.tags.value.split(",").map((tag) => tag.trim()).filter(Boolean),
+    description: form.description.value,
+    delivery_options: parseDeliveryOptions(form.delivery_options.value),
+    dimensions: parseDeliveryOptions(form.dimensions.value),
+    notes: form.notes.value,
+    internal_notes: form.internal_notes.value,
+    status: "draft",
+  };
+}
+
+function scheduleListingAutosave() {
+  const listing = selectedListing();
+  if (!listing || state.autosave.inFlight) return;
+  if (state.autosave.timerId) clearTimeout(state.autosave.timerId);
+  $("#editorMessage").textContent = "Unsaved changes";
+  state.autosave.timerId = setTimeout(autosaveSelectedListing, 1200);
+}
+
+async function autosaveSelectedListing() {
+  const listing = selectedListing();
+  if (!listing || state.autosave.inFlight) return;
+  state.autosave.timerId = null;
+  state.autosave.inFlight = true;
+  $("#editorMessage").textContent = "Autosaving...";
+  try {
+    await api(`/listings/${listing.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(listingFormPayload($("#listingForm"))),
+    });
+    markSelectedListingMutated();
+    $("#editorMessage").textContent = "Saved automatically";
+    await loadAll();
+  } catch (error) {
+    showAppError(error, "Autosave failed; your fields remain on screen");
+    $("#editorMessage").textContent = "Autosave failed - use Save to retry";
+  } finally {
+    state.autosave.inFlight = false;
+  }
 }
 
 function qualityIssueHtml(issue) {
@@ -823,10 +1009,14 @@ function renderListingTemplateOptions() {
 }
 
 function renderImages(listing) {
+  state.imageRenderGeneration += 1;
+  const generation = state.imageRenderGeneration;
+  state.imageObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  state.imageObjectUrls = [];
   const images = listing.images || [];
   $("#imageList").innerHTML = images.map((image, index) => `
     <article class="image-tile">
-      <img src="/uploads/${listing.id}/${image.storage_path.split(/[\\\\/]/).pop()}" alt="${escapeHtml(image.filename)}" />
+      <img data-image-content="${image.id}" alt="${escapeHtml(image.filename)}" />
       <strong>${escapeHtml(image.filename)}</strong>
       <div class="image-actions">
         <button class="ghost" data-move-image="${image.id}" data-direction="-1" ${index === 0 ? "disabled" : ""}>Up</button>
@@ -835,6 +1025,25 @@ function renderImages(listing) {
       </div>
     </article>
   `).join("") || `<p class="muted">No images uploaded.</p>`;
+  void hydrateListingImages(listing, generation);
+}
+
+async function hydrateListingImages(listing, generation) {
+  await Promise.all((listing.images || []).map(async (image) => {
+    const headers = state.token ? { Authorization: `Bearer ${state.token}` } : {};
+    try {
+      const response = await fetch(`/api/listings/${listing.id}/images/${image.id}/content`, { headers });
+      if (!response.ok) return;
+      const blob = await response.blob();
+      if (generation !== state.imageRenderGeneration || listing.id !== state.selectedListingId) return;
+      const imageUrl = URL.createObjectURL(blob);
+      state.imageObjectUrls.push(imageUrl);
+      const node = document.querySelector(`[data-image-content="${image.id}"]`);
+      if (node) node.src = imageUrl;
+    } catch {
+      // Metadata remains usable if an image object is temporarily unavailable.
+    }
+  }));
 }
 
 function renderPlatforms(listing) {
@@ -1167,6 +1376,32 @@ function renderSettings() {
       <pre>${escapeHtml(JSON.stringify(event.event_data || {}, null, 2))}</pre>
     </article>
   `).join("") || `<p class="muted">No privacy activity yet.</p>`;
+
+  $("#haiTokenList").innerHTML = state.haiTokens.map((token) => `
+    <article class="list-item">
+      <div class="pane-head">
+        <div>
+          <strong>${escapeHtml(token.name)}</strong>
+          <span class="muted">Read only - expires ${escapeHtml(formatDateTime(token.expires_at))}</span>
+        </div>
+        <button type="button" class="ghost" data-revoke-hai-token="${token.id}">Revoke</button>
+      </div>
+      <span class="muted">${token.last_used_at ? `Last used ${escapeHtml(formatDateTime(token.last_used_at))}` : "Not used yet"}</span>
+    </article>
+  `).join("") || `<p class="muted">No active HAI connections.</p>`;
+
+  const tokenOnce = $("#haiTokenOnce");
+  if (state.newHaiToken) {
+    tokenOnce.classList.remove("hidden");
+    tokenOnce.innerHTML = `
+      <strong>Copy this token now. It will not be shown again.</strong>
+      <code>${escapeHtml(state.newHaiToken)}</code>
+      <button type="button" class="ghost" id="copyHaiTokenButton">Copy token</button>
+    `;
+  } else {
+    tokenOnce.textContent = "";
+    tokenOnce.classList.add("hidden");
+  }
 }
 
 function renderDiagnostics(result) {
@@ -1266,6 +1501,7 @@ async function boot() {
 
   try {
     await loadAll();
+    await loadRequestedListing();
   } catch (error) {
     showAppError(error);
   }
@@ -1347,92 +1583,92 @@ $("#listingSearch").addEventListener("input", (event) => {
   listingSearchTimer = setTimeout(async () => {
     state.listingQuery.search = event.target.value;
     state.listingQuery.offset = 0;
-    await loadAll();
+    await loadListingPage();
   }, 250);
 });
 
 $("#listingStatusFilter").addEventListener("change", async (event) => {
   state.listingQuery.status = event.target.value;
   state.listingQuery.offset = 0;
-  await loadAll();
+  await loadListingPage();
 });
 
 $("#listingSort").addEventListener("change", async (event) => {
   state.listingQuery.sort = event.target.value;
   state.listingQuery.offset = 0;
-  await loadAll();
+  await loadListingPage();
 });
 
 $("#listingPrevPage").addEventListener("click", async () => {
   state.listingQuery.offset = Math.max(0, state.listingQuery.offset - state.listingQuery.limit);
-  await loadAll();
+  await loadListingPage();
 });
 
 $("#listingNextPage").addEventListener("click", async () => {
   const nextOffset = state.listingQuery.offset + state.listingQuery.limit;
   if (nextOffset >= state.listingQuery.total) return;
   state.listingQuery.offset = nextOffset;
-  await loadAll();
+  await loadListingPage();
 });
 
 $("#jobPlatformFilter").addEventListener("change", async (event) => {
   state.jobQuery.platform = event.target.value;
   state.jobQuery.offset = 0;
-  await loadAll();
+  await loadJobPage();
 });
 
 $("#jobStatusFilter").addEventListener("change", async (event) => {
   state.jobQuery.status = event.target.value;
   state.jobQuery.offset = 0;
-  await loadAll();
+  await loadJobPage();
 });
 
 $("#jobSort").addEventListener("change", async (event) => {
   state.jobQuery.sort = event.target.value;
   state.jobQuery.offset = 0;
-  await loadAll();
+  await loadJobPage();
 });
 
 $("#jobPrevPage").addEventListener("click", async () => {
   state.jobQuery.offset = Math.max(0, state.jobQuery.offset - state.jobQuery.limit);
-  await loadAll();
+  await loadJobPage();
 });
 
 $("#jobNextPage").addEventListener("click", async () => {
   const nextOffset = state.jobQuery.offset + state.jobQuery.limit;
   if (nextOffset >= state.jobQuery.total) return;
   state.jobQuery.offset = nextOffset;
-  await loadAll();
+  await loadJobPage();
 });
 
 $("#accountPlatformFilter").addEventListener("change", async (event) => {
   state.accountQuery.platform = event.target.value;
   state.accountQuery.offset = 0;
-  await loadAll();
+  await loadAccountPage();
 });
 
 $("#accountStatusFilter").addEventListener("change", async (event) => {
   state.accountQuery.status = event.target.value;
   state.accountQuery.offset = 0;
-  await loadAll();
+  await loadAccountPage();
 });
 
 $("#accountSort").addEventListener("change", async (event) => {
   state.accountQuery.sort = event.target.value;
   state.accountQuery.offset = 0;
-  await loadAll();
+  await loadAccountPage();
 });
 
 $("#accountPrevPage").addEventListener("click", async () => {
   state.accountQuery.offset = Math.max(0, state.accountQuery.offset - state.accountQuery.limit);
-  await loadAll();
+  await loadAccountPage();
 });
 
 $("#accountNextPage").addEventListener("click", async () => {
   const nextOffset = state.accountQuery.offset + state.accountQuery.limit;
   if (nextOffset >= state.accountQuery.total) return;
   state.accountQuery.offset = nextOffset;
-  await loadAll();
+  await loadAccountPage();
 });
 
 $("#templateSearch").addEventListener("input", (event) => {
@@ -1440,14 +1676,14 @@ $("#templateSearch").addEventListener("input", (event) => {
   templateSearchTimer = setTimeout(async () => {
     state.templateQuery.search = event.target.value;
     state.templateQuery.offset = 0;
-    await loadAll();
+    await loadTemplatePage();
   }, 250);
 });
 
 $("#templatePlatformFilter").addEventListener("change", async (event) => {
   state.templateQuery.platform = event.target.value;
   state.templateQuery.offset = 0;
-  await loadAll();
+  await loadTemplatePage();
 });
 
 $("#templateVariantFilter").addEventListener("input", (event) => {
@@ -1455,26 +1691,26 @@ $("#templateVariantFilter").addEventListener("input", (event) => {
   templateSearchTimer = setTimeout(async () => {
     state.templateQuery.variant = event.target.value;
     state.templateQuery.offset = 0;
-    await loadAll();
+    await loadTemplatePage();
   }, 250);
 });
 
 $("#templateSort").addEventListener("change", async (event) => {
   state.templateQuery.sort = event.target.value;
   state.templateQuery.offset = 0;
-  await loadAll();
+  await loadTemplatePage();
 });
 
 $("#templatePrevPage").addEventListener("click", async () => {
   state.templateQuery.offset = Math.max(0, state.templateQuery.offset - state.templateQuery.limit);
-  await loadAll();
+  await loadTemplatePage();
 });
 
 $("#templateNextPage").addEventListener("click", async () => {
   const nextOffset = state.templateQuery.offset + state.templateQuery.limit;
   if (nextOffset >= state.templateQuery.total) return;
   state.templateQuery.offset = nextOffset;
-  await loadAll();
+  await loadTemplatePage();
 });
 
 $("#mappingSourceFilter").addEventListener("input", (event) => {
@@ -1482,32 +1718,32 @@ $("#mappingSourceFilter").addEventListener("input", (event) => {
   mappingSearchTimer = setTimeout(async () => {
     state.mappingQuery.sourceCategory = event.target.value;
     state.mappingQuery.offset = 0;
-    await loadAll();
+    await loadMappingPage();
   }, 250);
 });
 
 $("#mappingPlatformFilter").addEventListener("change", async (event) => {
   state.mappingQuery.platform = event.target.value;
   state.mappingQuery.offset = 0;
-  await loadAll();
+  await loadMappingPage();
 });
 
 $("#mappingSort").addEventListener("change", async (event) => {
   state.mappingQuery.sort = event.target.value;
   state.mappingQuery.offset = 0;
-  await loadAll();
+  await loadMappingPage();
 });
 
 $("#mappingPrevPage").addEventListener("click", async () => {
   state.mappingQuery.offset = Math.max(0, state.mappingQuery.offset - state.mappingQuery.limit);
-  await loadAll();
+  await loadMappingPage();
 });
 
 $("#mappingNextPage").addEventListener("click", async () => {
   const nextOffset = state.mappingQuery.offset + state.mappingQuery.limit;
   if (nextOffset >= state.mappingQuery.total) return;
   state.mappingQuery.offset = nextOffset;
-  await loadAll();
+  await loadMappingPage();
 });
 
 $("#listingList").addEventListener("click", (event) => {
@@ -1525,36 +1761,31 @@ $("#recentListings").addEventListener("click", (event) => {
   renderListings();
 });
 
+$("#dashboardView").addEventListener("click", (event) => {
+  const target = event.target.closest("[data-action-view]");
+  if (!target) return;
+  const resourceType = target.dataset.actionResource;
+  const resourceId = Number(target.dataset.actionResourceId || 0);
+  if (resourceType === "listing" && resourceId) selectListing(resourceId);
+  show(target.dataset.actionView);
+  render();
+});
+
+$("#listingForm").addEventListener("input", scheduleListingAutosave);
+$("#listingForm").addEventListener("change", scheduleListingAutosave);
+
 $("#listingForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const listing = selectedListing();
   if (!listing) return;
   const form = event.currentTarget;
+  if (state.autosave.timerId) {
+    clearTimeout(state.autosave.timerId);
+    state.autosave.timerId = null;
+  }
   await api(`/listings/${listing.id}`, {
     method: "PATCH",
-    body: JSON.stringify({
-      title: form.title.value,
-      price_cents: Math.round(Number(form.price.value || 0) * 100),
-      condition: form.condition.value,
-      category: form.category.value,
-      location: form.location.value,
-      brand: form.brand.value,
-      model: form.model.value,
-      color: form.color.value,
-      material: form.material.value,
-      category_attributes: parseDeliveryOptions(form.category_attributes.value),
-      weight_grams: Math.round(Number(form.weight_grams.value || 0)),
-      shipping_cost_cents: Math.round(Number(form.shipping_cost.value || 0) * 100),
-      pickup_allowed: form.pickup_allowed.checked,
-      shipping_allowed: form.shipping_allowed.checked,
-      tags: form.tags.value.split(",").map((tag) => tag.trim()).filter(Boolean),
-      description: form.description.value,
-      delivery_options: parseDeliveryOptions(form.delivery_options.value),
-      dimensions: parseDeliveryOptions(form.dimensions.value),
-      notes: form.notes.value,
-      internal_notes: form.internal_notes.value,
-      status: "draft",
-    }),
+    body: JSON.stringify(listingFormPayload(form)),
   });
   await savePlatformOverrides();
   markSelectedListingMutated();
@@ -1569,6 +1800,7 @@ $("#applyTemplateButton").addEventListener("click", () => {
   const description = $("#listingForm").description;
   description.value = [description.value.trim(), template.body.trim()].filter(Boolean).join("\n\n");
   $("#editorMessage").textContent = "Template applied";
+  scheduleListingAutosave();
 });
 
 $("#duplicateButton").addEventListener("click", async () => {
@@ -1923,6 +2155,49 @@ $("#categoryMappingList").addEventListener("click", async (event) => {
   if (!deleteButton) return;
   await api(`/category-mappings/${deleteButton.dataset.deleteCategoryMapping}`, { method: "DELETE" });
   await loadAll();
+});
+
+$("#haiTokenForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const created = await api("/hai/tokens", {
+    method: "POST",
+    body: JSON.stringify({
+      name: $("#haiTokenName").value,
+      expires_days: Number($("#haiTokenExpiry").value),
+    }),
+  });
+  state.newHaiToken = created.token;
+  state.haiTokens = [created, ...state.haiTokens];
+  renderSettings();
+});
+
+$("#exportHaiFeedButton").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const message = $("#haiExportMessage");
+  button.disabled = true;
+  message.textContent = t("settings.haiPreparing");
+  try {
+    await downloadApiFile("/hai/export", "autoposter-hai-feed.json");
+    message.textContent = t("settings.haiReady");
+  } catch (error) {
+    message.textContent = `${t("settings.haiFailed")} ${error instanceof Error ? error.message : ""}`.trim();
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("#haiTokenList").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-revoke-hai-token]");
+  if (!button) return;
+  await api(`/hai/tokens/${button.dataset.revokeHaiToken}`, { method: "DELETE" });
+  state.haiTokens = state.haiTokens.filter((token) => token.id !== Number(button.dataset.revokeHaiToken));
+  renderSettings();
+});
+
+$("#haiTokenOnce").addEventListener("click", async (event) => {
+  if (!event.target.closest("#copyHaiTokenButton") || !state.newHaiToken) return;
+  await copyText(state.newHaiToken);
+  event.target.textContent = "Copied";
 });
 
 $("#exportDataButton").addEventListener("click", async () => {

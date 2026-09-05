@@ -1,10 +1,13 @@
 import hashlib
+import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, desc, or_
+from sqlalchemy import and_, case, desc, or_
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from app.adapters import get_adapter
+from app.adapters.base import PublishOutcome
 from app.config import get_settings
 from app.models import (
     CategoryMapping,
@@ -16,7 +19,7 @@ from app.models import (
     PublishingJobLog,
 )
 from app.services.job_state import (
-    ACTIVE_IDEMPOTENCY_STATUSES,
+    ALLOWED_JOB_TRANSITIONS,
     FAILED,
     NEEDS_USER_ACTION,
     PUBLISHED,
@@ -25,7 +28,37 @@ from app.services.job_state import (
     is_terminal_status,
     transition_job,
 )
-from app.services.platform_rate_limits import quota_backoff_payload, quota_retry_at_from_outcome
+from app.services.operator_controls import job_processing_is_paused
+from app.services.platform_rate_limits import (
+    quota_backoff_payload,
+    quota_headers_from_outcome,
+    quota_retry_at_from_outcome,
+)
+
+
+class PublishingAccountError(ValueError):
+    """The selected account is not available to this listing/platform pair."""
+
+
+def load_publishing_account(
+    db: Session, owner_id: int, platform: str, account_id: int | None
+) -> PlatformAccount | None:
+    if account_id is None:
+        return None
+    message = "Selected platform account is unavailable for this listing and platform."
+    # Reject values outside the supported databases' integer range before binding.
+    if not isinstance(account_id, int) or not 0 < account_id < 2**63:
+        raise PublishingAccountError(message)
+    account = (
+        db.query(PlatformAccount)
+        .filter(PlatformAccount.id == account_id, PlatformAccount.owner_id == owner_id,
+                PlatformAccount.platform == platform)
+        .populate_existing()
+        .one_or_none()
+    )
+    if account is None:
+        raise PublishingAccountError(message)
+    return account
 
 
 def idempotency_key(
@@ -67,6 +100,7 @@ def get_or_create_mapping(db: Session, listing_id: int, platform: str) -> Platfo
 def enqueue_publish_job(
     db: Session, listing: Listing, platform: str, account_id: int | None = None
 ) -> PublishingJob:
+    load_publishing_account(db, listing.owner_id, platform, account_id)
     adapter = get_adapter(platform)
     action_type = "publish"
     operation_mode = adapter.automation_mode
@@ -81,10 +115,7 @@ def enqueue_publish_job(
     )
     existing = (
         db.query(PublishingJob)
-        .filter(
-            PublishingJob.idempotency_key == key,
-            PublishingJob.status.in_(ACTIVE_IDEMPOTENCY_STATUSES),
-        )
+        .filter(PublishingJob.idempotency_key == key)
         .one_or_none()
     )
     if existing:
@@ -100,36 +131,51 @@ def enqueue_publish_job(
         action_type=action_type,
         operation_mode=operation_mode,
     )
-    db.add(job)
+    # Flush caller-owned work outside the savepoint so its failures cannot be
+    # mistaken for a competing enqueue and its changes survive a key collision.
     db.flush()
-    add_log(db, job, "info", "Publishing job queued.")
+    try:
+        with db.begin_nested():
+            db.add(job)
+            db.flush()
+            add_log(db, job, "info", "Publishing job queued.")
+    except IntegrityError:
+        # The unique key arbitrates concurrent requests which both saw no job.
+        # Only a persisted winner for this exact key is a successful duplicate.
+        existing = db.query(PublishingJob).filter(PublishingJob.idempotency_key == key).one_or_none()
+        if existing is None:
+            raise
+        return existing
     db.commit()
     db.refresh(job)
     return job
 
 
 def process_job(db: Session, job_id: int) -> PublishingJob:
-    job = (
-        db.query(PublishingJob)
-        .filter(PublishingJob.id == job_id)
-        .one()
-    )
-    if is_terminal_status(job.status) and job.status != FAILED:
-        return job
-    if job.status == QUEUED and not claim_job_for_processing(db, job.id):
-        return db.get(PublishingJob, job.id)
-    if job.status == FAILED:
-        transition_job(job, RUNNING)
-        db.commit()
-    elif job.status != RUNNING:
-        return job
+    """Claim due work; never execute a claim held by another request or worker."""
+    claim_token = uuid.uuid4().hex
+    if not claim_job_for_processing(db, job_id, due_only=True, claim_token=claim_token):
+        return db.query(PublishingJob).filter(PublishingJob.id == job_id).one()
+    return _process_claimed_job(db, job_id, claim_token)
 
-    job = (
-        db.query(PublishingJob)
-        .options(selectinload(PublishingJob.listing).selectinload(Listing.images), selectinload(PublishingJob.logs))
-        .filter(PublishingJob.id == job_id)
-        .one()
+
+def _lock_current_claim(db: Session, job_id: int, claim_token: str, *, unstarted: bool = False) -> bool:
+    """Fence local writes and hold the job lock until this short transaction ends."""
+    query = db.query(PublishingJob).filter(
+        PublishingJob.id == job_id, PublishingJob.status == RUNNING,
+        PublishingJob.claim_token == claim_token,
     )
+    if unstarted:
+        query = query.filter(PublishingJob.started_at.is_(None))
+    return query.update({PublishingJob.updated_at: datetime.now(UTC)}, synchronize_session=False) == 1
+
+
+def _process_claimed_job(db: Session, job_id: int, claim_token: str) -> PublishingJob:
+    """Execute only this caller's claim; discard outcomes after ownership is lost."""
+    if not _lock_current_claim(db, job_id, claim_token, unstarted=True):
+        db.rollback()
+        return db.query(PublishingJob).filter_by(id=job_id).populate_existing().one()
+    job = db.query(PublishingJob).filter_by(id=job_id).populate_existing().one()
 
     settings = get_settings()
     cooldown_seconds = settings.platform_rate_limit_for(job.platform)
@@ -149,6 +195,7 @@ def process_job(db: Session, job_id: int) -> PublishingJob:
         recent_started_at = recent_started_at.replace(tzinfo=UTC)
     if recent_job and recent_started_at and recent_started_at > cooldown_cutoff:
         transition_job(job, QUEUED)
+        job.claim_token = None
         job.started_at = None
         job.next_retry_at = datetime.now(UTC) + timedelta(seconds=cooldown_seconds)
         add_log(db, job, "info", "Rate limit cooldown applied.", {"next_retry_at": job.next_retry_at.isoformat()})
@@ -158,48 +205,63 @@ def process_job(db: Session, job_id: int) -> PublishingJob:
 
     job.started_at = datetime.now(UTC)
     job.attempts += 1
+    listing_id, platform, account_id = job.listing_id, job.platform, job.account_id
     add_log(db, job, "info", "Publishing job started.")
     db.commit()
 
-    listing = job.listing
-    adapter = get_adapter(job.platform)
-    mapping = get_or_create_mapping(db, listing.id, job.platform)
-    account = db.get(PlatformAccount, job.account_id) if job.account_id else None
-
+    adapter_error = None
     try:
-        overrides = effective_platform_overrides(db, listing, job.platform, mapping.overrides)
+        # Close this read-only session before invoking the adapter. Loaded scalar
+        # fields and images remain available on detached objects, without a lazy
+        # database connection or an uncommitted mapping insert during the call.
+        with Session(db.get_bind()) as inputs:
+            listing = inputs.query(Listing).options(selectinload(Listing.images)).filter_by(id=listing_id).one()
+            account = load_publishing_account(inputs, listing.owner_id, platform, account_id)
+            mapping = inputs.query(PlatformListingMapping).filter_by(
+                listing_id=listing_id, platform=platform,
+            ).one_or_none()
+            overrides = effective_platform_overrides(inputs, listing, platform, mapping.overrides if mapping else {})
+        adapter = get_adapter(platform)
         outcome = adapter.publish_listing(listing, account=account, overrides=overrides)
+        if outcome.status not in ALLOWED_JOB_TRANSITIONS[RUNNING] or not isinstance(outcome.data, dict):
+            raise ValueError("Adapter returned an invalid publishing outcome")
         quota_retry_at = quota_retry_at_from_outcome(outcome.data)
-        if quota_retry_at:
-            transition_job(job, QUEUED)
-            job.error_message = None
-            job.next_retry_at = quota_retry_at
-            job.result = {
-                **outcome.data,
-                "rate_limit": quota_backoff_payload(
-                    quota_retry_at,
-                    outcome.data.get("rate_limit_headers")
-                    or outcome.data.get("quota_headers")
-                    or outcome.data.get("response_headers")
-                    or outcome.data.get("headers")
-                    or {},
-                ),
-            }
-            add_log(
-                db,
-                job,
-                "warning",
-                "Official API quota backoff applied.",
-                job.result["rate_limit"],
-            )
-            db.commit()
-            db.refresh(job)
-            return job
-        transition_job(job, outcome.status)
-        job.error_message = None if outcome.status != FAILED else outcome.message
-        job.result = outcome.data
-        job.finished_at = datetime.now(UTC)
+    except SQLAlchemyError:
+        # Preserve worker-level transient backoff and fail-fast integrity handling;
+        # database failures are not evidence that the marketplace rejected a job.
+        raise
+    except Exception as exc:  # Adapter/preparation failure; database finalization is outside this boundary.
+        adapter_error = str(exc)
+        outcome = PublishOutcome(status=FAILED, message=adapter_error)
+        quota_retry_at = None
 
+    if not _lock_current_claim(db, job_id, claim_token):
+        db.rollback()
+        return db.query(PublishingJob).filter_by(id=job_id).populate_existing().one()
+    job = db.query(PublishingJob).filter_by(id=job_id).populate_existing().one()
+    job.claim_token = None
+    if quota_retry_at:
+        transition_job(job, QUEUED)
+        job.error_message = None
+        job.next_retry_at = quota_retry_at
+        job.result = {
+            **outcome.data,
+            "rate_limit": quota_backoff_payload(
+                quota_retry_at,
+                quota_headers_from_outcome(outcome.data) or {},
+            ),
+        }
+        add_log(db, job, "warning", "Official API quota backoff applied.", job.result["rate_limit"])
+        db.commit()
+        db.refresh(job)
+        return job
+    transition_job(job, outcome.status)
+    job.error_message = None if outcome.status != FAILED else outcome.message
+    job.result = outcome.data
+    job.finished_at = datetime.now(UTC)
+
+    if adapter_error is None:
+        mapping = get_or_create_mapping(db, listing_id, platform)
         mapping.status = outcome.status
         mapping.platform_listing_id = outcome.platform_listing_id
         mapping.platform_url = outcome.platform_url
@@ -207,37 +269,24 @@ def process_job(db: Session, job_id: int) -> PublishingJob:
         if outcome.status == PUBLISHED:
             mapping.last_published_at = datetime.now(UTC)
 
-        db.add(
-            PublicationAttempt(
-                job_id=job.id,
-                platform=job.platform,
-                status=outcome.status,
-                error_message=job.error_message,
-                payload_snapshot=outcome.data.get("mapped_fields", outcome.data),
-            )
-        )
+    db.add(PublicationAttempt(
+        job_id=job.id, platform=job.platform, status=outcome.status,
+        error_message=job.error_message,
+        payload_snapshot=outcome.data.get("mapped_fields", outcome.data),
+    ))
+    if adapter_error is not None:
+        add_log(db, job, "error", "Publishing job failed.", {"error": adapter_error})
+    else:
         add_log(db, job, "info", outcome.message or f"Job finished with status {outcome.status}.", outcome.data)
-    except Exception as exc:  # pragma: no cover - defensive boundary around external adapters
-        transition_job(job, FAILED)
-        job.error_message = str(exc)
-        job.finished_at = datetime.now(UTC)
-        db.add(
-            PublicationAttempt(
-                job_id=job.id,
-                platform=job.platform,
-                status=FAILED,
-                error_message=str(exc),
-                payload_snapshot={},
-            )
-        )
-        add_log(db, job, "error", "Publishing job failed.", {"error": str(exc)})
 
     db.commit()
     db.refresh(job)
     return job
 
 
-def claim_job_for_processing(db: Session, job_id: int, due_only: bool = False) -> bool:
+def claim_job_for_processing(
+    db: Session, job_id: int, due_only: bool = False, *, claim_token: str | None = None
+) -> bool:
     now = datetime.now(UTC)
     query = db.query(PublishingJob).filter(PublishingJob.id == job_id, PublishingJob.status == QUEUED)
     if due_only:
@@ -245,21 +294,51 @@ def claim_job_for_processing(db: Session, job_id: int, due_only: bool = False) -
             query.filter(PublishingJob.scheduled_at <= now)
             .filter((PublishingJob.next_retry_at.is_(None)) | (PublishingJob.next_retry_at <= now))
         )
-    claimed = query.update({PublishingJob.status: RUNNING, PublishingJob.updated_at: now}, synchronize_session=False)
+    claimed = query.update({
+        PublishingJob.status: RUNNING,
+        PublishingJob.claim_token: claim_token or uuid.uuid4().hex,
+        PublishingJob.started_at: None,
+        PublishingJob.finished_at: None,
+        PublishingJob.updated_at: now,
+    }, synchronize_session=False)
     db.commit()
     return claimed == 1
 
 
 def retry_job(db: Session, job: PublishingJob) -> PublishingJob:
-    if job.attempts >= job.max_attempts:
-        job.max_attempts += 1
-    transition_job(job, QUEUED)
-    job.error_message = None
-    job.next_retry_at = None
+    load_publishing_account(db, job.listing.owner_id, job.platform, job.account_id)
+    if not is_terminal_status(job.status):
+        db.refresh(job)
+        return job
+    # Compare the observed version as well as status: two retry requests must
+    # not reset work that the other request has already queued or completed.
+    queued = db.query(PublishingJob).filter(
+        PublishingJob.id == job.id,
+        PublishingJob.status == job.status,
+        PublishingJob.updated_at == job.updated_at,
+    ).update({
+        PublishingJob.status: QUEUED,
+        PublishingJob.claim_token: None,
+        PublishingJob.error_message: None,
+        PublishingJob.next_retry_at: None,
+        PublishingJob.started_at: None,
+        PublishingJob.finished_at: None,
+        PublishingJob.updated_at: datetime.now(UTC),
+        PublishingJob.max_attempts: case(
+            (PublishingJob.attempts >= PublishingJob.max_attempts, PublishingJob.max_attempts + 1),
+            else_=PublishingJob.max_attempts,
+        ),
+    }, synchronize_session=False)
+    db.refresh(job)
+    if not queued:
+        db.commit()
+        return job
     add_log(db, job, "info", "Publishing job queued for retry.")
     db.commit()
     db.refresh(job)
-    return process_job(db, job.id)
+    if get_settings().job_process_inline:
+        return process_job(db, job.id)
+    return job
 
 
 def confirm_manual_completion(
@@ -345,14 +424,15 @@ def due_queued_jobs_query(db: Session, now: datetime, limit: int, *, lock: bool 
     return query.limit(limit)
 
 
-def claim_due_queued_job_ids(db: Session, limit: int) -> list[int]:
+def claim_due_queued_job_ids(db: Session, limit: int, *, claim_token: str | None = None) -> list[int]:
+    claim_token = claim_token or uuid.uuid4().hex
     if supports_skip_locked(db):
-        return claim_due_queued_job_ids_with_locks(db, limit)
+        return claim_due_queued_job_ids_with_locks(db, limit, claim_token=claim_token)
 
     due_job_ids = [job.id for job in get_due_queued_jobs(db, limit)]
     claimed_job_ids = []
     for job_id in due_job_ids:
-        if claim_job_for_processing(db, job_id, due_only=True):
+        if claim_job_for_processing(db, job_id, due_only=True, claim_token=claim_token):
             claimed_job_ids.append(job_id)
     return claimed_job_ids
 
@@ -362,24 +442,28 @@ def supports_skip_locked(db: Session) -> bool:
     return bind.dialect.name in {"postgresql", "mysql", "mariadb", "oracle"}
 
 
-def claim_due_queued_job_ids_with_locks(db: Session, limit: int) -> list[int]:
+def claim_due_queued_job_ids_with_locks(db: Session, limit: int, *, claim_token: str | None = None) -> list[int]:
+    claim_token = claim_token or uuid.uuid4().hex
     now = datetime.now(UTC)
     jobs = due_queued_jobs_query(db, now, limit, lock=True).all()
     job_ids = [job.id for job in jobs]
     for job in jobs:
         transition_job(job, RUNNING)
+        job.claim_token = claim_token
+        job.started_at = None
+        job.finished_at = None
         job.updated_at = now
     if jobs:
         db.commit()
     return job_ids
 
 
-def recover_stale_running_jobs(db: Session, stale_after_seconds: int) -> int:
-    if stale_after_seconds <= 0:
+def recover_stale_running_jobs(db: Session, stale_after_seconds: int, *, limit: int | None = None) -> int:
+    if stale_after_seconds <= 0 or (limit is not None and limit <= 0):
         return 0
     cutoff = datetime.now(UTC) - timedelta(seconds=stale_after_seconds)
-    stale_jobs = (
-        db.query(PublishingJob)
+    stale_query = (
+        db.query(PublishingJob.id, PublishingJob.updated_at, PublishingJob.started_at)
         .filter(PublishingJob.status == RUNNING)
         .filter(
             or_(
@@ -388,28 +472,45 @@ def recover_stale_running_jobs(db: Session, stale_after_seconds: int) -> int:
             )
         )
         .order_by(PublishingJob.updated_at.asc(), PublishingJob.id.asc())
-        .all()
     )
+    if limit is not None:
+        stale_query = stale_query.limit(limit)
+    stale_jobs = stale_query.all()
+    recovered = 0
     for job in stale_jobs:
-        transition_job(job, QUEUED)
-        job.next_retry_at = None
-        add_log(
-            db,
-            job,
-            "warning",
-            "Recovered stale running job and returned it to the queue.",
-            {"stale_after_seconds": stale_after_seconds},
-        )
+        # The SELECT is only a candidate snapshot. A completion, renewed claim,
+        # or another recovery must win over this outdated observation.
+        changed = db.query(PublishingJob).filter(
+            PublishingJob.id == job.id,
+            PublishingJob.status == RUNNING,
+            PublishingJob.updated_at == job.updated_at,
+            PublishingJob.started_at == job.started_at,
+        ).update({
+            PublishingJob.status: QUEUED,
+            PublishingJob.claim_token: None,
+            PublishingJob.next_retry_at: None,
+            PublishingJob.updated_at: datetime.now(UTC),
+        }, synchronize_session=False)
+        if changed:
+            recovered += 1
+            db.add(PublishingJobLog(
+                job_id=job.id, level="warning",
+                message="Recovered stale running job and returned it to the queue.",
+                data={"stale_after_seconds": stale_after_seconds},
+            ))
     if stale_jobs:
         db.commit()
-    return len(stale_jobs)
+    return recovered
 
 
 def process_due_jobs(db: Session, limit: int) -> int:
-    recover_stale_running_jobs(db, get_settings().job_stale_running_seconds)
-    job_ids = claim_due_queued_job_ids(db, limit)
+    if job_processing_is_paused(db):
+        return 0
+    recover_stale_running_jobs(db, get_settings().job_stale_running_seconds, limit=limit)
+    claim_token = uuid.uuid4().hex
+    job_ids = claim_due_queued_job_ids(db, limit, claim_token=claim_token)
     processed = 0
     for job_id in job_ids:
-        process_job(db, job_id)
+        _process_claimed_job(db, job_id, claim_token)
         processed += 1
     return processed

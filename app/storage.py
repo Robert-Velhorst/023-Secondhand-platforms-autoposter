@@ -46,6 +46,9 @@ class StorageBackend(Protocol):
     def read_local_file(self, storage_path: str) -> Path | None:
         raise NotImplementedError
 
+    def read_bytes(self, storage_path: str) -> bytes | None:
+        raise NotImplementedError
+
 
 class LocalStorage:
     def __init__(self, root: Path):
@@ -71,6 +74,10 @@ class LocalStorage:
         if not target.exists():
             return None
         return target
+
+    def read_bytes(self, storage_path: str) -> bytes | None:
+        target = self.read_local_file(storage_path)
+        return target.read_bytes() if target else None
 
 
 class S3Storage:
@@ -112,6 +119,16 @@ class S3Storage:
 
     def read_local_file(self, storage_path: str) -> Path | None:
         return None
+
+    def read_bytes(self, storage_path: str) -> bytes | None:
+        parsed = parse_s3_uri(storage_path)
+        if not parsed:
+            return None
+        bucket, key = parsed
+        if bucket != self.bucket:
+            return None
+        response = self.client.get_object(Bucket=bucket, Key=key)
+        return response["Body"].read()
 
     def _key(self, listing_id: int, filename: str) -> str:
         key = f"{listing_id}/{filename}"
@@ -226,6 +243,10 @@ def delete_stored_file(storage_path: str, settings: Settings | None = None) -> N
 
 def local_storage_path(storage_path: str, settings: Settings | None = None) -> Path | None:
     return get_storage(settings).read_local_file(storage_path)
+
+
+def stored_file_bytes(storage_path: str, settings: Settings | None = None) -> bytes | None:
+    return get_storage(settings).read_bytes(storage_path)
 
 
 def parse_s3_uri(storage_path: str) -> tuple[str, str] | None:

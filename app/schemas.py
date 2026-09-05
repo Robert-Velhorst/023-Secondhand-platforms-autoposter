@@ -111,6 +111,54 @@ class AuthToken(BaseModel):
     user: UserOut
 
 
+class HaiTokenCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    expires_days: int = Field(default=90, ge=1, le=365)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name must not be blank")
+        return normalized
+
+
+class HaiTokenOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    scope: str
+    expires_at: datetime
+    last_used_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+
+
+class HaiTokenCreated(HaiTokenOut):
+    token: str
+
+
+class HaiRecord(BaseModel):
+    id: str
+    type: str = "secondhand_listing"
+    title: str
+    content: str
+    source_url: str
+    updated_at: datetime
+    deleted: bool = False
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class HaiRecordPage(BaseModel):
+    connector: str = "secondhand-platforms-autoposter"
+    read_only: bool = True
+    records: list[HaiRecord] = Field(default_factory=list)
+    next_cursor: str | None = None
+    has_more: bool = False
+
+
 class ListingBase(BaseModel):
     title: str = ""
     description: str = ""
@@ -230,7 +278,6 @@ class ListingImageOut(BaseModel):
 
     id: int
     filename: str
-    storage_path: str
     content_type: str
     file_size: int
     checksum_sha256: str
@@ -496,12 +543,42 @@ class ListingQualitySuggestion(BaseModel):
 
 
 class ListingQualityResult(BaseModel):
+    provider: str = "deterministic_local"
+    deterministic: bool = True
+    external_data_sent: bool = False
     score: int = Field(ge=0, le=100)
     grade: str
     summary: str
     issues: list[ListingQualityIssue] = Field(default_factory=list)
     suggestions: list[ListingQualitySuggestion] = Field(default_factory=list)
     checklist: dict[str, bool] = Field(default_factory=dict)
+
+
+class ActionItem(BaseModel):
+    id: str
+    kind: str
+    severity: str
+    title: str
+    detail: str
+    next_action: str
+    target_view: str
+    resource_type: str | None = None
+    resource_id: int | None = None
+
+
+class OnboardingStep(BaseModel):
+    id: str
+    label: str
+    complete: bool
+    target_view: str
+
+
+class ActionCenterResult(BaseModel):
+    source: str = "derived_local"
+    generated_at: datetime
+    onboarding_complete: bool
+    onboarding_steps: list[OnboardingStep] = Field(default_factory=list)
+    reminders: list[ActionItem] = Field(default_factory=list)
 
 
 class AnalyticsIssueCount(BaseModel):
@@ -525,3 +602,10 @@ class AnalyticsResult(BaseModel):
     job_platforms: dict[str, int] = Field(default_factory=dict)
     selected_platforms: dict[str, int] = Field(default_factory=dict)
     quality: AnalyticsQualitySummary
+
+
+class DashboardResult(BaseModel):
+    analytics: AnalyticsResult
+    action_center: ActionCenterResult
+    recent_listings: list[ListingOut] = Field(default_factory=list)
+    latest_jobs: list[PublishingJobOut] = Field(default_factory=list)

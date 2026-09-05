@@ -341,7 +341,10 @@ def test_delete_me_purges_owned_data_and_revokes_session():
         files={"file": ("cabinet.png", PNG_BYTES, "image/png")},
     )
     assert image_response.status_code == 200, image_response.text
-    image_path = image_response.json()["images"][0]["storage_path"]
+    image_id = image_response.json()["images"][0]["id"]
+    with SessionLocal() as db:
+        image_path = db.query(ListingImage.storage_path).filter(ListingImage.id == image_id).scalar()
+    assert image_path
     publish_response = client.post(
         f"/api/listings/{listing['id']}/publish",
         headers=headers,

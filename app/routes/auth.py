@@ -5,6 +5,8 @@ from app.database import get_db
 from app.dependencies import get_current_session, get_current_user
 from app.models import (
     CategoryMapping,
+    HaiConnectorToken,
+    HaiListingChange,
     Listing,
     ListingDraft,
     ListingImage,
@@ -122,6 +124,8 @@ def delete_user_data(db: Session, user: User) -> None:
     db.query(CategoryMapping).filter(CategoryMapping.owner_id == user_id).delete(synchronize_session=False)
     db.query(PlatformAccount).filter(PlatformAccount.owner_id == user_id).delete(synchronize_session=False)
     db.query(PlatformOAuthState).filter(PlatformOAuthState.user_id == user_id).delete(synchronize_session=False)
+    db.query(HaiConnectorToken).filter(HaiConnectorToken.user_id == user_id).delete(synchronize_session=False)
+    db.query(HaiListingChange).filter(HaiListingChange.owner_id == user_id).delete(synchronize_session=False)
     db.query(UserSession).filter(UserSession.user_id == user_id).delete(synchronize_session=False)
     db.query(User).filter(User.id == user_id).delete(synchronize_session=False)
     db.commit()

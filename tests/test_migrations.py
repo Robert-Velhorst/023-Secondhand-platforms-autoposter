@@ -1,11 +1,63 @@
+import os
+import subprocess
+import sys
+
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from app import models  # noqa: F401
 from app.database import Base
+
+
+def test_claim_token_migration_preserves_existing_jobs(tmp_path):
+    engine = create_engine(f"sqlite:///{(tmp_path / 'claim-upgrade.db').as_posix()}")
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", str(engine.url))
+    try:
+        command.upgrade(config, "head")
+        command.downgrade(config, "20260809_0013")
+        assert "claim_token" not in {column["name"] for column in inspect(engine).get_columns("publishing_jobs")}
+        with engine.begin() as connection:
+            connection.execute(models.User.__table__.insert(), {"id": 1, "email": "upgrade@example.com",
+                                                                "password_hash": "unused"})
+            connection.execute(models.Listing.__table__.insert(), {"id": 1, "owner_id": 1, "title": "Preserve me"})
+            connection.execute(models.PublishingJob.__table__.insert(), {
+                "id": 1, "listing_id": 1, "platform": "marktplaats", "idempotency_key": "migration-preserve",
+                "status": "running", "attempts": 2, "result": {"existing": True},
+            })
+            before = dict(connection.execute(text("SELECT * FROM publishing_jobs WHERE id = 1")).mappings().one())
+        command.upgrade(config, "head")
+        with engine.connect() as connection:
+            after = dict(connection.execute(text("SELECT * FROM publishing_jobs WHERE id = 1")).mappings().one())
+        assert after.pop("claim_token") is None
+        assert after == before
+        command.downgrade(config, "20260809_0013")
+        with engine.connect() as connection:
+            downgraded = dict(connection.execute(text("SELECT * FROM publishing_jobs WHERE id = 1")).mappings().one())
+        assert downgraded == before
+        command.upgrade(config, "head")
+    finally:
+        engine.dispose()
+
+
+def test_alembic_cli_uses_database_url_environment(tmp_path):
+    db_path = tmp_path / "cli-migration-test.db"
+    env = os.environ.copy()
+    env["DATABASE_URL"] = f"sqlite:///{db_path.as_posix()}"
+
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "operator_controls" in inspect(create_engine(env["DATABASE_URL"])).get_table_names()
 
 
 def test_alembic_migration_runs_from_empty_database(tmp_path):
@@ -51,6 +103,10 @@ def test_alembic_migration_runs_from_empty_database(tmp_path):
     assert "audit_events" in tables
     assert "login_throttles" in tables
     assert "platform_oauth_states" in tables
+    assert "worker_heartbeats" in tables
+    assert "operator_controls" in tables
+    assert "hai_connector_tokens" in tables
+    assert "hai_listing_changes" in tables
     audit_columns = {column["name"] for column in inspect(engine).get_columns("audit_events")}
     assert "user_email_hash" in audit_columns
     assert "event_data" in audit_columns
@@ -69,6 +125,12 @@ def test_alembic_migration_runs_from_empty_database(tmp_path):
     oauth_state_indexes = {index["name"] for index in inspect(engine).get_indexes("platform_oauth_states")}
     assert "ix_platform_oauth_states_state_hash" in oauth_state_indexes
     assert "ix_platform_oauth_states_expires_at" in oauth_state_indexes
+    control_columns = {column["name"] for column in inspect(engine).get_columns("operator_controls")}
+    assert control_columns >= {"job_processing_paused", "reason", "updated_by", "updated_at"}
+    hai_token_columns = {column["name"] for column in inspect(engine).get_columns("hai_connector_tokens")}
+    assert hai_token_columns >= {"user_id", "token_hash", "scope", "expires_at", "revoked_at"}
+    hai_change_columns = {column["name"] for column in inspect(engine).get_columns("hai_listing_changes")}
+    assert hai_change_columns >= {"owner_id", "listing_id", "action", "changed_at"}
 
 
 def test_model_schema_renders_for_postgresql_dialect():

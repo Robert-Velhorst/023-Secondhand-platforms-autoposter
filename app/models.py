@@ -10,6 +10,10 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
+    inspect,
+    literal,
+    select,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,6 +44,28 @@ class User(Base, TimestampMixin):
         cascade="all, delete-orphan", back_populates="user"
     )
     listings: Mapped[list["Listing"]] = relationship(cascade="all, delete-orphan", back_populates="owner")
+
+
+class HaiConnectorToken(Base):
+    """Owner-scoped, read-only credential used only by the HAI export API."""
+
+    __tablename__ = "hai_connector_tokens"
+    __table_args__ = (
+        Index("ix_hai_connector_tokens_user_created_at", "user_id", "created_at"),
+        Index("ix_hai_connector_tokens_expires_at", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    scope: Mapped[str] = mapped_column(String(80), default="hai:read")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    user: Mapped[User] = relationship()
 
 
 class UserSession(Base):
@@ -115,6 +141,19 @@ class Listing(Base, TimestampMixin):
     drafts: Mapped[list["ListingDraft"]] = relationship(
         cascade="all, delete-orphan", back_populates="listing"
     )
+
+
+class HaiListingChange(Base):
+    """Append-only cursor source so HAI can observe updates and deletions."""
+
+    __tablename__ = "hai_listing_changes"
+    __table_args__ = (Index("ix_hai_listing_changes_owner_id_id", "owner_id", "id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    listing_id: Mapped[int] = mapped_column(Integer, index=True)
+    action: Mapped[str] = mapped_column(String(20))
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
 class ListingImage(Base, TimestampMixin):
@@ -215,6 +254,7 @@ class PublishingJob(Base, TimestampMixin):
     platform: Mapped[str] = mapped_column(String(80), index=True)
     account_id: Mapped[int | None] = mapped_column(ForeignKey("platform_accounts.id"), nullable=True)
     status: Mapped[str] = mapped_column(String(40), default="queued", index=True)
+    claim_token: Mapped[str | None] = mapped_column(String(32), nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3)
     idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
@@ -306,3 +346,77 @@ class AuditEvent(Base):
     action: Mapped[str] = mapped_column(String(80), index=True)
     event_data: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class WorkerHeartbeat(Base):
+    __tablename__ = "worker_heartbeats"
+    __table_args__ = (Index("ix_worker_heartbeats_last_seen_at", "last_seen_at"),)
+
+    worker_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    processed_jobs: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class OperatorControl(Base):
+    """Singleton operational controls shared by API and worker processes."""
+
+    __tablename__ = "operator_controls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    job_processing_paused: Mapped[bool] = mapped_column(Boolean, default=False)
+    reason: Mapped[str] = mapped_column(String(500), default="")
+    updated_by: Mapped[str] = mapped_column(String(120), default="operator-cli")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+    )
+
+
+def _record_hai_listing_change(_mapper, connection, target: Listing, action: str) -> None:
+    connection.execute(
+        HaiListingChange.__table__.insert().values(
+            owner_id=target.owner_id,
+            listing_id=target.id,
+            action=action,
+            changed_at=now_utc(),
+        )
+    )
+
+
+@event.listens_for(Listing, "after_insert")
+def _record_hai_listing_insert(_mapper, connection, target: Listing) -> None:
+    _record_hai_listing_change(_mapper, connection, target, "upsert")
+
+
+@event.listens_for(Listing, "after_update")
+def _record_hai_listing_update(_mapper, connection, target: Listing) -> None:
+    _record_hai_listing_change(_mapper, connection, target, "upsert")
+
+
+@event.listens_for(Listing, "after_delete")
+def _record_hai_listing_delete(_mapper, connection, target: Listing) -> None:
+    _record_hai_listing_change(_mapper, connection, target, "delete")
+
+
+def _record_hai_related_change(_mapper, connection, target) -> None:
+    # Resolve ownership and append within the same transaction, without loading
+    # a listing or its relationships into the worker/API session.
+    connection.execute(
+        HaiListingChange.__table__.insert().from_select(
+            ["owner_id", "listing_id", "action", "changed_at"],
+            select(Listing.owner_id, Listing.id, literal("upsert"), literal(now_utc()))
+            .where(Listing.id == target.listing_id),
+        )
+    )
+
+
+for _related_model in (ListingImage, PlatformListingMapping):
+    event.listen(_related_model, "after_insert", _record_hai_related_change)
+    event.listen(_related_model, "after_delete", _record_hai_related_change)
+
+
+@event.listens_for(PlatformListingMapping, "after_update")
+def _record_hai_platform_selection_change(mapper, connection, target: PlatformListingMapping) -> None:
+    history = inspect(target).attrs.status.history
+    if history.has_changes() and ("skipped" in history.deleted or "skipped" in history.added):
+        _record_hai_related_change(mapper, connection, target)

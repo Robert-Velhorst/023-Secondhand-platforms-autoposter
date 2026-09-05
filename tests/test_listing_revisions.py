@@ -144,3 +144,19 @@ def test_publish_can_force_new_assisted_package_revision():
     assert regenerated["listing_revision"] == first["listing_revision"] + 1
     listing = client.get(f"/api/listings/{listing_id}", headers=headers).json()
     assert listing["revision"] == regenerated["listing_revision"]
+
+
+def test_repeated_publish_after_validation_failure_returns_existing_job():
+    headers = auth_headers()
+    listing = client.post("/api/listings", headers=headers, json={"title": "Incomplete listing"})
+    assert listing.status_code == 200, listing.text
+    url = f"/api/listings/{listing.json()['id']}/publish"
+    payload = {"platforms": ["marktplaats"], "process_now": True}
+    first = client.post(url, headers=headers, json=payload)
+    assert first.status_code == 200, first.text
+    assert first.json()[0]["status"] == "failed"
+    repeated = client.post(url, headers=headers, json=payload)
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()[0]["id"] == first.json()[0]["id"]
+    assert repeated.json()[0]["status"] == "failed"
+    assert repeated.json()[0]["attempts"] == 1

@@ -48,3 +48,39 @@ def test_validation_requests_are_scoped_to_selected_platforms():
     ]
     for fragment in required_fragments:
         assert fragment in script
+
+
+def test_listing_form_has_debounced_autosave_with_visible_recovery_copy():
+    script = frontend_script()
+
+    required_fragments = [
+        "function scheduleListingAutosave()",
+        "setTimeout(autosaveSelectedListing, 1200)",
+        '$("#listingForm").addEventListener("input", scheduleListingAutosave)',
+        '$("#listingForm").addEventListener("change", scheduleListingAutosave)',
+        '$("#editorMessage").textContent = "Saved automatically"',
+        '$("#editorMessage").textContent = "Autosave failed - use Save to retry"',
+    ]
+    for fragment in required_fragments:
+        assert fragment in script
+
+
+def test_dashboard_renders_owner_scoped_action_center():
+    script = frontend_script()
+
+    assert 'api("/dashboard")' in script
+    assert "loadRequestedListing" in script
+    assert 'new URLSearchParams(window.location.search).get("listing")' in script
+    assert "function renderActionCenter()" in script
+    assert "data-action-view" in script
+    assert 'state.recentListings = dashboard.recent_listings' in script
+    assert 'summary.listings_total || 0' in script
+
+
+def test_settings_wires_owner_scoped_hai_token_lifecycle():
+    script = frontend_script()
+
+    assert 'api("/hai/tokens")' in script
+    assert '$("#haiTokenForm").addEventListener("submit"' in script
+    assert 'data-revoke-hai-token' in script
+    assert 'Copy this token now. It will not be shown again.' in script

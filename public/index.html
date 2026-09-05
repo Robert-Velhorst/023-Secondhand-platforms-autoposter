@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Secondhand Platforms Autoposter</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -66,6 +67,14 @@
               <article><strong id="metricAction">0</strong><span data-i18n="metric.needAction">Need action</span></article>
               <article><strong id="metricFailed">0</strong><span data-i18n="metric.failed">Failed</span></article>
             </div>
+            <section class="action-center-panel">
+              <div class="pane-head">
+                <h3 data-i18n="dashboard.actionCenter">Getting started and action center</h3>
+                <span class="muted" data-i18n="dashboard.derivedLocal">Derived locally</span>
+              </div>
+              <div id="onboardingSteps" class="onboarding-steps"></div>
+              <div id="actionCenterList" class="list"></div>
+            </section>
             <section class="analytics-panel">
               <div class="pane-head">
                 <h3 data-i18n="dashboard.insights">Insights</h3>
@@ -364,6 +373,28 @@
                   <label data-i18n-label="settings.importJson">Import JSON<input id="importDataInput" type="file" accept="application/json,.json" /></label>
                   <label data-i18n-label="settings.importCsv">Import listings CSV<input id="importListingsCsvInput" type="file" accept="text/csv,.csv" /></label>
                   <p id="dataPortabilityMessage" class="muted"></p>
+                </div>
+                <div class="section-line"></div>
+                <h3 data-i18n="settings.hai">HAI connection</h3>
+                <div class="list hai-connector-panel">
+                  <p class="muted" data-i18n="settings.haiHelp">Download a listing file for HAI's local JSON feed. Connector tokens below are for a custom authenticated adapter; HAI's current HTTP reader cannot use them directly.</p>
+                  <button id="exportHaiFeedButton" type="button" data-i18n="settings.haiDownload">Download HAI feed</button>
+                  <p class="muted" data-i18n="settings.haiDownloadHelp">Contains your current listing text and safe metadata, without private notes or image files. Maximum 5 MiB; oversized exports fail without a partial file. Importing requires HAI operator setup. This is not automatic sync and does not delete previously imported HAI records.</p>
+                  <p id="haiExportMessage" role="status" aria-live="polite"></p>
+                  <form id="haiTokenForm" class="hai-token-form">
+                    <label data-i18n-label="settings.haiName">Connection name<input id="haiTokenName" value="Local HAI" maxlength="120" required /></label>
+                    <label data-i18n-label="settings.haiExpiry">Expires after
+                      <select id="haiTokenExpiry">
+                        <option value="30">30 days</option>
+                        <option value="90" selected>90 days</option>
+                        <option value="180">180 days</option>
+                        <option value="365">365 days</option>
+                      </select>
+                    </label>
+                    <button type="submit" data-i18n="settings.haiCreate">Create read-only token</button>
+                  </form>
+                  <div id="haiTokenOnce" class="hai-token-once hidden" role="status" aria-live="polite"></div>
+                  <div id="haiTokenList" class="list"></div>
                 </div>
                 <div class="section-line"></div>
                 <h3 data-i18n="settings.diagnostics">Diagnostics</h3>
