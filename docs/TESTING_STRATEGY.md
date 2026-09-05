@@ -21,7 +21,7 @@ Doctor warnings are allowed for local development defaults; doctor errors fail t
 
 GitHub Actions runs the same command on pushes and pull requests to `main` via `.github/workflows/verify.yml`.
 
-The same workflow also runs a `postgres-workers` job against a disposable PostgreSQL 16 service. Its twenty-three job-safety tests use real connections and migrations, not merely compiled PostgreSQL SQL.
+The same workflow also runs a `postgres-workers` job against a disposable PostgreSQL 16 service. Its thirty-nine job-safety tests use real connections and migrations, not merely compiled PostgreSQL SQL.
 
 ## Current Test Layers
 
@@ -58,7 +58,7 @@ The same workflow also runs a `postgres-workers` job against a disposable Postgr
 
 ## Worker Recovery Tests
 
-`tests/test_worker_resilience.py` runs the real worker loop against a separate SQLite database. Two cases hold and release a real write lock at queue-claim and heartbeat-write boundaries, then verify a new processing cycle, one attempt, a persisted heartbeat, and released connections. Additional injected driver/pool errors verify capped backoff, recovery reset, log privacy, long configured polls, and propagation/cleanup for unexpected failures and shutdown signals. Unsafe startup remains fail-fast. These eleven cases run in the normal verification job; the PostgreSQL job-safety drill remains a separate twenty-three-case suite.
+`tests/test_worker_resilience.py` runs the real worker loop against a separate SQLite database. Two cases hold and release a real write lock at queue-claim and heartbeat-write boundaries, then verify a new processing cycle, one attempt, a persisted heartbeat, and released connections. Additional injected driver/pool errors verify capped backoff, recovery reset, log privacy, long configured polls, and propagation/cleanup for unexpected failures and shutdown signals. Unsafe startup remains fail-fast. These eleven cases run in the normal verification job; the PostgreSQL job-safety drill remains a separate thirty-nine-case suite.
 
 ## Data And Isolation
 
@@ -89,6 +89,12 @@ Coverage includes another request trying to execute a worker's claim, reclaimed-
 Enqueue coverage verifies unchanged reuse across all six job states and forces two concurrent sessions to observe the same missing key before inserting. The race must produce one job and one queue log while preserving both callers' pending user records. A separate mapper-injected foreign-key failure after account admission checks verifies that unrelated integrity errors propagate without invalidating the outer session or discarding earlier listing changes. Four changed-account cases first enqueue and reuse a valid account, then change its owner or platform through another connection: neither duplicate enqueue nor worker execution may use that now-invalid account, including when a stale account object remains in the session. The API revision suite additionally checks that repeating a publish request after validation failure returns HTTP 200 with the original failed job and unchanged attempt count.
 
 The queue claim transaction remains short and uses PostgreSQL `SKIP LOCKED`; see the [PostgreSQL locking documentation](https://www.postgresql.org/docs/current/sql-select.html#SQL-FOR-UPDATE-SHARE). These cases do not prove exactly-once behavior during external provider calls, lease expiry during unusually long work, distributed cooldown enforcement, or target-host load capacity.
+
+Recovery tests commit a newer job version through a second real connection after the stale-candidate SELECT executes. Published, failed, assisted-complete, freshly reclaimed, and updated-running rows must retain their newer state, result, and attempt count, with zero recovery logs/count. Both null and non-null start timestamps are covered. A two-session barrier forces competing recoverers to select the same stale version; only one may transition it or log recovery. Batch tests cover zero work and repeated two-item cycles that drain six stale jobs without recovering the whole backlog at once.
+
+The recovery write matches ID, running status, observed update timestamp, and observed start timestamp; only a successful update adds a log in that transaction. PostgreSQL rechecks an update's conditions against a concurrently updated row under Read Committed isolation, as described in its [transaction-isolation documentation](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED). The application does not enable stronger isolation or claim lease fencing from this guard.
+
+Control cases leave a real stale row untouched while operator pause or a zero stale threshold is active. Another case forces the recovery log's foreign key to fail, rolls back, and verifies the original running state/retry timestamp and absence of logs through a fresh session. The candidate limit bounds returned rows, Python memory, writes, and logs; it does not guarantee an equally bounded database scan or sort. Large-running-set query-plan/index measurements remain a scaling follow-up.
 
 ### Ongoing Priorities
 

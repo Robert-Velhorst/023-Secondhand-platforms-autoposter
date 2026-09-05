@@ -27,6 +27,7 @@ from app.services.jobs import (
     recover_stale_running_jobs,
     retry_job,
 )
+from app.services.operator_controls import set_job_processing_paused
 
 
 @pytest.fixture
@@ -102,6 +103,153 @@ def test_reclaimed_job_is_not_immediately_recovered_again(job_engine, batch_clai
     with Session(job_engine) as other_worker:
         assert recover_stale_running_jobs(other_worker, 60) == 0
         assert other_worker.get(PublishingJob, 1).status == "running"
+
+
+@pytest.mark.parametrize("new_state", ["published", "failed", "needs_user_action", "reclaimed", "updated"])
+@pytest.mark.parametrize("started", [False, True])
+def test_stale_recovery_cannot_overwrite_a_newer_job_version(job_engine, new_state, started):
+    old = datetime.now(UTC) - timedelta(hours=1)
+    newer = datetime.now(UTC)
+    with Session(job_engine) as db:
+        db.execute(update(PublishingJob).where(PublishingJob.id == 1).values(
+            status="running", started_at=old if started else None, updated_at=old,
+        ))
+        db.commit()
+    observed = False
+    expected_status = "running" if new_state in {"reclaimed", "updated"} else new_state
+
+    def change_after_stale_selection(_connection, _cursor, statement, _parameters, _context, _many):
+        nonlocal observed
+        if (not observed and statement.lstrip().upper().startswith("SELECT")
+                and "publishing_jobs.started_at <" in statement):
+            observed = True
+            # Commit after the recovery SELECT has run, but before its stale rows are used.
+            with job_engine.begin() as connection:
+                values = {"status": expected_status, "updated_at": newer,
+                          "result": {"newer_result": True}, "attempts": 2}
+                if new_state == "reclaimed":
+                    values["started_at"] = newer
+                elif new_state not in {"updated"}:
+                    values["finished_at"] = newer
+                connection.execute(update(PublishingJob).where(PublishingJob.id == 1).values(**values))
+
+    event.listen(job_engine, "after_cursor_execute", change_after_stale_selection)
+    try:
+        with Session(job_engine) as recovery:
+            recovered = recover_stale_running_jobs(recovery, 60)
+    finally:
+        event.remove(job_engine, "after_cursor_execute", change_after_stale_selection)
+    assert observed, "The test must interleave after the real stale-row query"
+    with Session(job_engine) as db:
+        job = db.get(PublishingJob, 1)
+        assert job.status == expected_status
+        assert job.result == {"newer_result": True}
+        assert job.attempts == 2
+        assert db.query(PublishingJobLog).count() == 0
+    assert recovered == 0
+
+
+def test_simultaneous_recovery_records_one_transition_and_log(job_engine):
+    old = datetime.now(UTC) - timedelta(hours=1)
+    with Session(job_engine) as db:
+        db.execute(update(PublishingJob).where(PublishingJob.id == 1).values(
+            status="running", started_at=old, updated_at=old,
+        ))
+        db.commit()
+    selected = Barrier(2)
+
+    def synchronize_stale_selection(_connection, _cursor, statement, _parameters, _context, _many):
+        if (statement.lstrip().upper().startswith("SELECT")
+                and "publishing_jobs.started_at <" in statement):
+            selected.wait(timeout=20)
+
+    def recover():
+        with Session(job_engine) as db:
+            return recover_stale_running_jobs(db, 60)
+
+    event.listen(job_engine, "after_cursor_execute", synchronize_stale_selection)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(lambda _: recover(), range(2)))
+    finally:
+        event.remove(job_engine, "after_cursor_execute", synchronize_stale_selection)
+    assert sorted(results) == [0, 1]
+    with Session(job_engine) as db:
+        assert db.get(PublishingJob, 1).status == "queued"
+        assert db.query(PublishingJobLog).count() == 1
+
+
+@pytest.mark.parametrize("batch_size", [0, 2])
+def test_worker_cycle_bounds_stale_recovery_to_its_batch(job_engine, batch_size):
+    old = datetime.now(UTC) - timedelta(hours=1)
+    with Session(job_engine) as db:
+        for job_id in range(2, 7):
+            db.add(PublishingJob(id=job_id, listing_id=1, platform="marktplaats",
+                                 idempotency_key=f"stale-batch-{job_id}"))
+        db.flush()
+        db.query(PublishingJob).update({
+            PublishingJob.status: "running", PublishingJob.started_at: old, PublishingJob.updated_at: old,
+        }, synchronize_session=False)
+        db.commit()
+        assert process_due_jobs(db, batch_size) == batch_size
+    with Session(job_engine) as db:
+        assert db.query(PublishingJobLog).filter(
+            PublishingJobLog.message == "Recovered stale running job and returned it to the queue."
+        ).count() == batch_size
+        assert db.query(PublishingJob).filter_by(status="running").count() == 6 - batch_size
+        assert db.query(PublicationAttempt).count() == batch_size
+    if batch_size:
+        with Session(job_engine) as db:
+            assert process_due_jobs(db, batch_size) == 2
+            assert process_due_jobs(db, batch_size) == 2
+        with Session(job_engine) as db:
+            assert db.query(PublishingJob).filter_by(status="failed").count() == 6
+            assert db.query(PublicationAttempt).count() == 6
+
+
+@pytest.mark.parametrize("control", ["paused", "disabled"])
+def test_worker_recovery_preserves_operator_controls(job_engine, monkeypatch, control):
+    old = datetime.now(UTC) - timedelta(hours=1)
+    with Session(job_engine) as db:
+        db.execute(update(PublishingJob).where(PublishingJob.id == 1).values(
+            status="running", started_at=old, updated_at=old,
+        ))
+        db.commit()
+        if control == "paused":
+            set_job_processing_paused(db, paused=True, reason="Recovery must remain paused")
+        else:
+            monkeypatch.setenv("JOB_STALE_RUNNING_SECONDS", "0")
+            get_settings.cache_clear()
+        assert process_due_jobs(db, 2) == 0
+    with Session(job_engine) as db:
+        assert db.get(PublishingJob, 1).status == "running"
+        assert db.query(PublishingJobLog).count() == 0
+        assert db.query(PublicationAttempt).count() == 0
+
+
+def test_recovery_state_rolls_back_if_its_log_cannot_be_saved(job_engine):
+    old = datetime.now(UTC) - timedelta(hours=1)
+    with Session(job_engine) as db:
+        db.execute(update(PublishingJob).where(PublishingJob.id == 1).values(
+            status="running", started_at=old, updated_at=old, next_retry_at=old,
+        ))
+        db.commit()
+
+    def break_log_foreign_key(_mapper, _connection, log):
+        log.job_id = 999999
+
+    event.listen(PublishingJobLog, "before_insert", break_log_foreign_key)
+    try:
+        with Session(job_engine) as db:
+            with pytest.raises(IntegrityError):
+                recover_stale_running_jobs(db, 60)
+            db.rollback()
+    finally:
+        event.remove(PublishingJobLog, "before_insert", break_log_foreign_key)
+    with Session(job_engine) as db:
+        job = db.get(PublishingJob, 1)
+        assert job.status == "running" and job.next_retry_at is not None
+        assert db.query(PublishingJobLog).count() == 0
 
 
 @pytest.mark.parametrize("status", ["queued", "running"])

@@ -1,5 +1,17 @@
 # Final Verification Report
 
+## Stale-recovery race and resource-bound verification — 2026-09-05
+
+Target: working checkout based on `02e17572f679a1bcdae797327f88e097a16bae78`, with conditional stale recovery, bounded worker recovery, and 16 additional job-safety cases.
+
+- The initial race reproduction produced **11 failures in 4.14 seconds**. A second connection committed a newer completion, reclaim, or update after the real stale-selection query; recovery overwrote every newer state with `queued`. Two simultaneous recoverers also both reported success. Both null and non-null start timestamps were exercised. Two additional failing cases showed one worker cycle recovering all six stale rows even with batch sizes zero and two.
+- Recovery now selects only IDs and update/start timestamps. Each update must still match the observed running version; only a winning update records a recovery log, in the same transaction. The worker passes its batch limit into recovery. Direct helper callers retain the optional unbounded mode for compatibility. No schema migration, claim-token lease, or external-adapter behavior change is included.
+- Focused job, worker, and resilience checks passed **56 tests in 36.48 seconds**. The extended bounded-backlog cases passed **2 tests in 4.06 seconds**, including repeated cycles draining the remaining jobs. Independent read-only review found no blocking defect. Its suggested paused/disabled-recovery and log-failure rollback controls were added and passed **3 tests in 14.02 seconds**, with a real database foreign-key failure for the rollback case.
+- The final full gate passed Ruff, compilation, **312 tests in 150.49 seconds**, and doctor, including the three final review controls. The local database is at Alembic head `20260809_0013`; the development default-secret warning remains.
+- The Windows executable rebuilt successfully with SHA-256 `ceff830691a098145cfbb453c89eb5792368af1f5b5eb829535c516cab6af92f`. Its isolated HTTP workflow passed API/worker health, dashboard, private image upload, HAI incremental metadata and malformed-cursor handling, account-isolation checks, idempotent failed-job reuse, and explicit retry. A deliberately abandoned running row in the harness's fresh database was recovered by the executable's separate worker to `needs_user_action`, with two total attempts and exactly one recovery log. No marketplace calls were made.
+- The migrated PostgreSQL job-safety run is still in progress at this checkpoint. A read-only activity check showed fixture migration work, not a blocked competing-recovery update; no restart was inferred from slow output.
+- Limits: returned candidates, Python memory, writes, and logs are bounded per worker cycle; total database scan/sort work is not guaranteed to be bounded. Large-running-set query-plan/index measurements remain a scaling follow-up. This fix does not renew/fence long-running external calls or establish exactly-once external publication. Target deployment, real HAI consumer integration, manual accessibility/user walkthroughs, and final acceptance remain open.
+
 ## Publishing-account boundary verification — 2026-09-05
 
 Target: working checkout based on `e011d7891cc6566410f2735ccd7363623f4f7bdb`, with the publishing-account boundary fix and 23 additional tests.

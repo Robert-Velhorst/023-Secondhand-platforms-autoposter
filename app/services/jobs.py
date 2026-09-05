@@ -441,12 +441,12 @@ def claim_due_queued_job_ids_with_locks(db: Session, limit: int) -> list[int]:
     return job_ids
 
 
-def recover_stale_running_jobs(db: Session, stale_after_seconds: int) -> int:
-    if stale_after_seconds <= 0:
+def recover_stale_running_jobs(db: Session, stale_after_seconds: int, *, limit: int | None = None) -> int:
+    if stale_after_seconds <= 0 or (limit is not None and limit <= 0):
         return 0
     cutoff = datetime.now(UTC) - timedelta(seconds=stale_after_seconds)
-    stale_jobs = (
-        db.query(PublishingJob)
+    stale_query = (
+        db.query(PublishingJob.id, PublishingJob.updated_at, PublishingJob.started_at)
         .filter(PublishingJob.status == RUNNING)
         .filter(
             or_(
@@ -455,27 +455,40 @@ def recover_stale_running_jobs(db: Session, stale_after_seconds: int) -> int:
             )
         )
         .order_by(PublishingJob.updated_at.asc(), PublishingJob.id.asc())
-        .all()
     )
+    if limit is not None:
+        stale_query = stale_query.limit(limit)
+    stale_jobs = stale_query.all()
+    recovered = 0
     for job in stale_jobs:
-        transition_job(job, QUEUED)
-        job.next_retry_at = None
-        add_log(
-            db,
-            job,
-            "warning",
-            "Recovered stale running job and returned it to the queue.",
-            {"stale_after_seconds": stale_after_seconds},
-        )
+        # The SELECT is only a candidate snapshot. A completion, renewed claim,
+        # or another recovery must win over this outdated observation.
+        changed = db.query(PublishingJob).filter(
+            PublishingJob.id == job.id,
+            PublishingJob.status == RUNNING,
+            PublishingJob.updated_at == job.updated_at,
+            PublishingJob.started_at == job.started_at,
+        ).update({
+            PublishingJob.status: QUEUED,
+            PublishingJob.next_retry_at: None,
+            PublishingJob.updated_at: datetime.now(UTC),
+        }, synchronize_session=False)
+        if changed:
+            recovered += 1
+            db.add(PublishingJobLog(
+                job_id=job.id, level="warning",
+                message="Recovered stale running job and returned it to the queue.",
+                data={"stale_after_seconds": stale_after_seconds},
+            ))
     if stale_jobs:
         db.commit()
-    return len(stale_jobs)
+    return recovered
 
 
 def process_due_jobs(db: Session, limit: int) -> int:
     if job_processing_is_paused(db):
         return 0
-    recover_stale_running_jobs(db, get_settings().job_stale_running_seconds)
+    recover_stale_running_jobs(db, get_settings().job_stale_running_seconds, limit=limit)
     job_ids = claim_due_queued_job_ids(db, limit)
     processed = 0
     for job_id in job_ids:

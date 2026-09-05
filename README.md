@@ -562,6 +562,8 @@ Job states are:
 
 Claims use a conditional queued-to-running update; PostgreSQL query construction includes `FOR UPDATE SKIP LOCKED` for concurrent workers. Idempotency keys include the owner, listing revision, platform, account, action, and operation mode. Platform cooldowns can return work to `queued` without counting an adapter attempt. Stale `running` jobs are recovered after `JOB_STALE_RUNNING_SECONDS`.
 
+Recovery checks the selected job version again before returning it to the queue, so an outdated recovery decision cannot replace a newer completion or claim. Competing recoverers record only one successful transition and recovery log. Each worker cycle considers at most its configured batch size of stale candidates, loading only IDs and timestamps; repeated cycles drain the backlog. This does not provide lease renewal or exactly-once external publication during long-running adapter calls.
+
 Inline requests must claim due queued work; they do not execute a job already claimed by a worker or bypass its scheduled backoff. Retrying an already queued/running job leaves it unchanged. Retrying terminal work uses a conditional version check and, when `JOB_PROCESS_INLINE=false`, leaves execution to the separate worker. A fresh claim clears the previous attempt's start/finish timestamps so it is not immediately recovered as stale.
 
 Repeating a queue request with the same idempotency key returns the existing job in any state, including `failed` and `skipped`; it does not create a duplicate or implicitly retry a failure. Use the explicit retry action for eligible jobs, or edit/regenerate the listing to create a new revision. Simultaneous requests for the same key are resolved by the database uniqueness constraint, with one job and one initial queue log. A recovered duplicate-key race preserves caller changes made before the enqueue savepoint; unrelated database errors still propagate.
@@ -679,11 +681,11 @@ The gate runs:
 3. the complete pytest suite;
 4. `python -m app.doctor --json`.
 
-The current suite contains 296 tests spanning API behaviour, authentication, owner isolation, publishing-account ownership/platform checks, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent enqueue/worker claims/retries/health, worker database-error recovery, migrations, deployment configuration, bounded dashboard reads, HAI, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention.
+The current suite contains 312 tests spanning API behaviour, authentication, owner isolation, publishing-account ownership/platform checks, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent enqueue/worker claims/retries/health, stale-recovery races and batch bounds, worker database-error recovery, migrations, deployment configuration, bounded dashboard reads, HAI, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention.
 
 Pytest creates a separate database, upload directory, and secret directory for each process before importing the application. It ignores inherited deployment/storage values and removes its own fixtures after a successful run; failed fixtures remain under `.tmp/test-runs/` for diagnosis. See [Testing strategy](docs/TESTING_STRATEGY.md) for the isolation contract and explicit PostgreSQL integration checks.
 
-GitHub's `postgres-workers` job also runs the 23 job-safety checks against a disposable PostgreSQL 16 service, including changed-account checks through separate database connections. Each case migrates its own newly created schema to Alembic head and removes that schema afterward. This is CI integration evidence, not evidence of a deployed production database.
+GitHub's `postgres-workers` job also runs the 39 job-safety checks against a disposable PostgreSQL 16 service, including changed-account checks, stale-recovery races, and bounded backlog draining through separate database connections. Each case migrates its own newly created schema to Alembic head and removes that schema afterward. This is CI integration evidence, not evidence of a deployed production database.
 
 Additional checks:
 
