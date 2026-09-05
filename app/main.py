@@ -2,7 +2,6 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from app.api import router as product_router
 from app.config import get_settings, validate_startup_safety
@@ -12,6 +11,7 @@ from app.observability import configure_logging
 from app.routes.auth import router as auth_router
 from app.routes.hai import router as hai_router
 from app.routes.system import router as system_router
+from app.static import RevalidatingStaticFiles
 
 
 def create_app() -> FastAPI:
@@ -38,7 +38,7 @@ def create_app() -> FastAPI:
     app.include_router(product_router)
 
     public_dir = Path(__file__).resolve().parent.parent / "public"
-    app.mount("/", StaticFiles(directory=public_dir, html=True), name="public")
+    app.mount("/", RevalidatingStaticFiles(directory=public_dir, html=True), name="public")
     return app
 
 

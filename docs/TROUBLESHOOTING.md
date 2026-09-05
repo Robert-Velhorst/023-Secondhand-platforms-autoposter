@@ -10,6 +10,11 @@
 | Worker status is unhealthy | No recent worker heartbeat | Check process logs, database migration, configuration, and worker command. |
 | Autosave failed | The edit remains visible but was not persisted | Check the error/request ID and use Save to retry after connectivity returns. |
 | Migration mismatch | Database is not at Alembic head | Back up first, then run `alembic upgrade head`; do not enable auto-create in production. |
+| Old labels or behavior after an upgrade | A previously cached page or still-open tab may be running the old frontend | Save pending edits, reload, and if necessary hard-refresh once. Verify all application processes use the same release. Do not clear application data or delete the database. |
+
+Frontend HTML, JavaScript, CSS, and the tab icon now use `Cache-Control: no-cache`: browsers can retain files, but must revalidate them before normal reuse. Matching ETags still return body-free HTTP 304 responses, avoiding repeated full downloads. This is not a live-update mechanism for already-open tabs and does not retroactively invalidate files cached under an older release's policy. Browser history restoration and a proxy configured to override origin headers need separate checks. See [MDN's cache-control reference](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#no-cache).
+
+Analytics bars use SVG geometry and external CSS so the strict `style-src 'self'` security policy can remain enabled. Do not add `unsafe-inline` to conceal styling errors; investigate any new console violations and confirm the browser loaded the intended release.
 
 Useful commands:
 

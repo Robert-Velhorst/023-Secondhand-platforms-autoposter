@@ -798,7 +798,7 @@ function analyticsBarsHtml(values) {
       ${entries.map(([label, count]) => `
         <div class="analytics-bar-row">
           <span>${escapeHtml(formatFieldLabel(label))}</span>
-          <div><i style="width: ${Math.max(8, (Number(count) / max) * 100)}%"></i></div>
+          <svg viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect width="${Math.max(0, (Number(count) / max) * 100)}" height="8" rx="4"></rect></svg>
           <strong>${Number(count)}</strong>
         </div>
       `).join("")}
