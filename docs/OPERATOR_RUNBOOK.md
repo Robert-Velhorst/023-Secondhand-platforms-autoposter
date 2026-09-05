@@ -1,6 +1,6 @@
 # Operator Runbook
 
-This runbook is for deploying and operating the production-safe assisted-posting app.
+This runbook covers deployment and operation of the assisted-posting app. It is not production approval: resolve the [implementation gaps and launch requirements](../README.md#current-launch-blockers) and record target-environment evidence before launch.
 
 ## Pre-Deploy Checks
 
@@ -63,13 +63,16 @@ Docker Compose:
 docker compose up --build
 ```
 
-Production Compose runs migrations as a one-shot service before API and worker startup:
+Production Compose runs migrations as a one-shot service before API and worker startup. For a new deployment, prepare `.env.production` from `.env.production.example` outside version control and replace every placeholder first. Do not overwrite an existing configured file. For an upgrade, stop all older API and worker processes and back up the target database/uploads before starting the new stack; follow the claim-fencing procedure above.
 
-```bash
-copy .env.production.example .env.production
-set UPLOAD_VOLUME=C:\path\to\persistent\autoposter-uploads
-docker compose -f docker-compose.production.yml up --build
+After configuration and backup, launch from PowerShell:
+
+```powershell
+$env:UPLOAD_VOLUME = "C:\path\to\persistent\autoposter-uploads"
+docker compose --env-file .env.production -f docker-compose.production.yml up --build -d
 ```
+
+On Linux/macOS, use `export UPLOAD_VOLUME=/path/to/persistent/autoposter-uploads` instead of the PowerShell assignment. `--env-file` supplies Compose interpolation values; the services' `env_file` loads application settings. Keep the published API port behind a reviewed HTTPS proxy/firewall. Compose does not provide TLS, edge rate limiting, backup scheduling, or a managed database.
 
 Do not add a default database password or a bundled database service to this production file. `DATABASE_URL` must be supplied by the deployment secret manager. Confirm `GET /api/worker-status` reports `status: ok` after the worker has completed at least one poll cycle.
 

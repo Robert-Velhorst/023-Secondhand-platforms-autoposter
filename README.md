@@ -2,9 +2,15 @@
 
 Secondhand Platforms Autoposter is a self-hosted listing workspace for preparing one secondhand-product listing for several marketplaces. A seller enters the item once, adds images, checks listing quality, creates platform-specific variations, and tracks the work needed to publish it.
 
-> **Current status:** release candidate `1.0.0-rc.1`. The application is locally implemented and automatically verified, but it is **not approved for a final production launch** until the deployment, backup, accessibility, real-user, and acceptance evidence described below has been completed.
+> **Current status:** release candidate `1.0.0-rc.1`. The local listing workflow has automated verification, but the project is **not approved for a final production launch**. The implementation/integration gaps and deployment, backup, accessibility, real-user, and acceptance requirements described below remain open.
 
 > **Important:** every marketplace adapter currently uses **assisted posting**. The app prepares copy-ready data and opens the appropriate marketplace workflow; the seller still signs in, handles verification or CAPTCHA prompts, reviews fees and options, and presses the marketplace's final submit button. The app does not claim automatic publication without official API proof or explicit user confirmation.
+
+### Which version does this describe?
+
+This README describes the **`agent/production-launch-hardening` review branch**, tracked in [draft pull request #2](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/pull/2), not an approved production release. At the 2026-09-06 repository check, `main` remained at `d96b27e`; the review branch was at `124094b` before this documentation update. The previously reported 190 tests refer to the earlier baseline, not the current review branch. Follow the branch-specific clone instructions below to obtain the code described here.
+
+In plain language: the local app prepares and organises listings; people still publish them. A Windows build has recorded local verification. Production launch, safe ngrok lifecycle handling, and a working connection to the current HAI consumer are separate unfinished milestones. The `1.0.0-rc.1` version string is not launch approval or proof of a downloadable signed release.
 
 ## Contents
 
@@ -138,7 +144,7 @@ Marketplace names and links identify destinations selected by the user. They do 
 | Python from source | Developers and local review | SQLite by default; PostgreSQL optional | Inline by default or separate process | Fastest path for development and debugging |
 | Docker Compose | Repeatable local environments | SQLite by default; optional local PostgreSQL profile | Separate container | Edit `.env` to select PostgreSQL and disable inline processing when testing worker behaviour |
 | Production Compose | A supplied staging/production host | External PostgreSQL required | Separate container | Migration-gated and requires persistent uploads plus production secrets |
-| ngrok over standalone | Temporary remote/private review of one Windows instance | Local SQLite | Started automatically | Requires an authenticated ngrok installation and an available tunnel/domain |
+| ngrok over standalone | Experimental remote review of one Windows instance | Local SQLite | Launcher starts it; script does not independently verify it | Lifecycle hardening is outstanding; see the warning below before use |
 
 ## Windows 11 standalone use
 
@@ -178,6 +184,8 @@ $env:AUTOPOSTER_DATA_DIR = "D:\AutoposterData"
 
 The standalone profile is designed for one Windows operator using SQLite and local image storage. It is not a substitute for a multi-user PostgreSQL production deployment. See [Windows standalone and ngrok](docs/WINDOWS_STANDALONE.md).
 
+Use a free local port and stop the previous instance before starting another one against the same data directory. The launcher runs migrations at startup; upgrades require a backup and all older API/worker processes stopped. Local build evidence does not establish Windows code-signing, SmartScreen reputation, an installer, or automatic updates.
+
 ## Local development setup
 
 ### Requirements
@@ -190,7 +198,7 @@ The standalone profile is designed for one Windows operator using SQLite and loc
 ### Windows PowerShell
 
 ```powershell
-git clone https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter.git
+git clone --branch agent/production-launch-hardening https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter.git
 Set-Location 023-Secondhand-platforms-autoposter
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -206,7 +214,7 @@ Open <http://127.0.0.1:8000>.
 ### Linux or macOS
 
 ```bash
-git clone https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter.git
+git clone --branch agent/production-launch-hardening https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter.git
 cd 023-Secondhand-platforms-autoposter
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -218,6 +226,8 @@ python -m uvicorn app.main:app --reload
 ```
 
 `.env.example` enables development conveniences, including automatic table creation and inline job processing. Run Alembic anyway when validating migrations, and never copy those unsafe conveniences into production.
+
+These commands are for a **new checkout**. Do not overwrite an existing `.env` or recreate a working environment without reviewing it. If PowerShell blocks activation, use `.\.venv\Scripts\python.exe` in place of `python`; activation is not required. Stop the development server with Ctrl+C. There is no frontend build step or Node.js requirement for the shipped plain-JavaScript interface.
 
 ## Docker setup
 
@@ -240,18 +250,24 @@ AUTO_CREATE_TABLES=false
 JOB_PROCESS_INLINE=false
 ```
 
-Then start the optional database profile and migrate it:
+Then start the database, wait for it to accept connections, migrate it with a one-off application container, and only then start the API and worker:
 
 ```powershell
-docker compose --profile postgres up --build -d
-docker compose exec autoposter alembic upgrade head
+docker compose --profile postgres up -d postgres
+docker compose exec postgres pg_isready -U autoposter -d autoposter
+docker compose run --build --rm autoposter alembic upgrade head
+docker compose --profile postgres up --build -d autoposter worker
 ```
 
-The local Compose PostgreSQL password is a development value. Do not reuse it outside an isolated local environment.
+Continue past `pg_isready` only after it reports that PostgreSQL is accepting connections; repeat the check if it is still starting. For an existing stack, stop API and worker and back up data before migrating. The local Compose PostgreSQL password is a development value. Do not reuse it outside an isolated local environment. Compose publishes ports on the host; apply host firewall restrictions and do not expose this development stack to the internet.
 
 ## Access through ngrok
 
-After installing and authenticating ngrok, either build the portable executable or prepare the Python environment, then run:
+> **Not yet a hardened exposure path.** Source review on 2026-09-06 found that `start-ngrok.ps1` starts the tunnel before establishing ownership of the application port. An existing service on that port could therefore be exposed. Its cleanup selects newly observed processes by executable path, not a proven child-process tree; unrelated concurrent launches can be selected and some child processes can be missed. Shared log paths also make concurrent runs unsafe. These are implementation gaps, not configuration guarantees.
+
+Do not use the current script on a shared host or with sensitive data until port ownership, process-tree cleanup, and concurrent-run isolation have been fixed and tested. A reserved domain does not make a tunnel private; internet access controls and account authentication must be reviewed separately. The following commands document the current experimental interface, not a recommendation for production exposure.
+
+With ngrok installed/authenticated and the portable executable or Python environment prepared:
 
 ```powershell
 .\scripts\start-ngrok.ps1
@@ -263,13 +279,13 @@ For a reserved domain:
 .\scripts\start-ngrok.ps1 -Domain "your-domain.ngrok.app"
 ```
 
-For a non-interactive health drill that stops its own test processes:
+For the script's non-interactive health drill (subject to the same lifecycle limitations):
 
 ```powershell
 .\scripts\start-ngrok.ps1 -VerifyOnly
 ```
 
-The script disables ngrok's local inspection API, reads the public URL only from the JSON log of the process it started, restricts CORS to that URL, uses bearer authentication, waits for local API/worker health, verifies public HTTPS health, and cleans up only its own processes.
+The script passes `--inspect=false`, reads an HTTPS URL from its redirected JSON log, restricts CORS to that URL, uses bearer authentication, and checks local and public `/api/health` responses. It does **not** independently query `/api/worker-status`; its message about verified worker startup is not worker-health evidence. Its environment changes also remain in the calling PowerShell session. Use a dedicated session for any controlled investigation and do not treat a successful health response as proof of process ownership or safe cleanup.
 
 If ngrok reports `ERR_NGROK_334`, that endpoint is already online. Stop the conflicting endpoint in the ngrok account or provide another reserved domain/tunnel slot. Do not enable pooling as an improvised fix: it may route one public address to unrelated local services.
 
@@ -277,15 +293,15 @@ Treat an ngrok URL as internet exposure. Use a strong account password, do not e
 
 ## HAI connector
 
-The application exposes an app-side, owner-scoped, **read-only** connector that HAI can consume without receiving the user's normal login token.
+The application exposes an app-side, owner-scoped, **read-only** API intended for HAI integration, using a separate token instead of the user's normal login token. **The current HAI generic-feed consumer is not directly compatible.**
 
-### Connect
+### Test the app-side connector
 
 1. Sign in to Secondhand Autoposter.
 2. Open **Settings** and create a named HAI token with an expiry period.
 3. Copy the `hai_...` value immediately. Only its SHA-256 hash is retained, so the plaintext token cannot be shown again.
-4. In HAI, configure an HTTP source using the Autoposter base URL and `Authorization: Bearer hai_...`.
-5. Read `/.well-known/hai-connector.json`, verify with `GET /api/hai/status`, and pull `GET /api/hai/records`.
+4. Use a controlled API client capable of sending `Authorization: Bearer hai_...`; do not put the token in a URL, screenshot, or committed configuration.
+5. Read `/.well-known/hai-connector.json`, verify with `GET /api/hai/status`, and pull `GET /api/hai/records`. This verifies Autoposter's API, not ingestion into HAI.
 
 Example with a placeholder token:
 
@@ -296,7 +312,18 @@ curl -H "Authorization: Bearer hai_REPLACE_ME" \
 
 The feed uses opaque cursors, returns listing upserts, and emits deletion tombstones. It excludes internal notes, credentials, secret references, and image binaries. Connector tokens have only `hai:read`, expire, can be revoked, and cannot edit, delete, publish, or mark a marketplace job complete.
 
-This repository provides the Autoposter protocol and token/feed implementation. An administrator must still register or configure the source in the target HAI installation. See [HAI connector](docs/HAI_CONNECTOR.md).
+### What is still needed on the HAI side?
+
+Source comparison against [HAI's generic-feed parser at commit `91c8620`](https://github.com/Robert-Velhorst/018-HAI/blob/91c8620c557229f1da4ed15fcbb7088c6a6947a7/backend/internal/accountfeed/generic_feed.go), [HTTP fetcher](https://github.com/Robert-Velhorst/018-HAI/blob/91c8620c557229f1da4ed15fcbb7088c6a6947a7/backend/internal/accountfeed/fetcher.go), and [sync registry](https://github.com/Robert-Velhorst/018-HAI/blob/91c8620c557229f1da4ed15fcbb7088c6a6947a7/backend/internal/accountfeed/registry_service.go) on 2026-09-06 found:
+
+| Contract | Autoposter emits/requires | Inspected HAI consumer |
+| --- | --- | --- |
+| Authentication | A `hai:read` bearer token | HTTP fetcher does not set an Authorization header |
+| Envelope | `records`, `next_cursor`, `has_more` | Parses `items` and optional `cursor`, or a bare item array |
+| Identity/type fields | `id`, `source_url`, listing metadata | Requires `externalId`, `provider`, and `itemType`; uses `sourceUri` |
+| Incremental sync | Caller advances the cursor and applies deletion tombstones | Reports a cursor but does not advance the fetch URL or apply Autoposter tombstones |
+
+Registering the URL alone is therefore insufficient: authenticated fetching fails, and even a manually fetched `records` envelope can be interpreted as zero items by that parser. An authenticated adapter or explicitly managed file-conversion bridge, cursor/retry handling, deletion policy, and real ingestion evidence are still needed. No such bridge or HAI-compatible feed-download feature is currently shipped here. Do not remove authentication or claim end-to-end HAI completion to work around the mismatch. See [HAI connector](docs/HAI_CONNECTOR.md) for the protocol and acceptance checklist.
 
 ## Architecture
 
@@ -310,7 +337,7 @@ flowchart LR
     W --> P["Assisted platform adapters"]
     P --> M["Copy-ready package + marketplace link"]
     M -->|"Seller signs in and submits"| X["External marketplace"]
-    H["HAI"] -->|"Expiring hai:read token"| R["Read-only incremental connector"]
+    H["HAI: compatible consumer still needed"] -.->|"Required authenticated adapter"| R["Read-only incremental connector"]
     R --> A
 ```
 
@@ -541,7 +568,7 @@ All product endpoints are under `/api` unless noted. Authenticated calls use `Au
 | `GET` | `/api/hai/status` | Verify a `hai_...` token |
 | `GET` | `/api/hai/records` | Pull owner-scoped incremental listing changes |
 
-List endpoints use bounded `limit`/`offset` pagination and return `X-Total-Count`, `X-Limit`, and `X-Offset`. See [API reference](docs/API_REFERENCE.md) for payload and error-shape details.
+Paginated product collections such as listings and jobs use bounded `limit`/`offset` and return `X-Total-Count`, `X-Limit`, and `X-Offset`. This is not universal: HAI records use `cursor`, `limit` (1–250, default 100), `next_cursor`, and `has_more`; token metadata and platform capabilities have their own response contracts. See [API reference](docs/API_REFERENCE.md) and the running `/docs` schema for payload and error-shape details.
 
 ## Jobs and worker operation
 
@@ -594,16 +621,15 @@ Pausing prevents new claims; it does not terminate an adapter call already in pr
 
 Production Compose deliberately does **not** bundle a database. Supply a managed or separately operated PostgreSQL service, durable upload storage, and secret-manager-backed values.
 
-1. Copy `.env.production.example` to `.env.production` outside version control.
+1. For a new deployment only, copy `.env.production.example` to `.env.production` outside version control. Preserve an existing configured file.
 2. Replace every placeholder, particularly `SECRET_KEY`, `DATABASE_URL`, `PUBLIC_BASE_URL`, and `CORS_ORIGINS`.
 3. Choose private S3-compatible storage or a persistent local upload volume.
 4. Back up the target database and uploads before migration.
 5. Start the migration-gated stack.
 
 ```powershell
-Copy-Item .env.production.example .env.production
 $env:UPLOAD_VOLUME = "D:\PersistentData\autoposter-uploads"
-docker compose -f docker-compose.production.yml up --build -d
+docker compose --env-file .env.production -f docker-compose.production.yml up --build -d
 ```
 
 The `migrate` service must complete `alembic upgrade head` before the API and worker start. Required production posture includes:
@@ -621,6 +647,8 @@ The `migrate` service must complete `alembic upgrade head` before the API and wo
 - production-appropriate JSON logging and independently verified edge rate limits.
 
 Startup rejects unsafe production values rather than silently falling back to development behaviour.
+
+The example creates a new environment; do not copy over an existing `.env.production`. For upgrades, stop all older API/worker processes before migration and follow the [operator runbook](docs/OPERATOR_RUNBOOK.md). Compose does not supply TLS certificates, an edge proxy/WAF, backup scheduling, or a managed database. Restrict direct access to the published API port and terminate HTTPS at a reviewed proxy. `--env-file` supplies Compose interpolation values such as `APP_PORT`; service `env_file` supplies the application environment. Neither is a secret manager.
 
 After deployment, record the exact commit, environment, URL, migration head, API/worker health, backup/restore result, edge policy, accessibility evidence, accepted risks, and final decision in [Release evidence record](docs/RELEASE_EVIDENCE_RECORD.md).
 
@@ -706,6 +734,8 @@ GitHub Actions runs the verification gate on pushes and pull requests to `main`.
 `release_gate.py` and `final_response_check.py` are expected to return a non-zero blocked result until real deployment, walkthrough, accessibility, and acceptance records are complete. That is a truthful release control, not an automated-test failure.
 
 For the latest recorded evidence, see [Final verification report](docs/FINAL_VERIFICATION_REPORT.md). Browser and accessibility records must be refreshed after UI-affecting changes; static or scripted checks do not replace a real keyboard, zoom, and screen-reader walkthrough.
+
+For a dated, directly inspectable baseline, [GitHub verification run 33993983144](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/33993983144) passed at review-branch commit `124094b` on 2026-09-05: 335 full-suite tests and 61 PostgreSQL job-safety tests. Those 61 checks rerun a subset against a different database; they are not 61 additional distinct product tests. Later commits require their own checks. On 2026-09-06, the release gate still reported **77 missing evidence fields** (36 release, 29 walkthrough, 12 acceptance); that count is a dated template-status snapshot, not the complete count of outstanding engineering tasks.
 
 ## Operations and troubleshooting
 
@@ -834,6 +864,15 @@ An assisted adapter must return `needs_user_action`. Changing to `official_api` 
 The `docs/` directory also contains detailed audit history, design reviews, task graphs, UI reviews, feature flags, state machines, roadmaps, and evidence templates. Those files preserve review provenance; this README is the orientation layer, not a replacement for the authoritative records.
 
 ## Current launch blockers
+
+There are both **unfinished implementation/integration tasks** and **external evidence/signoff requirements**. Filling out the evidence templates does not fix code gaps, and fixing code cannot supply a person's acceptance.
+
+| Remaining work | Responsibility and completion proof |
+| --- | --- |
+| ngrok lifecycle safety | Developers: port ownership before exposure, owned-process cleanup, isolated logs, worker checks, and adversarial lifecycle tests |
+| Actual HAI ingestion | Integrator and HAI operator: compatible authenticated transport/format, paging and deletion policy, real create/update/delete ingestion evidence |
+| Long-running/external publishing guarantees | Developers and future provider integrator: lease renewal, provider idempotency and ambiguous-outcome reconciliation before enabling official publishing |
+| Production environment and human acceptance | Deployment/acceptance owner: the evidence below, including accepted scope and risks |
 
 The codebase can be installed and reviewed locally, but a final client production decision still requires evidence that cannot honestly be manufactured in the repository:
 

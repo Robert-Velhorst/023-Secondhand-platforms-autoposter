@@ -1,14 +1,24 @@
 # HAI Connector
 
-The app exposes an owner-scoped, read-only connector contract that HAI can consume without receiving the user's main login token.
+The app exposes an owner-scoped, read-only API intended for HAI integration without sharing the user's main login token. This is an **app-side protocol**, not a completed integration with the current HAI generic-feed consumer.
 
-## Connection Flow
+## Current HAI Compatibility Gap
+
+The 2026-09-06 source comparison used HAI commit `91c8620c557229f1da4ed15fcbb7088c6a6947a7`:
+
+- [Generic parser](https://github.com/Robert-Velhorst/018-HAI/blob/91c8620c557229f1da4ed15fcbb7088c6a6947a7/backend/internal/accountfeed/generic_feed.go): accepts `{cursor, items}` or a bare array. It requires item fields `externalId`, `provider`, and `itemType`, with `sourceUri` for links. Autoposter returns `{records, next_cursor, has_more}` with `id` and `source_url`. An Autoposter envelope can therefore parse as zero items without an error; an HTTP success or empty sync is not ingestion proof.
+- [HTTP fetcher](https://github.com/Robert-Velhorst/018-HAI/blob/91c8620c557229f1da4ed15fcbb7088c6a6947a7/backend/internal/accountfeed/fetcher.go): creates GET requests without an Authorization header. Registering the protected Autoposter URL does not supply its required bearer token. HTTP fetching must also be enabled in HAI.
+- [Sync registry](https://github.com/Robert-Velhorst/018-HAI/blob/91c8620c557229f1da4ed15fcbb7088c6a6947a7/backend/internal/accountfeed/registry_service.go): returns a parsed cursor in its report but does not advance the fetch URL or apply Autoposter deletion tombstones.
+
+A compatible authenticated adapter or explicitly managed file-conversion bridge is still required. Neither such a bridge nor a HAI-compatible feed-download feature is currently shipped in Autoposter. Keep bearer protection in place; do not put tokens in URLs or substitute a public feed. Recheck the target HAI revision when implementing the consumer.
+
+## App-Side API Verification Flow
 
 1. Sign in to Secondhand Autoposter.
 2. Open Settings and create a named HAI connector token with an expiry date.
 3. Copy the `hai_...` token immediately; only its SHA-256 hash is stored and the plaintext is never shown again.
-4. Configure the HAI HTTP source with the app base URL and `Authorization: Bearer hai_...`.
-5. Read the discovery document at `/.well-known/hai-connector.json`, verify the connector with `GET /api/hai/status`, then consume `GET /api/hai/records`.
+4. Use a controlled API client that can send `Authorization: Bearer hai_...` to the app base URL.
+5. Read the discovery document at `/.well-known/hai-connector.json`, verify the token with `GET /api/hai/status`, then request `GET /api/hai/records`. These steps test this application's API only, not the incompatible HAI consumer above.
 
 The feed is cursor-based. Persist `next_cursor` after each page and pass it as `cursor` on the next request. Upserts contain listing metadata and a source link; deletes are emitted as tombstones. Consumers should deduplicate by record `id` and apply events in cursor order.
 
@@ -31,4 +41,15 @@ Example request, using a placeholder token:
 curl -H "Authorization: Bearer hai_REPLACE_ME" "https://autoposter.example/api/hai/records?limit=100"
 ```
 
-For local Windows use, the source URL is `http://127.0.0.1:8000`. For an ngrok session, use the verified HTTPS URL printed by `scripts/start-ngrok.ps1`. HAI-side adapter registration is an external configuration step; this repository provides and tests the app-side protocol but does not silently modify another HAI installation.
+For local Windows use, the source URL is `http://127.0.0.1:8000` from that Windows host. Inside another machine or container, `127.0.0.1` refers to that machine/container, not the Autoposter host. A reviewed network route is required. Do not open the experimental ngrok path before addressing the [documented lifecycle risks](WINDOWS_STANDALONE.md#ngrok).
+
+## End-to-End Acceptance Still Required
+
+1. Record the actual HAI revision and agreed transport; obtain approval before changing its installation or registering a data source.
+2. Implement secret-backed authenticated fetching or a controlled file bridge, with the exact generic-item field mapping and valid provider/item-type values.
+3. Handle every page, persist cursors only after durable processing, deduplicate replayed records, and bound payloads/retries. The inspected HAI parser limits content to 200,000 bytes and metadata to 16,000 bytes per item; its HTTP fetcher reads at most 5 MiB.
+4. Define and implement deletion/retention behaviour. Omitting a listing from a snapshot does not demonstrate deletion of previously ingested HAI data.
+5. Test a real listing create/update/delete cycle, more than one page, an empty page, a replay, expired/revoked tokens, and cross-owner isolation against the real consumer. Confirm item counts and retained content, not merely a successful request.
+6. Record the ingestion evidence and operator acceptance without granting the read-only feed authority to publish or execute actions.
+
+This repository does not silently modify a HAI installation. The app-side feed tests and portable-build metadata checks do not satisfy these consumer-side acceptance steps.

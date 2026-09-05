@@ -20,7 +20,7 @@ Start `SecondhandAutoposter.exe`, or run the source launcher during development:
 
 The launcher binds only to `127.0.0.1`, migrates the local database before startup, creates a persistent random secret, starts the API and worker separately, and opens the browser after health succeeds. Data is stored under `%LOCALAPPDATA%\SecondhandAutoposter` by default. Override that location with `AUTOPOSTER_DATA_DIR` for a controlled backup location.
 
-The standalone profile uses SQLite and local image storage. It is intended for one Windows operator, including access through a private ngrok tunnel; multi-user production deployments should use PostgreSQL and the production Compose definition.
+The standalone profile uses SQLite and local image storage. It is intended for one Windows operator; multi-user production deployments should use PostgreSQL and the production Compose definition. Use a free local port and stop previous instances before running migrations against the same data directory. The ngrok helper is experimental and has the unresolved lifecycle risks below; a reserved URL alone is not private access control.
 
 ## Verified Portable Build
 
@@ -32,12 +32,22 @@ The finalized 2026-08-09 local build produced a 43,670,075-byte executable with 
 
 ## Ngrok
 
-Install and authenticate ngrok, then run:
+**Do not use the current helper on a shared host or with sensitive data until lifecycle hardening is implemented and verified.** Source review on 2026-09-06 found:
+
+- The tunnel starts before the application binds the port, without establishing port ownership. A pre-existing local service could be exposed.
+- Cleanup selects new processes by matching executable path against a baseline, rather than a verified child-process tree. It can select unrelated concurrent launches and miss children using another executable path.
+- Runtime log paths are shared across invocations, so concurrent runs are not isolated.
+- Readiness checks call local/public `/api/health`, not `/api/worker-status`. The script's worker-verification message overstates what it checks.
+- Environment changes remain in the calling PowerShell session after the script exits.
+
+These findings are from the script's source, not a claim that an accidental exposure or unrelated-process termination was reproduced. Required follow-up is exclusive port ownership before exposure, reliable owned-process cleanup, per-run log isolation, independent worker-health verification, environment restoration, and occupied-port/concurrent-run tests. Do not treat older successful ngrok health checks as proof of those properties.
+
+The current experimental interface, for controlled investigation only, is:
 
 ```powershell
 .\scripts\start-ngrok.ps1
 ```
 
-Use `-Domain your-domain.ngrok.app` when the account has a reserved domain. The script starts its own ngrok process with the inspection API disabled, discovers the URL only from that process's JSON log, sets restrictive bearer/CORS values, waits for local API and worker health, verifies public HTTPS health, and cleans up only the processes it created.
+Install/authenticate ngrok and prepare the executable or Python environment first. Use `-Domain your-domain.ngrok.app` when the account has a reserved domain. The script passes `--inspect=false`, reads a URL from its redirected JSON log, sets restrictive bearer/CORS values, and checks local/public API health. Those controls do not resolve the ownership and cleanup gaps above. Use a dedicated PowerShell session for investigation.
 
-`-VerifyOnly` performs the checks and stops the test services. It fails closed if ngrok cannot allocate an endpoint. Do not enable pooling merely to work around `ERR_NGROK_334`: pooling could route one public address to unrelated local services. Stop the conflicting endpoint in the ngrok account or provide a separate domain/tunnel slot instead.
+`-VerifyOnly` performs those API checks and invokes the same limited cleanup logic; it does not independently prove worker health. The script stops if ngrok cannot allocate an endpoint. Do not enable pooling merely to work around `ERR_NGROK_334`: pooling could route one public address to unrelated local services. Resolve an endpoint conflict through an authorised operator. A temporary tunnel is not a production deployment.
