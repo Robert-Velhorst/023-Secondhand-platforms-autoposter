@@ -1,5 +1,19 @@
 # Final Verification Report
 
+## Repeated and concurrent enqueue verification — 2026-09-05
+
+Target: working checkout based on `d90d95e53f97c5d9e9bca67c33267481c9055ec7`, with enqueue idempotency and transaction-isolation repairs.
+
+- Five failing regression cases reproduced duplicate-key errors for existing failed/skipped jobs, a simultaneous enqueue race, an invalid-account error invalidating the caller's session, and an actual repeated publish API request after validation failure.
+- Enqueue now reuses the exact existing key in every state. New job and initial log insertion share a savepoint; a concurrent duplicate returns the persisted winner, while unrelated integrity errors still propagate. Caller-owned pending work is flushed outside the savepoint and preserved when the duplicate is recovered. Repeating a failed request is not an implicit retry.
+- Final full local gate passed: Ruff, compilation, **262 tests in 50.69 seconds**, and doctor. The development default-secret warning remains; the local database is at Alembic head `20260809_0013`.
+- All **19 job-safety tests passed on PostgreSQL 16.15 in 51.51 seconds**, each using a newly created schema migrated from empty to Alembic head. The final cases include a forced two-connection missing-key race, one resulting job/log, and preservation of both callers' pending records, alongside the earlier worker/retry concurrency coverage. The same cases passed on isolated SQLite in the full suite.
+- Independent read-only review found no introduced blocker. Its suggested coverage improvement—preserving caller work specifically on the recovered duplicate-key path—was added to the forced-race case before the final SQLite and PostgreSQL runs.
+- PostgreSQL cleanup confirmed zero `jobtest_*` schemas. The dedicated disposable container was stopped and confirmed absent; no production database was used.
+- Windows executable rebuilt with SHA-256 `02573cfac5ce7333427255a0295b70bd743902bd2e8805bf6ebdbb946602f863`. Fresh isolated executable HTTP checks passed: API and separate-worker health, dashboard HTTP 200, private image upload, HAI metadata, and malformed-cursor HTTP 422.
+- The executable's worker processed an incomplete listing to `failed`. Repeating the publish request returned HTTP 200 with the same failed job and one attempt. After correcting the listing, explicit retry returned `queued`, and the separate worker produced `needs_user_action` with two attempts. The test processes were stopped afterward.
+- This verifies local and disposable-database behavior, not exactly-once external publication, long-running lease/crash recovery, target-environment load or deployment, a real HAI consumer installation, manual accessibility, or client acceptance. Those requirements remain open.
+
 ## Job-claim and concurrent-worker verification — 2026-09-05
 
 Target: working checkout based on `97f8b88baf90040b2dda0e52425fc6f5c7ffa433`, with job-claim and retry repairs.

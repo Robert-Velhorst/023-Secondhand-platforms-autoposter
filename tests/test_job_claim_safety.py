@@ -2,22 +2,24 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, local
 
 import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 from app.config import get_settings
 from app.database import Base
-from app.models import Listing, ListingImage, PublicationAttempt, PublishingJob, User
+from app.models import Listing, ListingImage, PublicationAttempt, PublishingJob, PublishingJobLog, User
 from app.services.jobs import (
     claim_due_queued_job_ids,
     claim_job_for_processing,
+    enqueue_publish_job,
     process_due_jobs,
     process_job,
     recover_stale_running_jobs,
@@ -57,10 +59,10 @@ def job_engine(tmp_path, request):
         else:
             Base.metadata.create_all(engine)
         with Session(engine) as db:
-            db.execute(User.__table__.insert(), {"id": 1, "email": "claims@example.com", "password_hash": "unused"})
+            db.execute(User.__table__.insert(), {"email": "claims@example.com", "password_hash": "unused"})
             db.execute(Listing.__table__.insert(), {"id": 1, "owner_id": 1, "title": "Claim safety"})
             db.execute(PublishingJob.__table__.insert(), {
-                "id": 1, "listing_id": 1, "platform": "marktplaats", "idempotency_key": "claim-test",
+                "listing_id": 1, "platform": "marktplaats", "idempotency_key": "claim-test",
             })
             db.commit()
         yield engine
@@ -207,3 +209,72 @@ def test_stale_retry_request_cannot_restart_newer_work(job_engine, monkeypatch, 
             assert claim_due_queued_job_ids(first, 1) == [1]
         assert retry_job(delayed, delayed_job).status == ("failed" if finished else "running")
         assert delayed_job.attempts == (1 if finished else 0)
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "failed", "skipped", "needs_user_action", "published"])
+def test_repeated_enqueue_preserves_existing_job_in_every_state(job_engine, status):
+    with Session(job_engine) as db:
+        listing = db.get(Listing, 1)
+        first = enqueue_publish_job(db, listing, "marktplaats")
+        first.status = status
+        first.attempts = 2
+        db.commit()
+        job_id = first.id
+        repeated = enqueue_publish_job(db, listing, "marktplaats")
+        assert repeated.id == job_id
+        assert repeated.status == status
+        assert repeated.attempts == 2
+        assert db.query(PublishingJob).filter_by(idempotency_key=first.idempotency_key).count() == 1
+        assert db.query(PublishingJobLog).filter_by(job_id=job_id).count() == 1
+
+
+def test_simultaneous_enqueue_returns_one_job_and_one_queue_log(job_engine):
+    looked_up = Barrier(2)
+    thread_state = local()
+
+    def synchronize_missing_lookup(_connection, _cursor, statement, _parameters, _context, _many):
+        # Pause only after each real initial lookup has executed, forcing both
+        # callers to observe the absent key before either is allowed to insert.
+        if (statement.lstrip().upper().startswith("SELECT")
+                and "publishing_jobs.idempotency_key =" in statement
+                and not getattr(thread_state, "observed", False)):
+            thread_state.observed = True
+            looked_up.wait(timeout=20)
+
+    event.listen(job_engine, "after_cursor_execute", synchronize_missing_lookup)
+
+    def enqueue(request_id):
+        with Session(job_engine, autoflush=False) as db:
+            listing = db.get(Listing, 1)
+            db.add(User(email=f"caller-{request_id}@example.com", password_hash="unused"))
+            job = enqueue_publish_job(db, listing, "marktplaats")
+            job_id = job.id
+            db.commit()
+            return job_id
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(enqueue, request_id) for request_id in range(2)]
+            job_ids = [future.result(timeout=30) for future in futures]
+    finally:
+        event.remove(job_engine, "after_cursor_execute", synchronize_missing_lookup)
+    assert job_ids[0] == job_ids[1]
+    with Session(job_engine) as db:
+        assert db.query(PublishingJobLog).filter_by(job_id=job_ids[0]).count() == 1
+        assert db.query(PublishingJob).count() == 2  # Fixture job plus the single new job.
+        assert db.query(User).filter(User.email.in_([
+            "caller-0@example.com", "caller-1@example.com",
+        ])).count() == 2, "Collision recovery must preserve both callers' pending changes"
+
+
+def test_enqueue_does_not_hide_invalid_account_or_discard_prior_changes(job_engine):
+    with Session(job_engine) as db:
+        listing = db.get(Listing, 1)
+        listing.title = "Keep this caller change"
+        with pytest.raises(IntegrityError):
+            enqueue_publish_job(db, listing, "marktplaats", account_id=999999)
+        assert db.is_active
+        assert db.query(PublishingJob).count() == 1
+        db.commit()
+    with Session(job_engine) as db:
+        assert db.get(Listing, 1).title == "Keep this caller change"

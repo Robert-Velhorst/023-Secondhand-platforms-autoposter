@@ -564,6 +564,8 @@ Claims use a conditional queued-to-running update; PostgreSQL query construction
 
 Inline requests must claim due queued work; they do not execute a job already claimed by a worker or bypass its scheduled backoff. Retrying an already queued/running job leaves it unchanged. Retrying terminal work uses a conditional version check and, when `JOB_PROCESS_INLINE=false`, leaves execution to the separate worker. A fresh claim clears the previous attempt's start/finish timestamps so it is not immediately recovered as stale.
 
+Repeating a queue request with the same idempotency key returns the existing job in any state, including `failed` and `skipped`; it does not create a duplicate or implicitly retry a failure. Use the explicit retry action for eligible jobs, or edit/regenerate the listing to create a new revision. Simultaneous requests for the same key are resolved by the database uniqueness constraint, with one job and one initial queue log. A recovered duplicate-key race preserves caller changes made before the enqueue savepoint; unrelated database errors still propagate.
+
 Automated checks exercise four concurrent database sessions on SQLite and migrated PostgreSQL, with 24 jobs per scenario and one attempt per job. These checks are not a guarantee of exactly-once external publication: crash recovery during external calls, long-running jobs exceeding the stale timeout, target-environment load, and provider idempotency require separate proof. Current marketplace adapters still prepare local assisted packages only.
 
 ### Emergency controls
@@ -670,11 +672,11 @@ The gate runs:
 3. the complete pytest suite;
 4. `python -m app.doctor --json`.
 
-The current suite contains 253 tests spanning API behaviour, authentication, owner isolation, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent worker claims/retries/health, migrations, deployment configuration, bounded dashboard reads, HAI, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention.
+The current suite contains 262 tests spanning API behaviour, authentication, owner isolation, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent enqueue/worker claims/retries/health, migrations, deployment configuration, bounded dashboard reads, HAI, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention.
 
 Pytest creates a separate database, upload directory, and secret directory for each process before importing the application. It ignores inherited deployment/storage values and removes its own fixtures after a successful run; failed fixtures remain under `.tmp/test-runs/` for diagnosis. See [Testing strategy](docs/TESTING_STRATEGY.md) for the isolation contract and explicit PostgreSQL integration checks.
 
-GitHub's `postgres-workers` job also runs the 11 job-safety checks against a disposable PostgreSQL 16 service. Each case migrates its own newly created schema to Alembic head and removes that schema afterward. This is CI integration evidence, not evidence of a deployed production database.
+GitHub's `postgres-workers` job also runs the 19 job-safety checks against a disposable PostgreSQL 16 service. Each case migrates its own newly created schema to Alembic head and removes that schema afterward. This is CI integration evidence, not evidence of a deployed production database.
 
 Additional checks:
 

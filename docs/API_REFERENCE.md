@@ -84,6 +84,8 @@ Listing payloads include `category_attributes`, a bounded JSON object for catego
 | `POST` | `/api/jobs/{job_id}/retry` | Requeue a job after correcting the underlying issue. |
 | `POST` | `/api/jobs/{job_id}/manual-completion` | Mark an assisted `needs_user_action` job as user-confirmed published with marketplace URL and optional listing ID. |
 
+Queue idempotency covers every job state. A repeated `publish` request with the same key returns the existing job, including `failed` or `skipped`, without resetting attempts. Concurrent inserts for one key converge on one job and initial queue log. Use `/retry` for an eligible existing job or a new listing revision for a deliberately new package. HTTP 200 means the request was handled, not that preparation or marketplace publication succeeded; inspect each returned job's `status` and logs.
+
 ## Accounts, Templates, And Category Mappings
 
 | Method | Path | Purpose |

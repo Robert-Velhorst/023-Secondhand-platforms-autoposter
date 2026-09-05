@@ -21,7 +21,7 @@ Doctor warnings are allowed for local development defaults; doctor errors fail t
 
 GitHub Actions runs the same command on pushes and pull requests to `main` via `.github/workflows/verify.yml`.
 
-The same workflow also runs a `postgres-workers` job against a disposable PostgreSQL 16 service. Its eleven job-safety tests use real connections and migrations, not merely compiled PostgreSQL SQL.
+The same workflow also runs a `postgres-workers` job against a disposable PostgreSQL 16 service. Its nineteen job-safety tests use real connections and migrations, not merely compiled PostgreSQL SQL.
 
 ## Current Test Layers
 
@@ -80,6 +80,8 @@ python -m pytest -q tests/test_job_claim_safety.py --job-postgres-url "postgresq
 Replace the uppercase connection fields with credentials for the disposable test service only. Do not supply a production database. The fixture rejects other database-name prefixes, creates a random schema with `CREATE SCHEMA` (never reuses one), migrates it from empty to Alembic head, and drops only that schema during cleanup. The account needs permission to create and drop its test schemas. This explicit option does not change the application database selected by the global test-isolation fixture.
 
 Coverage includes another request trying to execute a worker's claim, reclaimed-job timestamp freshness, queued/running retry protection, delayed retry requests, disabled inline processing, scheduled backoff, and four simultaneous sessions draining 24 jobs. Both real assisted-package success and missing-field failure paths assert exactly one attempt per job. Image metadata is synthetic; these concurrency cases do not validate image-file delivery or contact marketplaces.
+
+Enqueue coverage verifies unchanged reuse across all six job states and forces two concurrent sessions to observe the same missing key before inserting. The race must produce one job and one queue log while preserving both callers' pending user records. A separate invalid-account case checks that unrelated integrity errors propagate without invalidating the outer session or discarding earlier listing changes. The API revision suite additionally checks that repeating a publish request after validation failure returns HTTP 200 with the original failed job and unchanged attempt count.
 
 The queue claim transaction remains short and uses PostgreSQL `SKIP LOCKED`; see the [PostgreSQL locking documentation](https://www.postgresql.org/docs/current/sql-select.html#SQL-FOR-UPDATE-SHARE). These cases do not prove exactly-once behavior during external provider calls, lease expiry during unusually long work, distributed cooldown enforcement, or target-host load capacity.
 

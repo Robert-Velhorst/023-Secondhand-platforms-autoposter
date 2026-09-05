@@ -43,6 +43,8 @@ Open Queue to watch assisted package jobs. The queue supports:
 
 Retry only after fixing the listing, platform account, or validation issue that caused the previous job to fail. For `needs_user_action` jobs, retry is mainly for regenerating package output after a deliberate listing change.
 
+Selecting Queue assisted package again for the same unchanged listing and platform/account returns the original job, even if it failed or was skipped. This protects against double clicks and repeated requests; it is not a retry. Use the eligible job's retry action after correcting the problem, or save a listing change or deliberately select Regenerate package to queue a new revision. A successful request alone does not mean the package succeeded: read the job's status and log.
+
 After you finish the marketplace-side posting steps, open the job details, paste the marketplace listing URL, optionally add the listing ID, and record completion. The app updates the job and platform mapping from your confirmation; it still treats final marketplace submission as manual.
 
 ## Accounts, Templates, And Mappings

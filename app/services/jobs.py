@@ -2,6 +2,7 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, case, desc, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.adapters import get_adapter
@@ -16,7 +17,6 @@ from app.models import (
     PublishingJobLog,
 )
 from app.services.job_state import (
-    ACTIVE_IDEMPOTENCY_STATUSES,
     FAILED,
     NEEDS_USER_ACTION,
     PUBLISHED,
@@ -82,10 +82,7 @@ def enqueue_publish_job(
     )
     existing = (
         db.query(PublishingJob)
-        .filter(
-            PublishingJob.idempotency_key == key,
-            PublishingJob.status.in_(ACTIVE_IDEMPOTENCY_STATUSES),
-        )
+        .filter(PublishingJob.idempotency_key == key)
         .one_or_none()
     )
     if existing:
@@ -101,9 +98,21 @@ def enqueue_publish_job(
         action_type=action_type,
         operation_mode=operation_mode,
     )
-    db.add(job)
+    # Flush caller-owned work outside the savepoint so its failures cannot be
+    # mistaken for a competing enqueue and its changes survive a key collision.
     db.flush()
-    add_log(db, job, "info", "Publishing job queued.")
+    try:
+        with db.begin_nested():
+            db.add(job)
+            db.flush()
+            add_log(db, job, "info", "Publishing job queued.")
+    except IntegrityError:
+        # The unique key arbitrates concurrent requests which both saw no job.
+        # Only a persisted winner for this exact key is a successful duplicate.
+        existing = db.query(PublishingJob).filter(PublishingJob.idempotency_key == key).one_or_none()
+        if existing is None:
+            raise
+        return existing
     db.commit()
     db.refresh(job)
     return job
