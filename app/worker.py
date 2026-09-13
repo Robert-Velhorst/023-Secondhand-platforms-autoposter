@@ -8,6 +8,7 @@ from app.config import get_settings, validate_startup_safety
 from app.database import SessionLocal, init_db
 from app.observability import configure_logging
 from app.services.jobs import process_due_jobs
+from app.services.storage_cleanup import process_due_storage_deletions
 from app.services.worker_health import record_heartbeat
 
 logger = logging.getLogger("autoposter.worker")
@@ -17,7 +18,9 @@ def run_once() -> int:
     settings = get_settings()
     db = SessionLocal()
     try:
-        return process_due_jobs(db, settings.job_worker_batch_size)
+        processed = process_due_jobs(db, settings.job_worker_batch_size)
+        process_due_storage_deletions(db, settings=settings)
+        return processed
     finally:
         db.close()
 

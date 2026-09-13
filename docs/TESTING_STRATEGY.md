@@ -89,7 +89,7 @@ Claim identifiers fence local state only. These tests do not establish lease ren
 The default suite runs `tests/test_job_claim_safety.py` on isolated SQLite databases. To run the same cases on PostgreSQL, first provision a **disposable** database whose name starts with `autoposter_job_test_`, then run:
 
 ```bash
-python -m pytest -q tests/test_job_claim_safety.py --job-postgres-url "postgresql+psycopg://USER:PASSWORD@HOST:5432/autoposter_job_test_local"
+python -m pytest -q tests/test_job_claim_safety.py tests/test_storage_cleanup_db.py --job-postgres-url "postgresql+psycopg://USER:PASSWORD@HOST:5432/autoposter_job_test_local"
 ```
 
 Replace the uppercase connection fields with credentials for the disposable test service only. Do not supply a production database. The fixture rejects other database-name prefixes, creates a random schema with `CREATE SCHEMA` (never reuses one), migrates it from empty to Alembic head, and drops only that schema during cleanup. The account needs permission to create and drop its test schemas. This explicit option does not change the application database selected by the global test-isolation fixture.
@@ -107,6 +107,17 @@ The recovery write matches ID, running status, observed update timestamp, and ob
 Control cases leave a real stale row untouched while operator pause or a zero stale threshold is active. Another case forces the recovery log's foreign key to fail, rolls back, and verifies the original running state/retry timestamp and absence of logs through a fresh session. The candidate limit bounds returned rows, Python memory, writes, and logs; it does not guarantee an equally bounded database scan or sort. Large-running-set query-plan/index measurements remain a scaling follow-up.
 
 ### Ongoing Priorities
+
+The PostgreSQL CI invocation also includes ten storage-cleanup cases (71 cases
+total with the job-safety suite). They exercise the real migrated outbox,
+transaction/claim rollback, crash recovery before and after deletion, competing
+workers, stale acknowledgment fencing, shared references, bounded batches,
+path rejection, and a downgrade that refuses pending work. Each case reuses
+the guarded disposable-database fixture; no production database is selected.
+`tests/test_storage_cleanup.py` adds real HTTP/fresh-process retry checks on
+SQLite, local path/unlink safeguards, and controlled S3 client checks. Real
+provider storage, production-scale scans, and historical orphan discovery
+remain outside this evidence.
 
 1. Idempotency, retries, and worker concurrency for publishing jobs.
 2. File safety: upload validation, storage paths, duplicate handling, ordering, and deletion.

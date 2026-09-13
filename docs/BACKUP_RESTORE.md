@@ -6,7 +6,7 @@ This runbook defines the minimum backup set and restore procedure for production
 
 Back up these items together:
 
-- production database
+- production database, including pending `storage_deletions` cleanup intent
 - upload directory configured by `UPLOAD_DIR`
 - deployed git commit SHA
 - environment/secret references, excluding raw secret values from ordinary backup logs
@@ -25,13 +25,13 @@ User JSON exports are useful for portability, but they are not a replacement for
 
 Before `alembic upgrade head` in production:
 
-1. Stop the worker.
+1. Stop both API and worker processes, including standalone executables. Pausing publishing jobs does not pause file cleanup or API writes.
 2. Take a database backup.
 3. Snapshot/copy uploads or export the configured S3-compatible image bucket/prefix.
 4. Record current git SHA and Alembic revision.
 5. Run the migration.
 6. Run `python -m app.doctor --json`.
-7. Start the worker only after diagnostics are acceptable.
+7. Start the API and worker only after diagnostics are acceptable.
 
 ## Restore Order
 
@@ -41,8 +41,8 @@ Before `alembic upgrade head` in production:
 4. Deploy the matching git commit, or a commit known to support the restored schema.
 5. Run `alembic upgrade head`.
 6. Run `python -m app.doctor --json`.
-7. Start web process.
-8. Start worker process.
+7. Review `python -m app.reconcile`, including pending storage cleanup, against the matching restored image snapshot and configured root/bucket/prefix. Resolve any mismatch before permitting cleanup.
+8. Start web and worker processes. Both can perform cleanup: API deletions have a local post-commit fast path, and the worker resumes durable pending requests.
 
 ## Reconciliation Checks
 
@@ -57,6 +57,6 @@ After restore, verify:
 ## Disaster Recovery Notes
 
 - If duplicate posting risk is suspected, keep the worker stopped until queue state is reviewed.
-- If uploads are missing, do not run cleanup jobs that could remove image metadata before investigating backups.
+- If uploads or the storage snapshot do not match the restored database, keep API and worker stopped while investigating backups. Cleanup removes unreferenced objects, not image metadata, but resumed historical requests must not be applied to an unrelated/newer storage snapshot.
 - If migration state is uncertain, prefer restoring to the recorded backup commit and revision instead of forcing schema changes.
 - Keep legacy Selenium scripts out of production recovery paths.

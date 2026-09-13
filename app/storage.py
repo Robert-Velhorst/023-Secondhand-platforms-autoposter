@@ -62,7 +62,7 @@ class LocalStorage:
         return str(target)
 
     def delete(self, storage_path: str) -> None:
-        remove_local_file(storage_path)
+        remove_local_file(storage_path, self.root)
 
     def read_local_file(self, storage_path: str) -> Path | None:
         target = Path(storage_path).resolve()
@@ -84,6 +84,7 @@ class S3Storage:
     def __init__(self, settings: Settings):
         try:
             import boto3
+            from botocore.config import Config
         except ImportError as exc:  # pragma: no cover - dependency is present in supported installs
             raise RuntimeError("boto3 is required when STORAGE_BACKEND=s3") from exc
         self.bucket = settings.s3_bucket
@@ -92,6 +93,7 @@ class S3Storage:
             "s3",
             region_name=settings.s3_region or None,
             endpoint_url=settings.s3_endpoint_url or None,
+            config=Config(connect_timeout=3, read_timeout=5, retries={"mode": "standard", "total_max_attempts": 2}),
         )
 
     def save_listing_image(self, listing_id: int, filename: str, upload: ValidatedUpload) -> str:
@@ -111,10 +113,10 @@ class S3Storage:
     def delete(self, storage_path: str) -> None:
         parsed = parse_s3_uri(storage_path)
         if not parsed:
-            return
+            raise ValueError("Storage cleanup requires an S3 URI")
         bucket, key = parsed
-        if bucket != self.bucket:
-            return
+        if bucket != self.bucket or (self.prefix and not key.startswith(f"{self.prefix}/")):
+            raise ValueError("Storage cleanup target is outside the configured bucket/prefix")
         self.client.delete_object(Bucket=bucket, Key=key)
 
     def read_local_file(self, storage_path: str) -> Path | None:
@@ -224,17 +226,22 @@ def safe_filename(filename: str) -> str:
     return name[:180] or "upload"
 
 
-def remove_local_file(path: str) -> None:
+def remove_local_file(path: str, root: Path) -> None:
     if not path:
+        raise ValueError("Storage cleanup requires a path")
+    target = Path(path).resolve()
+    upload_root = root.resolve()
+    if target == upload_root or not target.is_relative_to(upload_root):
+        raise ValueError("Storage cleanup target is outside the configured upload directory")
+    # A failed unlink must be retried, not silently acknowledged as deletion.
+    target.unlink(missing_ok=True)
+    parent = target.parent
+    if parent == upload_root:
         return
     try:
-        target = Path(path)
-        target.unlink(missing_ok=True)
-        parent = target.parent
-        if parent.exists() and not any(parent.iterdir()):
-            parent.rmdir()
+        parent.rmdir()
     except OSError:
-        return
+        pass  # The file is gone; empty-directory housekeeping is best effort.
 
 
 def delete_stored_file(storage_path: str, settings: Settings | None = None) -> None:

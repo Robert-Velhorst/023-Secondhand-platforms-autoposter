@@ -44,7 +44,18 @@ mode retains its previous Uvicorn graceful-drain policy.
 
 ## Verified Portable Build
 
-The latest 2026-09-13 follow-up build has SHA-256
+The latest 2026-09-13 storage-cleanup build has SHA-256
+`bd264a834b214a058f9f04239c64d7a89b70e20269557e32103af323220db03c`.
+The real executable passed API/worker workflows at Alembic head
+`20260913_0015`, including account deletion while a Windows file handle blocked
+image removal and successful retry by the separate worker after release. It
+also passed the separate local HAI consumer integration against disposable
+PostgreSQL. See the [cleanup verification record](FINAL_VERIFICATION_REPORT.md#transactional-image-cleanup-and-recovery--2026-09-13)
+for counts, the initial launcher-test failure and passing reruns, and limitations.
+This remains a local review build, not a signed release, production deployment,
+installed HAI integration, or live ngrok acceptance. Earlier hashes are historical.
+
+The earlier 2026-09-13 listener follow-up build has SHA-256
 `ba4339d08f8eb844f4928e0f61324584d91cf8692a2bb44995fcbf8a414639a0`.
 The isolated full HTTP workflow, owner-crash/occupied-resource drill, and
 packaged API/worker socket-handoff drill all passed again. The additional

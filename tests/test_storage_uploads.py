@@ -206,10 +206,13 @@ def test_s3_storage_writes_metadata_and_deletes_objects(monkeypatch):
             calls.append(("get", kwargs))
             return {"Body": SimpleNamespace(read=lambda: PNG_BYTES)}
 
-    def fake_client(service, region_name=None, endpoint_url=None):
+    def fake_client(service, region_name=None, endpoint_url=None, config=None):
         assert service == "s3"
         assert region_name == "eu-west-1"
         assert endpoint_url == "https://s3.example.test"
+        assert config.connect_timeout == 3
+        assert config.read_timeout == 5
+        assert config.retries == {"mode": "standard", "total_max_attempts": 2}
         return FakeS3Client()
 
     monkeypatch.setitem(

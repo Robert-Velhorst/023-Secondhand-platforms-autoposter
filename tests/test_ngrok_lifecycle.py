@@ -347,7 +347,7 @@ def test_source_launcher_verifies_real_api_worker_cors_and_cleans_up(tmp_path):
             pass
     assert json.loads(record.read_text())["port_owned"] is True
     with sqlite3.connect(data / "autoposter.db") as database:
-        assert database.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "20260905_0014"
+        assert database.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "20260913_0015"
         assert database.execute("SELECT count(*) FROM worker_heartbeats").fetchone()[0] >= 1
 
 
@@ -383,7 +383,9 @@ def test_owned_runtime_failure_stops_inflight_requests_before_releasing_resource
         with httpx.Client(trust_env=False, timeout=1) as client:
             deadline = time.monotonic() + 30
             while time.monotonic() < deadline:
-                assert process.poll() is None
+                if process.poll() is not None:
+                    output, _ = process.communicate(timeout=5)
+                    pytest.fail(f"Owned API/worker exited during startup:\n{output.decode(errors='replace')}")
                 try:
                     if client.get(f"http://127.0.0.1:{port}/api/worker-status").status_code == 200:
                         break

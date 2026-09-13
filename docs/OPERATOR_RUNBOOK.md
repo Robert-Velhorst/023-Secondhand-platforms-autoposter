@@ -36,12 +36,46 @@ Revision `20260905_0014` adds nullable `publishing_jobs.claim_token`. This is an
 
 1. Pause job processing and stop **all** old API/worker processes, including standalone executables and API processes that can execute jobs inline. Wait for in-flight work to finish where possible; reconcile any uncertain external outcome before retrying it.
 2. Back up the target database and verify the recovery procedure. The automated disposable migration tests are not a backup for your target data.
-3. Install the new release, run `alembic upgrade head`, and check `python -m app.doctor --json` reports head `20260905_0014`.
+3. Install the new release, run `alembic upgrade head`, and check `python -m app.doctor --json` reports current head `20260913_0015` (including claim fencing and the cleanup outbox).
 4. Start the API and worker from the same release, verify health, and resume processing. Check an assisted job reaches `needs_user_action` and its history is retained.
 
 Do not perform a mixed-version rolling deployment: old workers ignore claim identifiers and can still overwrite newer results. Claim fencing prevents stale **local writes**; it cannot cancel an already-started external request, renew a lease, or guarantee exactly-once marketplace publication. Current adapters prepare assisted packages only.
 
 For rollback, stop every process again and preserve a backup before `alembic downgrade 20260809_0013`. The downgrade removes only the claim column using native `DROP COLUMN`; SQLite requires version 3.35 or later. Do not substitute a table-rebuild/drop operation with foreign keys enabled: it can cascade-delete job logs and attempts. See [SQLite ALTER TABLE](https://www.sqlite.org/lang_altertable.html#alter_table_drop_column). Reverting code also removes claim-fencing protection; reconcile running jobs before restarting an older release.
+
+## Storage-cleanup upgrade and operation
+
+Revision `20260913_0015` adds `storage_deletions` and its due-work index. It does
+not rewrite existing listings, images, jobs, or account rows. Stop all API and
+worker processes, back up the database and image storage together, apply
+`alembic upgrade head`, and restart both processes from the same release.
+The standalone launcher applies migrations before starting its children.
+
+The API records deletion and cleanup intent atomically. Successful responses
+mean database deletion succeeded; physical cleanup can still be pending. The
+worker retries bounded batches even when **publishing jobs are paused**. To stop
+all storage mutations for a backup/restore or incident, stop both API and worker
+processes; the publishing pause switch is not a storage freeze.
+
+Run `python -m app.reconcile` after a deletion, restore, or storage incident.
+`pending_storage_cleanup` reports the pending count and how many entries have a
+recorded failure; it is not automatically repaired by `--repair-safe`. Check
+private storage permissions and matching configuration, then let the worker
+retry. Logs show exception classes, not filenames or raw provider errors.
+Do not clear pending rows to make a report look healthy.
+
+The migration's downgrade refuses to drop a nonempty outbox, including leased
+work. Drain and verify cleanup first, stop **every** process, take a fresh backup,
+and only then consider an explicitly approved rollback. Reverting application
+code also removes these recovery guarantees. In production prefer a reviewed
+forward repair. This condition also applies when downgrading further back to
+`20260809_0013` through the claim-fencing procedure above.
+
+The queue cannot discover files orphaned before this release or files written
+by an upload that failed before saving its image row. Those require separate,
+backup-aware storage reconciliation; do not blindly scan and delete files.
+See [Image Storage](IMAGE_STORAGE.md#deletion-and-recovery) for retry semantics,
+storage boundaries, privacy retention, and provider-version limitations.
 
 ## Start Services
 

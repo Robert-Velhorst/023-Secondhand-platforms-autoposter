@@ -107,6 +107,11 @@ def test_alembic_migration_runs_from_empty_database(tmp_path):
     assert "operator_controls" in tables
     assert "hai_connector_tokens" in tables
     assert "hai_listing_changes" in tables
+    assert "storage_deletions" in tables
+    cleanup_columns = {column["name"] for column in inspect(engine).get_columns("storage_deletions")}
+    assert cleanup_columns == {"id", "storage_path", "created_at", "next_attempt_at", "attempts", "claim_token",
+                               "last_error_type"}
+    assert "ix_storage_deletions_due" in {index["name"] for index in inspect(engine).get_indexes("storage_deletions")}
     audit_columns = {column["name"] for column in inspect(engine).get_columns("audit_events")}
     assert "user_email_hash" in audit_columns
     assert "event_data" in audit_columns

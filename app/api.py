@@ -64,10 +64,10 @@ from app.services.jobs import (
     retry_job,
 )
 from app.services.oauth import consume_ebay_authorization_callback, create_ebay_authorization_url
+from app.services.storage_cleanup import cleanup_after_commit, queue_storage_deletions
 from app.services.suggestions import get_suggestion_provider
 from app.storage import (
     ValidatedUpload,
-    delete_stored_file,
     local_storage_path,
     read_validated_image,
     safe_filename,
@@ -203,11 +203,10 @@ def delete_listing(
 ):
     listing = _load_listing(db, user.id, listing_id)
     image_paths = [image.storage_path for image in listing.images]
+    cleanup_ids = queue_storage_deletions(db, image_paths)
     db.delete(listing)
     db.commit()
-    for storage_path in set(image_paths):
-        if not db.query(ListingImage.id).filter(ListingImage.storage_path == storage_path).first():
-            delete_stored_file(storage_path)
+    cleanup_after_commit(cleanup_ids)
 
 
 @router.post("/listings/{listing_id}/duplicate", response_model=ListingOut, tags=["Listings"])
@@ -361,10 +360,10 @@ def delete_image(
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
     storage_path = image.storage_path
+    cleanup_ids = queue_storage_deletions(db, [storage_path])
     db.delete(image)
     db.commit()
-    if not db.query(ListingImage.id).filter(ListingImage.storage_path == storage_path).first():
-        delete_stored_file(storage_path)
+    cleanup_after_commit(cleanup_ids)
     return _load_listing(db, user.id, listing.id)
 
 

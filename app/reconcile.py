@@ -8,12 +8,21 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings, validate_startup_safety
 from app.database import SessionLocal
-from app.models import Listing, ListingImage, PlatformListingMapping, PublishingJob
+from app.models import Listing, ListingImage, PlatformListingMapping, PublishingJob, StorageDeletion
 
 
 def reconcile_database(db: Session, *, repair_safe: bool = False) -> dict:
     issues: list[dict] = []
     repairs: list[dict] = []
+    pending_cleanup = db.query(func.count(StorageDeletion.id)).scalar() or 0
+    failed_cleanup = (
+        db.query(func.count(StorageDeletion.id)).filter(StorageDeletion.last_error_type != "").scalar() or 0
+    )
+    if pending_cleanup:
+        issues.append({
+            "code": "pending_storage_cleanup", "count": pending_cleanup,
+            "failed_attempts_pending": failed_cleanup, "safe_to_auto_repair": False,
+        })
 
     orphan_images = (
         db.query(func.count(ListingImage.id))

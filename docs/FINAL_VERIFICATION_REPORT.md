@@ -1,5 +1,63 @@
 # Final Verification Report
 
+## Transactional image cleanup and recovery — 2026-09-13
+
+Target: Autoposter checkout based on `318eb158501eb8363e70c4ebfd7df05653795d3d`,
+plus the cleanup changes described here. Two failing regressions proved that
+account deletion removed images before its database commit and removed a
+shared image still referenced by another account. Three further failures showed
+account/listing/image deletion returning HTTP 500 after the database deletion
+had committed when storage cleanup raised an error.
+
+Deletion now records durable cleanup intent in the same transaction and attempts
+physical deletion only after commit. A bounded worker retries failures and
+expired five-minute claims; claim identifiers fence late acknowledgments. Local
+paths and S3 bucket/prefix boundaries are enforced. Reconciliation reports
+pending cleanup without file paths. Revision `20260913_0015` adds only the
+outbox and its due index; downgrade refuses to discard pending work. Historical
+bootstrap migrations were not changed.
+
+Verification:
+
+- Full Windows suite: **450 passed, one POSIX-only skip in 120.47 seconds**
+  (451 collected). Ruff, compilation, and documentation-link checks passed.
+- Disposable PostgreSQL 16: **71 passed in 86.98 seconds**, including real
+  concurrent sessions, rollback/claim failures, crash-before/after-unlink
+  recovery, late acknowledgment fencing, and additive migration round trips.
+  These are subset reruns, not extra distinct product tests or target-host proof.
+- A fresh Python worker process recovered persisted cleanup after simulated
+  storage failures on all three deletion endpoints. S3 tests use a controlled
+  client; no real bucket was accessed.
+- Rebuilt Windows executable SHA-256:
+  `bd264a834b214a058f9f04239c64d7a89b70e20269557e32103af323220db03c`.
+  The actual API/worker passed assets/cache, authentication, owner isolation,
+  uploads, HAI, and assisted-job retry/recovery checks at head `20260913_0015`.
+  A real Windows handle denied image deletion: the API still returned 204,
+  cleanup intent persisted with `PermissionError`, and the separate packaged
+  worker removed the file after the handle was released and retry made due.
+- Doctor reported `ok` against that isolated packaged SQLite fixture with
+  explicit synthetic development settings, not production configuration.
+- Real producer-to-HAI integration passed against the rebuilt executable and
+  disposable PostgreSQL: 101 records, updates, tombstone, fresh DB/service/
+  registry restart, HTTP-handler disable persistence, explicit zero-replay
+  resume, revocation, and no private notes or executable references. The
+  separate HAI review now includes durable checkpoints and source controls;
+  the earlier checkpoint limitations below describe older review state.
+  HAI changes remain uncommitted, unpublished, and uninstalled.
+
+The first full Windows run, concurrent with packaging and PostgreSQL tests,
+reported 448 passed, one skipped, and one launcher startup failure in
+`blocking-sync-api-server-return`. The isolated case and subsequent full run
+passed. The original failure lacked child output; its cause remains unconfirmed.
+The test now includes that output on early exit. No timeout or safety assertion
+was relaxed, and no launcher production fix is claimed from this rerun.
+
+Cleanup is eventual and does not discover historical/pre-row-upload orphans,
+delete external copies/backups, or permanently erase S3 historical versions.
+No production-sized migration/load test, real S3 erasure proof, public ngrok
+session, installed HAI acceptance, or human accessibility/user signoff is
+established here. The larger production-readiness goal remains unfinished.
+
 ## HAI source-link safety and ordered replay — 2026-09-13
 
 Target: Autoposter checkout based on `0294fde`, plus the scoped producer changes

@@ -73,6 +73,6 @@ def test_fresh_example_supports_migrations_api_worker_and_saved_listing(tmp_path
             # Verify committed state through a separate connection before forced
             # test cleanup; immediate post-kill OS handle release is not setup.
             with closing(sqlite3.connect(checkout / "data" / "autoposter.db")) as database:
-                assert database.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "20260905_0014"
+                assert database.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "20260913_0015"
                 assert database.execute("SELECT title FROM listings").fetchall() == [("Fresh setup chair",)]
     assert api.poll() is not None and worker.poll() is not None
