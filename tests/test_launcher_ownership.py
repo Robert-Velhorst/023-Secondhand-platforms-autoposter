@@ -68,6 +68,22 @@ def test_data_directory_lock_releases_on_exception(tmp_path):
         assert tmp_path.is_dir()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX TIME_WAIT reuse; Windows uses exclusive-address protection")
+def test_posix_listener_restarts_after_server_closes_a_real_connection():
+    with launcher.owned_listener("127.0.0.1", 0) as listener:
+        address = listener.getsockname()
+        with socket.create_connection(address, timeout=2) as client:
+            connection, _ = listener.accept()
+            connection.close()
+            assert client.recv(1) == b""
+        with socket.socket() as competitor:
+            competitor.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            with pytest.raises(OSError):
+                competitor.bind(address)
+    with launcher.owned_listener("127.0.0.1", address[1]):
+        pass
+
+
 def test_port_released_when_migration_fails(tmp_path, monkeypatch):
     monkeypatch.setenv("AUTOPOSTER_DATA_DIR", str(tmp_path))
     with socket.socket() as probe:

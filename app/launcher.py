@@ -190,6 +190,10 @@ def owned_listener(host: str, port: int) -> Iterator[socket.socket]:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         if os.name == "nt":
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        else:
+            # Reuse closed POSIX connections in TIME_WAIT, never a live listener.
+            # Do not enable SO_REUSEPORT; Windows retains exclusive-address mode.
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind(("127.0.0.1", port))
         listener.listen(128)
         yield listener

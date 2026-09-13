@@ -1,5 +1,39 @@
 # Final Verification Report
 
+## POSIX listener restart follow-up — 2026-09-13
+
+The first published managed-lifecycle checkpoint, `dedfa79`, passed the Windows
+checks below but its [Linux verification run](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/34751617800)
+failed four immediate-rebind assertions after in-flight request cleanup:
+408 tests passed, two Windows-only tests skipped, and four failed with
+`Errno 98`. The PostgreSQL job and the separate supply-chain workflow passed.
+This failure is retained here rather than presented as green cross-platform CI.
+
+A read-only WSL Python 3.12 diagnostic loaded the exact launcher source through
+stdin, opened and actively closed a real TCP connection, then reproduced the
+same rebind error. No Linux packages, installed services, or HAI data were
+modified. POSIX now sets `SO_REUSEADDR` before bind to allow reuse after
+`TIME_WAIT`, following [Python's socket documentation](https://docs.python.org/3/library/socket.html#socket.create_server).
+Windows retains `SO_EXCLUSIVEADDRUSE`; `SO_REUSEPORT` is not enabled.
+
+The same real Linux diagnostic then passed both immediate restart and rejection
+of a competing live listener with reuse enabled. A POSIX-specific regression
+preserves both checks. The Windows-focused launcher/ngrok suite passed
+54 tests with that one POSIX case skipped in 37.05 seconds; Ruff passed.
+Independent read-only review approved this scoped correction. The full Windows
+gate then passed Ruff, compilation, **414 tests with one POSIX-only skip in
+67.13 seconds**, and doctor against the isolated database at head
+`20260905_0014` (expected development-secret warning only). Results from
+the earlier Windows build below remain dated evidence, not a substitute for
+the follow-up CI run.
+
+The follow-up Windows executable rebuilt with SHA-256
+`ba4339d08f8eb844f4928e0f61324584d91cf8692a2bb44995fcbf8a414639a0`.
+Its full isolated HTTP/HAI/upload/account/retry/recovery/assets drill, occupied
+port/directory and actual-owner-crash drill, and packaged API/worker handoff
+drill all passed again. The last drill measured about 22 ms before port/data
+reacquisition after forced cleanup. No public endpoint was opened.
+
 ## Managed ngrok lifecycle — 2026-09-13
 
 Target: review checkout based on `7e823fea0d72aa6520e7dd6a33f36a4fb53a18b0`,

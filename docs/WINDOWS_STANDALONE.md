@@ -44,6 +44,15 @@ mode retains its previous Uvicorn graceful-drain policy.
 
 ## Verified Portable Build
 
+The latest 2026-09-13 follow-up build has SHA-256
+`ba4339d08f8eb844f4928e0f61324584d91cf8692a2bb44995fcbf8a414639a0`.
+The isolated full HTTP workflow, owner-crash/occupied-resource drill, and
+packaged API/worker socket-handoff drill all passed again. The additional
+source change enables POSIX restart after closed TCP connections; Windows
+retains exclusive-address protection. See the
+[cross-platform follow-up](FINAL_VERIFICATION_REPORT.md#posix-listener-restart-follow-up--2026-09-13).
+This is a local review build, not a signed release or live ngrok acceptance.
+
 The 2026-09-13 managed-lifecycle build has SHA-256
 `380a09e1a69161ba293a4fcb060e34ff35b882f12d0481694a690c536c94832a`.
 Its isolated executable workflow passed API/worker health, migrations, uploads,
