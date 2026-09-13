@@ -42,4 +42,4 @@ def test_frontend_has_locale_selector_and_copy_catalogs():
     assert "Tweedehands Autoposter" in script
     assert "Assistentiepakket in wachtrij" in script
     assert 'localStorage.setItem("autoposterLocale"' in script
-    assert 'api("/localization"' in script
+    assert 'authApi("/localization"' in script

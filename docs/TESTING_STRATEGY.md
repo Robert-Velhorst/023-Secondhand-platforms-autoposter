@@ -17,6 +17,25 @@ regression evidence, not distributed enforcement or target edge configuration.
 
 ## Verification Gate
 
+Browser authentication has eleven deterministic JavaScript state tests in
+`tests/frontend_auth.test.cjs`. They execute the shipped handlers with a
+minimal DOM, covering request ownership, validity, transient versus invalid
+sessions, stale responses, abort cleanup, failed/retried logout, and dashboard
+loading that must not keep logout locked. Run them with:
+
+```bash
+node --test --test-reporter=tap tests/frontend_auth.test.cjs
+```
+
+`tests/test_frontend_auth.py` runs that command from pytest when Node.js is
+available (otherwise it explicitly skips). Node.js is a developer verification
+dependency, not required to run the packaged Windows app. This is one pytest
+wrapper around eleven JS cases, not eleven additional pytest cases. The
+minimal DOM does not prove layout or browser behavior: rendered Chromium QA
+separately exercised six desktop/mobile auth flows with the real local API,
+delayed requests, and injected temporary failures. Manual screen-reader QA and
+target-browser/production acceptance remain separate.
+
 Run the full local gate before pushing:
 
 ```bash

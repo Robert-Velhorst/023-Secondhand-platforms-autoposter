@@ -19,8 +19,9 @@
             <div class="row">
               <button type="submit" data-mode="login" data-i18n="auth.signIn">Sign in</button>
               <button type="button" id="registerButton" data-i18n="auth.createAccount">Create account</button>
+              <button type="button" id="retrySessionButton" class="ghost hidden" data-i18n="auth.retrySession">Retry session check</button>
             </div>
-            <p class="error" id="authError"></p>
+            <p class="error" id="authError" role="status" aria-live="polite"></p>
           </form>
         </div>
       </section>

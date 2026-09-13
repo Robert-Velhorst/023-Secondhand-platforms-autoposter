@@ -44,6 +44,28 @@ mode retains its previous Uvicorn graceful-drain policy.
 
 ## Verified Portable Build
 
+The latest 2026-09-13 browser-auth recovery build has SHA-256
+`d5bedcb438ec7909c70fd223098f2373f278c391cb4d700a4afdd7a2f58bde73`.
+Six Chromium flows passed against its actual loopback API at desktop
+1366×900 and mobile 390×844: temporary session failure/retry, single-flight
+sign-in, browser registration validation, mobile recovery layout, logout
+availability during slow dashboard reads, and failed/retried logout. The
+last flow verified the old token was rejected by the backend after retry.
+Page identity, meaningful content, absence of framework overlays, screenshots,
+and console checks passed; deliberately injected HTTP 503 errors were expected.
+See [browser session recovery](AUTH_SECURITY_POSTURE.md#browser-session-recovery).
+
+The packaged API/worker, registration, login, image/CSV, static-asset, and local
+read-only HAI checks passed on the final run. An initial HAI consumer attempt
+failed before its detailed output was captured; the wrapper now retains those
+details, and a fresh isolated rerun passed. The first failure's cause remains
+unresolved, so this is not evidence of fully stable or installed HAI operation.
+Doctor passed all six checks against the isolated database. Owned test
+processes and the disposable PostgreSQL container were stopped afterward.
+Schema head remains `20260913_0016`. This is an unsigned review executable,
+not production deployment or live-ngrok/manual-accessibility acceptance.
+Earlier hashes below are historical.
+
 The latest 2026-09-13 atomic-registration build has SHA-256
 `107a5a85c71a6384ec62e372f2410cdbbbd66ff779054be5bbd149b65d606eea`.
 Its real API passed a forced initial-session failure with no account left

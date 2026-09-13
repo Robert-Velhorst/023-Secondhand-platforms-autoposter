@@ -1,6 +1,7 @@
 const state = {
   token: localStorage.getItem("autoposterToken"),
   user: null,
+  authPending: false,
   platforms: [],
   listings: [],
   recentListings: [],
@@ -86,6 +87,9 @@ const COPY_CATALOG = {
     "auth.name": "Name",
     "auth.signIn": "Sign in",
     "auth.createAccount": "Create account",
+    "auth.retrySession": "Retry session check",
+    "auth.sessionCheckFailed": "Your session could not be checked. Retry when the connection is available.",
+    "auth.timeout": "The request timed out. Please try again.",
     "nav.dashboard": "Dashboard",
     "nav.listings": "Listings",
     "nav.queue": "Queue",
@@ -197,6 +201,9 @@ const COPY_CATALOG = {
     "auth.name": "Naam",
     "auth.signIn": "Inloggen",
     "auth.createAccount": "Account maken",
+    "auth.retrySession": "Sessie opnieuw controleren",
+    "auth.sessionCheckFailed": "Je sessie kon niet worden gecontroleerd. Probeer het opnieuw zodra de verbinding beschikbaar is.",
+    "auth.timeout": "Het verzoek duurde te lang. Probeer het opnieuw.",
     "nav.dashboard": "Dashboard",
     "nav.listings": "Advertenties",
     "nav.queue": "Wachtrij",
@@ -1469,10 +1476,45 @@ window.addEventListener("unhandledrejection", (event) => {
   showAppError(event.reason, "Something went wrong");
 });
 
-async function boot() {
+async function authApi(path, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    return await api(path, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new ApiError(t("auth.timeout"), { retryable: true });
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runAuthAction(action) {
+  if (state.authPending) return;
+  state.authPending = true;
+  const controls = document.querySelectorAll("#authForm input, #authForm button, #logoutButton");
+  controls.forEach((node) => { node.disabled = true; });
+  $("#authForm").setAttribute("aria-busy", "true");
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    state.authPending = false;
+    controls.forEach((node) => { node.disabled = false; });
+    $("#authForm").setAttribute("aria-busy", "false");
+  };
+  try {
+    await action(release);
+  } finally {
+    release();
+  }
+}
+
+async function boot(onAuthenticated = () => {}) {
+  const bootToken = state.token;
   applyTranslations();
   try {
-    state.localization = await api("/localization", { headers: {} });
+    state.localization = await authApi("/localization", { headers: {} });
     const supported = new Set((state.localization.supported_locales || []).map((locale) => locale.code));
     if (!supported.has(state.locale)) state.locale = state.localization.default_locale || "en";
     applyTranslations();
@@ -1481,21 +1523,37 @@ async function boot() {
   }
 
   try {
-    const health = await api("/health", { headers: {} });
+    const health = await authApi("/health", { headers: {} });
     $("#healthBadge").textContent = health.status;
   } catch {
     $("#healthBadge").textContent = t("status.offline");
   }
 
-  if (!state.token) return;
+  if (!bootToken || state.token !== bootToken) return;
   try {
-    state.user = await api("/auth/me");
+    const user = await authApi("/auth/me");
+    if (state.token !== bootToken) return;
+    state.user = user;
     $("#userEmail").textContent = state.user.email;
+    $("#retrySessionButton").classList.add("hidden");
+    $("#authError").textContent = "";
     $("#authView").classList.add("hidden");
     $("#shell").classList.remove("hidden");
-  } catch {
-    localStorage.removeItem("autoposterToken");
-    state.token = null;
+    onAuthenticated();
+  } catch (error) {
+    if (state.token !== bootToken) return;
+    if (error.status === 401 || error.status === 403) {
+      localStorage.removeItem("autoposterToken");
+      state.token = null;
+      state.user = null;
+      $("#authError").textContent = error.message;
+      $("#retrySessionButton").classList.add("hidden");
+    } else {
+      $("#authError").textContent = t("auth.sessionCheckFailed");
+      $("#retrySessionButton").classList.remove("hidden");
+    }
+    $("#authView").classList.remove("hidden");
+    $("#shell").classList.add("hidden");
     return;
   }
 
@@ -1507,49 +1565,52 @@ async function boot() {
   }
 }
 
-$("#authForm").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  $("#authError").textContent = "";
-  try {
-    const payload = {
-      email: $("#authEmail").value,
-      password: $("#authPassword").value,
-      name: $("#authName").value,
-    };
-    const data = await api("/auth/login", { method: "POST", body: JSON.stringify(payload) });
-    state.token = data.token;
-    localStorage.setItem("autoposterToken", data.token);
-    await boot();
-  } catch (error) {
-    $("#authError").textContent = error.message;
-  }
-});
-
-$("#registerButton").addEventListener("click", async () => {
-  $("#authError").textContent = "";
-  try {
-    const data = await api("/auth/register", {
-      method: "POST",
-      body: JSON.stringify({
-        email: $("#authEmail").value,
-        password: $("#authPassword").value,
-        name: $("#authName").value,
-      }),
-    });
-    state.token = data.token;
-    localStorage.setItem("autoposterToken", data.token);
-    await boot();
-  } catch (error) {
-    $("#authError").textContent = error.message;
-  }
-});
-
-$("#logoutButton").addEventListener("click", () => {
-  api("/auth/logout", { method: "POST" }).finally(() => {
-    localStorage.removeItem("autoposterToken");
-    window.location.reload();
+async function submitAuth(mode) {
+  if (state.authPending || !$("#authForm").reportValidity()) return;
+  await runAuthAction(async (release) => {
+    $("#authError").textContent = "";
+    $("#retrySessionButton").classList.add("hidden");
+    try {
+      const data = await authApi(`/auth/${mode}`, {
+        method: "POST",
+        body: JSON.stringify({
+          email: $("#authEmail").value,
+          password: $("#authPassword").value,
+          name: $("#authName").value,
+        }),
+      });
+      state.token = data.token;
+      localStorage.setItem("autoposterToken", data.token);
+      $("#authPassword").value = "";
+      await boot(release);
+    } catch (error) {
+      $("#authError").textContent = error.message;
+    }
   });
+}
+
+$("#authForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  return submitAuth("login");
 });
+
+$("#registerButton").addEventListener("click", () => submitAuth("register"));
+$("#retrySessionButton").addEventListener("click", () => runAuthAction(boot));
+
+$("#logoutButton").addEventListener("click", () => runAuthAction(async () => {
+  try {
+    await authApi("/auth/logout", { method: "POST" });
+  } catch (error) {
+    if (error.status !== 401) {
+      showAppError(error, "Sign out failed. Please retry.");
+      return;
+    }
+  }
+  state.token = null;
+  state.user = null;
+  localStorage.removeItem("autoposterToken");
+  window.location.reload();
+}));
 
 document.querySelectorAll(".nav").forEach((node) => node.addEventListener("click", () => show(node.dataset.view)));
 
@@ -2275,4 +2336,5 @@ $("#deleteMyDataButton").addEventListener("click", async () => {
   window.location.reload();
 });
 
-boot();
+if (state.token) runAuthAction(boot);
+else boot();

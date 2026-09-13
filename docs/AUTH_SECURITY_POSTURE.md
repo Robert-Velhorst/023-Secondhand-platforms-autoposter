@@ -13,6 +13,36 @@ The current deployment mode is bearer-token authentication only.
 
 Because browsers do not automatically attach bearer tokens from application state the way they attach cookies, API authentication is not currently exposed to normal cookie-based CSRF. The app still restricts CORS in production and sends security headers, but there is no CSRF token middleware because there are no authenticated cookie sessions to protect.
 
+## Browser session recovery
+
+The dashboard keeps its bearer token in browser `localStorage` and a runtime
+copy. A temporary network/server failure during `GET /api/auth/me` no longer
+deletes it: the protected shell stays hidden, a live status message explains
+the failure, and **Retry session check** performs a fresh check. A `401` or
+`403` clears the unusable browser credential. A response associated with an
+older token cannot clear or replace newer session state.
+
+Sign-in and registration share a single pending-action guard; credential
+fields and auth buttons are disabled while authentication is pending. Both
+actions use browser form validation. The password input is cleared after a
+successful authentication response. The guard releases once the session is
+verified, before dashboard reads finish, so slow data loading cannot prevent
+sign-out. An older action cannot release a newer action's guard.
+
+Auth and bootstrap requests have a 15-second timeout per request, with no
+automatic replay. Aborting a browser request does not prove that the server
+stopped processing it or rolled back a commit. Registration recovery below
+still applies when a response is lost. Public bootstrap checks are sequential;
+this is not a 15-second limit for the entire startup sequence.
+
+Sign-out clears the browser token only after successful server revocation or
+a `401` indicating the session is no longer valid. A network/server failure
+shows an error and retains the credential so the user can retry; it must not
+be described as a completed sign-out. These controls do not synchronize every
+open tab or add cookie authentication. Browser storage remains exposed to
+same-origin JavaScript, so CSP, XSS prevention, trusted-device use, and explicit
+server-side revocation remain important.
+
 ## Registration transactions and recovery
 
 Registration creates the account and its first bearer session in one database
@@ -84,7 +114,7 @@ HTTPS requests also receive `Strict-Transport-Security: max-age=31536000; includ
 - Restrict `CORS_ORIGINS` to trusted frontend origins.
 - Serve the app only over HTTPS so bearer tokens are not sent over plaintext connections.
 - Terminate TLS at the deployment edge and preserve HTTPS scheme forwarding so HSTS is emitted for browser traffic.
-- Store bearer tokens only in the frontend runtime needed by the static dashboard; do not copy them into logs, URLs, analytics, screenshots, or exports.
+- The shipped dashboard persists its bearer token in `localStorage`; review that trusted-device/XSS tradeoff before deployment. Do not copy tokens into logs, URLs, analytics, screenshots, or exports. Clearing browser storage alone does not revoke a server-side session.
 - Keep `API_RATE_LIMIT_REQUESTS` and `API_RATE_LIMIT_WINDOW_SECONDS` enabled for general API throttling in addition to login-specific throttling.
 - Login throttling atomically reserves attempts before credential verification and stores a SHA-256 client/email identifier plus counters, timestamps, and an internal reservation fence. Only a still-latest successful attempt clears its window, in the same transaction as session creation. Expired records are reclaimed in bounded worker batches; lockout responses include `Retry-After`. See [atomic login admission](RATE_LIMITS.md#atomic-login-admission) for concurrency, interrupted-request, identity, and backlog limits.
 - Use `POST /api/auth/logout` to revoke a session when the user signs out.
