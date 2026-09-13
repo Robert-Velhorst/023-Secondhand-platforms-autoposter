@@ -89,7 +89,7 @@ Claim identifiers fence local state only. These tests do not establish lease ren
 The default suite runs `tests/test_job_claim_safety.py` on isolated SQLite databases. To run the same cases on PostgreSQL, first provision a **disposable** database whose name starts with `autoposter_job_test_`, then run:
 
 ```bash
-python -m pytest -q tests/test_job_claim_safety.py tests/test_storage_cleanup_db.py --job-postgres-url "postgresql+psycopg://USER:PASSWORD@HOST:5432/autoposter_job_test_local"
+python -m pytest -q tests/test_job_claim_safety.py tests/test_storage_cleanup_db.py tests/test_image_write_db.py --job-postgres-url "postgresql+psycopg://USER:PASSWORD@HOST:5432/autoposter_job_test_local"
 ```
 
 Replace the uppercase connection fields with credentials for the disposable test service only. Do not supply a production database. The fixture rejects other database-name prefixes, creates a random schema with `CREATE SCHEMA` (never reuses one), migrates it from empty to Alembic head, and drops only that schema during cleanup. The account needs permission to create and drop its test schemas. This explicit option does not change the application database selected by the global test-isolation fixture.
@@ -118,6 +118,14 @@ the guarded disposable-database fixture; no production database is selected.
 SQLite, local path/unlink safeguards, and controlled S3 client checks. Real
 provider storage, production-scale scans, and historical orphan discovery
 remain outside this evidence.
+
+Three additional `tests/test_image_write_db.py` cases bring that invocation to
+74 cases. They check rollback and lost-commit-acknowledgment recovery on the
+actual request database, plus preservation of the original error when the
+recovery database fails. Twelve `tests/test_image_write_safety.py` cases exercise
+the upload/duplicate routes, master-field preservation, title bounds, missing
+source images, partial local/S3 writes, commit failures, and locked cleanup.
+They do not prove recovery from a hard process crash before intent persistence.
 
 1. Idempotency, retries, and worker concurrency for publishing jobs.
 2. File safety: upload validation, storage paths, duplicate handling, ordering, and deletion.

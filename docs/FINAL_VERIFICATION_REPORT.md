@@ -1,5 +1,57 @@
 # Final Verification Report
 
+## Image-write compensation and duplication integrity — 2026-09-13
+
+Target: checkout based on `e1bab5052dfd3194f78ec564c0c2a2ec6cb232a0`, plus
+the changes recorded here. Four failing regressions reproduced category
+attributes being lost on duplication, a missing source image being silently
+omitted, and new files left behind after upload or duplication commit failure.
+
+Both write paths now track targets before storage I/O and compensate handled
+failures after rolling back the business transaction. A fresh session on the
+same database saves cleanup intent; existing reference checks protect a file
+whose database commit succeeded but acknowledgment was lost. Partial local
+writes and uncertain S3 puts are tracked. Duplication preserves category
+attributes, bounds the suffixed title, and returns an actionable conflict rather
+than silently omitting a missing image. The original operation error is retained
+if recovery storage fails; filenames and raw provider details are not logged.
+
+The combined suites exposed a separate logging defect: Alembic disabled already
+imported application loggers. A minimal regression confirmed it. Migration
+environment configuration now preserves existing loggers; immutable versioned
+migrations and head `20260913_0015` were not changed. The final recovery-error
+logging assertions pass without relaxing their checks.
+
+Final verification:
+
+- Windows: **466 passed, one POSIX-only skip in 114.71 seconds**; 467 collected.
+- Disposable migrated PostgreSQL 16: **74 passed in 80.52 seconds**, including
+  same-database recovery, rolled-back versus acknowledged-lost commits, and an
+  unavailable recovery database. These are subset reruns, not extra product tests.
+- Ruff, compilation, documentation links, and doctor on the isolated packaged
+  SQLite fixture passed. No production configuration or database was verified.
+- Rebuilt Windows executable SHA-256:
+  `4b5a7bf4c7ca1fe9a40af9b24e724659fd64e1bedbdfc07d3882f9929e7977f0`.
+  The actual API/worker passed existing workflows, locked-file retry, duplication
+  with category attributes and a 160-character title, and missing-image conflict
+  with no partial clone. A trigger in only the disposable fixture rejected a
+  real image-row insert after its file write; the API returned an error and the
+  newly written file was removed. The trigger and owned test processes were
+  cleaned up.
+- The real rebuilt producer-to-HAI review-consumer test passed again on
+  disposable PostgreSQL: paging, update, tombstone, durable restart/disable,
+  explicit resume, revocation, and non-executable/private-note-safe references.
+  HAI remains separate local, uncommitted, unpublished, and uninstalled work.
+
+The first combined runs failed only the new recovery-log assertion; the
+logging defect above was reproduced separately and corrected before the final
+runs. This is not a pre-write durable journal: process termination before
+compensation intent is persisted, or an unavailable recovery database, can
+still leave an orphan object. Historical orphan discovery, real S3/provider
+evidence, production deployment, public ngrok acceptance, installed HAI, and
+human walkthrough/accessibility/signoff remain outside this proof. The full
+production-readiness goal is still open.
+
 ## Transactional image cleanup and recovery — 2026-09-13
 
 Target: Autoposter checkout based on `318eb158501eb8363e70c4ebfd7df05653795d3d`,

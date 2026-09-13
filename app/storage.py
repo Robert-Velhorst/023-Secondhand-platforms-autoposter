@@ -1,6 +1,7 @@
 import hashlib
 import re
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -37,6 +38,9 @@ class ValidatedUpload:
 
 
 class StorageBackend(Protocol):
+    def listing_image_path(self, listing_id: int, filename: str) -> str:
+        raise NotImplementedError
+
     def save_listing_image(self, listing_id: int, filename: str, upload: ValidatedUpload) -> str:
         raise NotImplementedError
 
@@ -54,10 +58,13 @@ class LocalStorage:
     def __init__(self, root: Path):
         self.root = root
 
+    def listing_image_path(self, listing_id: int, filename: str) -> str:
+        return str(self.root / str(listing_id) / filename)
+
     def save_listing_image(self, listing_id: int, filename: str, upload: ValidatedUpload) -> str:
         listing_dir = self.root / str(listing_id)
         listing_dir.mkdir(parents=True, exist_ok=True)
-        target = listing_dir / filename
+        target = Path(self.listing_image_path(listing_id, filename))
         target.write_bytes(upload.content)
         return str(target)
 
@@ -96,6 +103,9 @@ class S3Storage:
             config=Config(connect_timeout=3, read_timeout=5, retries={"mode": "standard", "total_max_attempts": 2}),
         )
 
+    def listing_image_path(self, listing_id: int, filename: str) -> str:
+        return f"s3://{self.bucket}/{self._key(listing_id, filename)}"
+
     def save_listing_image(self, listing_id: int, filename: str, upload: ValidatedUpload) -> str:
         key = self._key(listing_id, filename)
         self.client.put_object(
@@ -108,7 +118,7 @@ class S3Storage:
                 "checksum-sha256": upload.checksum_sha256,
             },
         )
-        return f"s3://{self.bucket}/{key}"
+        return self.listing_image_path(listing_id, filename)
 
     def delete(self, storage_path: str) -> None:
         parsed = parse_s3_uri(storage_path)
@@ -195,10 +205,16 @@ def store_validated_image(
     upload: ValidatedUpload,
     listing_id: int,
     settings: Settings | None = None,
+    *,
+    on_planned: Callable[[str], None] | None = None,
 ) -> StoredFile:
     stem = Path(upload.original_filename).stem or "image"
     stored_name = f"{stem}-{uuid.uuid4().hex}{upload.extension}"
-    storage_path = get_storage(settings).save_listing_image(listing_id, stored_name, upload)
+    storage = get_storage(settings)
+    storage_path = storage.listing_image_path(listing_id, stored_name)
+    if on_planned is not None:
+        on_planned(storage_path)  # Track before I/O, including partial/uncertain writes.
+    storage.save_listing_image(listing_id, stored_name, upload)
     return StoredFile(
         original_filename=upload.original_filename,
         storage_path=storage_path,

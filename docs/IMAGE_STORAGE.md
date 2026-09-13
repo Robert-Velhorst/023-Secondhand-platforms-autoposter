@@ -28,6 +28,34 @@ Stored S3 paths use `s3://bucket/key` internally. Raw object data is not include
 
 ## Deletion and recovery
 
+### Upload and duplication failures
+
+Uploads and listing duplication register each planned, uniquely named storage
+target before writing its bytes. If a handled storage or database exception
+occurs, the shared image-write scope rolls back the business transaction and
+uses a fresh session on the **same database** to record cleanup intent. This
+also tracks local partial writes and an S3 upload that may have succeeded before
+the provider response was lost. Cleanup then uses the reference checks and
+retry mechanism below; a database commit whose acknowledgment was lost must
+not cause its successfully referenced image to be deleted.
+
+Duplication copies category attributes with the other master-listing details,
+starts the copy as a draft, and bounds its suffixed title to 160 characters.
+It creates independent image objects. If a source image is missing, it returns
+an actionable conflict instead of silently creating an incomplete copy; any
+earlier copies in that failed operation are queued for cleanup. Source images
+and source metadata are not removed by this recovery.
+
+This exception recovery is **not a pre-write durable journal**. A process killed
+before recovery intent is saved, or an unavailable recovery database, can still
+leave an unreferenced object. In the latter case the original failure is
+preserved and a sanitized error is logged; no blind deletion is attempted when
+the committed reference state cannot be checked. Closing this crash window and
+reconciling historical orphans remain hardening work. The queue does not scan
+storage or infer ownership from filenames.
+
+### Post-commit cleanup
+
 Account, listing, and individual-image deletion record file-cleanup intent in
 `storage_deletions` within the same database transaction as the deleted records.
 A failed or rolled-back transaction does not delete files. The outbox has no

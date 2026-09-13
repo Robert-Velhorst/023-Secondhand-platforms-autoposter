@@ -54,6 +54,7 @@ from app.schemas import (
     ValidationResult,
 )
 from app.services.audit import record_audit_event
+from app.services.image_writes import image_write_scope
 from app.services.jobs import (
     PublishingAccountError,
     confirm_manual_completion,
@@ -218,7 +219,7 @@ def duplicate_listing(
     source = _load_listing(db, user.id, listing_id)
     clone = Listing(
         owner_id=user.id,
-        title=f"{source.title} copy".strip(),
+        title=f"{source.title[:155].rstrip()} copy".strip(),
         description=source.description,
         price_cents=source.price_cents,
         currency=source.currency,
@@ -235,40 +236,46 @@ def duplicate_listing(
         model=source.model,
         color=source.color,
         material=source.material,
+        category_attributes=source.category_attributes,
         notes=source.notes,
         internal_notes=source.internal_notes,
         tags=source.tags,
         status="draft",
     )
-    db.add(clone)
-    db.flush()
-    for image in source.images:
-        content = stored_file_bytes(image.storage_path)
-        if content is None:
-            continue
-        stored_file = store_validated_image(
-            ValidatedUpload(
-                original_filename=image.filename,
-                content=content,
-                content_type=image.content_type,
-                file_size=len(content),
-                checksum_sha256=image.checksum_sha256,
-                extension=Path(image.filename).suffix or ".img",
-            ),
-            clone.id,
-        )
-        db.add(
-            ListingImage(
-                listing_id=clone.id,
-                filename=image.filename,
-                storage_path=stored_file.storage_path,
-                content_type=image.content_type,
-                file_size=image.file_size,
-                checksum_sha256=image.checksum_sha256,
-                position=image.position,
+    with image_write_scope(db) as track_image:
+        db.add(clone)
+        db.flush()
+        for image in source.images:
+            content = stored_file_bytes(image.storage_path)
+            if content is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A source image is unavailable. Restore or remove the missing image before duplicating.",
+                )
+            stored_file = store_validated_image(
+                ValidatedUpload(
+                    original_filename=image.filename,
+                    content=content,
+                    content_type=image.content_type,
+                    file_size=len(content),
+                    checksum_sha256=image.checksum_sha256,
+                    extension=Path(image.filename).suffix or ".img",
+                ),
+                clone.id,
+                on_planned=track_image,
             )
-        )
-    db.commit()
+            db.add(
+                ListingImage(
+                    listing_id=clone.id,
+                    filename=image.filename,
+                    storage_path=stored_file.storage_path,
+                    content_type=image.content_type,
+                    file_size=stored_file.file_size,
+                    checksum_sha256=image.checksum_sha256,
+                    position=image.position,
+                )
+            )
+        db.commit()
     return _load_listing(db, user.id, clone.id)
 
 
@@ -291,20 +298,21 @@ async def upload_image(
     )
     if duplicate:
         return _load_listing(db, user.id, listing.id)
-    stored_file = store_validated_image(validated, listing.id)
-    position = len(listing.images)
-    db.add(
-        ListingImage(
-            listing_id=listing.id,
-            filename=stored_file.original_filename,
-            storage_path=stored_file.storage_path,
-            content_type=stored_file.content_type,
-            file_size=stored_file.file_size,
-            checksum_sha256=stored_file.checksum_sha256,
-            position=position,
+    with image_write_scope(db) as track_image:
+        stored_file = store_validated_image(validated, listing.id, on_planned=track_image)
+        position = len(listing.images)
+        db.add(
+            ListingImage(
+                listing_id=listing.id,
+                filename=stored_file.original_filename,
+                storage_path=stored_file.storage_path,
+                content_type=stored_file.content_type,
+                file_size=stored_file.file_size,
+                checksum_sha256=stored_file.checksum_sha256,
+                position=position,
+            )
         )
-    )
-    db.commit()
+        db.commit()
     return _load_listing(db, user.id, listing.id)
 
 

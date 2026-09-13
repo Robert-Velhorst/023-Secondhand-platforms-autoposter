@@ -71,8 +71,13 @@ code also removes these recovery guarantees. In production prefer a reviewed
 forward repair. This condition also applies when downgrading further back to
 `20260809_0013` through the claim-fencing procedure above.
 
-The queue cannot discover files orphaned before this release or files written
-by an upload that failed before saving its image row. Those require separate,
+Handled upload/duplication exceptions now record cleanup through a fresh session
+on the same database after rollback. If recovery storage is unavailable, the
+original error is preserved and `Image cleanup intent could not be persisted`
+is logged with only the exception class. Investigate without blindly deleting
+objects: an uncertain commit may already have saved an image reference.
+The queue cannot discover historical orphans or writes abandoned by a hard
+process crash before recovery intent was saved. Those require separate,
 backup-aware storage reconciliation; do not blindly scan and delete files.
 See [Image Storage](IMAGE_STORAGE.md#deletion-and-recovery) for retry semantics,
 storage boundaries, privacy retention, and provider-version limitations.

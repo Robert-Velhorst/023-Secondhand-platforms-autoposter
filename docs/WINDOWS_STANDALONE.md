@@ -44,7 +44,17 @@ mode retains its previous Uvicorn graceful-drain policy.
 
 ## Verified Portable Build
 
-The latest 2026-09-13 storage-cleanup build has SHA-256
+The latest 2026-09-13 image-write recovery build has SHA-256
+`4b5a7bf4c7ca1fe9a40af9b24e724659fd64e1bedbdfc07d3882f9929e7977f0`.
+The real executable passed cleanup after a rejected database image insert,
+complete duplication details, bounded copy titles, missing-source-image
+conflicts, locked-file retry, and the existing API/worker/HAI workflow. It also
+includes the migration environment's application-logger preservation fix.
+See [image-write verification](FINAL_VERIFICATION_REPORT.md#image-write-compensation-and-duplication-integrity--2026-09-13)
+for evidence and the remaining pre-write crash-recovery gap. This is an unsigned
+local review executable; it is not production deployment or live ngrok acceptance.
+
+The earlier 2026-09-13 storage-cleanup build has SHA-256
 `bd264a834b214a058f9f04239c64d7a89b70e20269557e32103af323220db03c`.
 The real executable passed API/worker workflows at Alembic head
 `20260913_0015`, including account deletion while a Windows file handle blocked

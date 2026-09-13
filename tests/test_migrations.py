@@ -1,3 +1,4 @@
+import logging
 import os
 import subprocess
 import sys
@@ -10,6 +11,15 @@ from sqlalchemy.schema import CreateIndex, CreateTable
 
 from app import models  # noqa: F401
 from app.database import Base
+
+
+def test_migration_keeps_existing_application_loggers_enabled(tmp_path):
+    logger = logging.getLogger("autoposter.migration_logging_regression")
+    assert logger.disabled is False
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{(tmp_path / 'logging.db').as_posix()}")
+    command.upgrade(config, "head")
+    assert logger.disabled is False, "Running migrations must not disable application recovery logs"
 
 
 def test_claim_token_migration_preserves_existing_jobs(tmp_path):

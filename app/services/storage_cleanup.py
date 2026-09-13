@@ -11,6 +11,7 @@ import uuid
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
 
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -91,7 +92,7 @@ def process_due_storage_deletions(
     return completed
 
 
-def cleanup_after_commit(ids: Sequence[str]) -> None:
+def cleanup_after_commit(ids: Sequence[str], *, bind: Engine | Connection | None = None) -> None:
     """Local fast path only. Worker retries survive any failure of this best effort."""
     if not ids:
         return
@@ -99,7 +100,7 @@ def cleanup_after_commit(ids: Sequence[str]) -> None:
         settings = get_settings()
         if settings.storage_backend.lower() != "local":
             return  # Do not make API deletion latency depend on a remote storage service.
-        with SessionLocal() as db:
+        with (SessionLocal() if bind is None else Session(bind=bind)) as db:
             process_due_storage_deletions(db, ids=ids[:MAX_BATCH_SIZE], settings=settings)
     except Exception as exc:
         # The business transaction is already committed; do not turn success into a 500.
