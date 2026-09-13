@@ -1,5 +1,56 @@
 # Final Verification Report
 
+## Login account state and connection lifetime — 2026-09-13
+
+Target: checkout based on `df30ab4fcf6c5844504500c939588914ac3acf70`, plus
+the changes recorded here. Eleven new request-level cases failed before the
+fix: disabled accounts received tokens; disable/password/email changes during
+verification were missed; deleting the account caused an internal error; and
+password verification/rehash held a checked-out database connection.
+
+Login now retains only a scalar credential snapshot and releases its read
+transaction before hashing. A conditional SQLite/PostgreSQL update requires
+the same user ID, email, hash, and active status before creating a session.
+The short write transaction includes any legacy rehash, fenced throttle
+clearing, and session creation. It cannot overwrite a concurrently replaced
+password. The response uses profile data captured before session commit,
+avoiding a post-commit account reread. No migration was added; head remains
+`20260913_0016` and its coordinated upgrade requirements still apply.
+
+Verification:
+
+- Full Windows suite: **515 passed, one POSIX-only skip in 152.56 seconds**
+  (516 cases). Ruff and compilation passed.
+- Disposable migrated PostgreSQL 16: **99 passed in 138.82 seconds**. These
+  rerun a subset of the suite, not 99 additional distinct product cases.
+- The fourteen new tests cover both Argon2 and legacy-hash interleavings,
+  disabled accounts, changes during rehash, session-failure rollback, and an
+  unrelated profile-change control. Pool observations show zero checked-out
+  connections during password verification and rehash on both database types.
+- Rebuilt unsigned Windows executable SHA-256:
+  `cbc609cb5c95ac34d8465801cd55dc40b6989b5b164483dd42ea69bebb7f45e9`.
+  Its isolated real API rejected a disabled account without adding a session,
+  then accepted a re-enabled synthetic account and upgraded its legacy hash.
+  API/worker health, current migrations, quota/expiry cleanup, CSV errors,
+  image compensation, locked-file cleanup, assisted jobs, account boundaries,
+  static assets, and HAI export checks passed.
+- Real packaged producer-to-local-review-HAI integration passed against
+  disposable PostgreSQL: 101 paginated records, update, tombstone, persistent
+  disable/restart, zero-replay resume, revocation, and reference-only privacy.
+  HAI source remains uncommitted, unpublished, and uninstalled review work.
+- Doctor passed all six checks against the isolated packaged database with
+  explicit test settings. Documentation links resolved. Owned executable
+  processes and the disposable PostgreSQL container were stopped afterward.
+
+Successful login now performs an additional short guarded write, including
+when no rehash is needed. Password cost settings and thread-pool limits did
+not change; no target throughput, latency, or memory benchmark is claimed.
+Existing sessions are not automatically revoked by direct database password
+changes, and account administration/reset workflows are not introduced.
+See [account-state guarantees and limits](AUTH_SECURITY_POSTURE.md#account-state-at-login).
+Production deployment, public ngrok acceptance, installed HAI integration,
+and human launch signoff remain outside this evidence.
+
 ## Atomic login admission and expiry maintenance — 2026-09-13
 
 Target: checkout based on `cdf54849232a6a82536d77af46a1a8b741115291`, plus

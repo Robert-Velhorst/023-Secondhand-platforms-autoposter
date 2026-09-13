@@ -13,6 +13,34 @@ The current deployment mode is bearer-token authentication only.
 
 Because browsers do not automatically attach bearer tokens from application state the way they attach cookies, API authentication is not currently exposed to normal cookie-based CSRF. The app still restricts CORS in production and sends security headers, but there is no CSRF token middleware because there are no authenticated cookie sessions to protect.
 
+## Account state at login
+
+Login rejects disabled accounts with the same `401` message as incorrect
+credentials and does not issue a session. After committing the throttle
+reservation, it reads a scalar credential snapshot and releases the database
+connection before password verification or a legacy-hash upgrade.
+
+Before session creation, one conditional database update requires the same
+user ID, email, password hash, and an active account. That update holds the
+user row through the session transaction. If a disable, deletion, email change,
+or password change means the current row no longer matches, authentication fails;
+an older login cannot overwrite a replacement password with its legacy rehash.
+Unrelated profile-name changes do not invalidate credentials.
+
+The guarded update (including an unchanged hash), optional rehash, fenced
+throttle clear, and session creation commit together. This adds a short write
+to successful login, but no connection or row lock spans password hashing.
+It is not a claim of increased target throughput or reduced hashing memory:
+Argon2 settings and the request thread pool are unchanged.
+
+This guard does not introduce an account-administration or password-reset UI.
+It also does not retroactively cancel already-issued sessions when an operator
+changes a password directly in the database. Existing session authentication
+checks the account's current active flag; disabling an account is not permanent
+session revocation if it is later re-enabled. Operators must revoke existing
+sessions separately when that is required. Changes committed after login's
+session transaction are outside its credential snapshot guarantee.
+
 ## Browser Security Headers
 
 Every HTTP response includes:

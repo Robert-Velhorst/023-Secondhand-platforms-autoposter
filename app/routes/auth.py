@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -50,14 +51,40 @@ def register(payload: AuthRegister, db: Session = Depends(get_db)) -> AuthToken:
 def login(payload: AuthLogin, request: Request, db: Session = Depends(get_db)) -> AuthToken:
     identifier = f"{request.client.host if request.client else 'unknown'}:{payload.email.lower()}"
     reservation = reserve_login_attempt(db, identifier)
-    user = db.query(User).filter(User.email == payload.email.lower()).one_or_none()
-    if not user or not verify_password(payload.password, user.password_hash):
+    credentials = (
+        db.query(User.id, User.email, User.password_hash, User.is_active)
+        .filter(User.email == payload.email.lower())
+        .one_or_none()
+    )
+    # Keep only scalar credentials, returning the connection before costly hash
+    # work. The already-committed admission reservation survives this rollback.
+    db.rollback()
+    if not credentials or not credentials.is_active or not verify_password(payload.password, credentials.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    if password_needs_rehash(user.password_hash):
-        user.password_hash = hash_password(payload.password)
+    replacement_hash = credentials.password_hash
+    if password_needs_rehash(replacement_hash):
+        replacement_hash = hash_password(payload.password)
+
+    # A conditional write both validates the snapshot and locks the current row
+    # through session commit on SQLite/PostgreSQL. A plain second SELECT leaves
+    # a race; an unconditional rehash could overwrite a changed password.
+    user = db.scalars(
+        update(User)
+        .where(
+            User.id == credentials.id,
+            User.email == credentials.email,
+            User.password_hash == credentials.password_hash,
+            User.is_active.is_(True),
+        )
+        .values(password_hash=replacement_hash)
+        .returning(User)
+    ).one_or_none()
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
     clear_successful_login(db, reservation)
+    user_out = UserOut.model_validate(user)
     token = create_session(db, user)
-    return AuthToken(token=token, user=UserOut.model_validate(user))
+    return AuthToken(token=token, user=user_out)
 
 
 @router.post("/auth/logout", status_code=204, tags=["Auth"])

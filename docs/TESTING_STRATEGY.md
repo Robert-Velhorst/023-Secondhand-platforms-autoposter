@@ -34,7 +34,15 @@ Doctor warnings are allowed for local development defaults; doctor errors fail t
 
 GitHub Actions runs the same command on pushes and pull requests to `main` via `.github/workflows/verify.yml`.
 
-The same workflow also runs a `postgres-workers` job against a disposable PostgreSQL 16 service. Its job, storage-cleanup, image-write, and login-admission tests use real connections and migrations, not merely compiled PostgreSQL SQL.
+The same workflow also runs a `postgres-workers` job against a disposable PostgreSQL 16 service. Its job, storage-cleanup, image-write, login-admission, and login-account-state tests use real connections and migrations, not merely compiled PostgreSQL SQL.
+
+`tests/test_login_account_state.py` drives real login requests through isolated
+SQLite or migrated PostgreSQL sessions. It covers disabled accounts, concurrent
+disable/password/email/delete changes during verification for Argon2 and
+legacy credentials, changes during rehash, failed-session rollback, and an
+unrelated profile-change control. Pool checkout observations require zero held
+connections during verification and rehash. These tests do not establish
+production load capacity or provide account-administration functionality.
 
 ## Current Test Layers
 

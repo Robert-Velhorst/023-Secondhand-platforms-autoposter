@@ -44,6 +44,18 @@ mode retains its previous Uvicorn graceful-drain policy.
 
 ## Verified Portable Build
 
+The latest 2026-09-13 login-account-state build has SHA-256
+`cbc609cb5c95ac34d8465801cd55dc40b6989b5b164483dd42ea69bebb7f45e9`.
+Its real API rejected a disabled synthetic account without issuing a session,
+then accepted the re-enabled fixture and upgraded its legacy password hash.
+The existing API/worker, migration, login-quota cleanup, storage, CSV, assisted
+jobs, account-boundary, static-delivery, and producer-to-local-review-HAI
+checks also passed. See the [account-state verification record](FINAL_VERIFICATION_REPORT.md#login-account-state-and-connection-lifetime--2026-09-13).
+Schema head remains `20260913_0016`; this checkpoint adds no migration.
+This is an unsigned local review executable, not a production or installed
+HAI release, and no public ngrok acceptance is implied. Earlier hashes below
+are historical.
+
 The latest 2026-09-13 atomic-login build has SHA-256
 `869f2039f3b7ee1b540c9e71c7dead8cd83824988ec5324a3ba27e1877a63788`.
 Its real API/worker at head `20260913_0016` passed login quota enforcement,
