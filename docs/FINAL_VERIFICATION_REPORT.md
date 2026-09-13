@@ -1,5 +1,45 @@
 # Final Verification Report
 
+## HAI source-link safety and ordered replay — 2026-09-13
+
+Target: Autoposter checkout based on `0294fde`, plus the scoped producer changes
+described here. Six endpoint regressions reproduced unsafe configured source
+links escaping through `/api/hai/records` while the manual export rejected the
+same inputs. Both paths now use one source-link safeguard. Normal loopback and
+mounted HTTPS links remain intact. A separate failing regression established
+the new decimal-string `change_id` contract for durable consumer replay order.
+
+The final HAI-focused run passed **39 tests**. The full Windows suite passed
+**431 tests with one POSIX-only skip in 77.29 seconds**; Ruff, compilation, and
+107 checked local documentation links/anchors passed. Doctor reported `ok`
+against the isolated packaged-test SQLite database at Alembic head
+`20260905_0014`, using explicit synthetic development configuration. This is
+not evidence of production secrets, PostgreSQL deployment, or target storage.
+
+The Windows executable was rebuilt from this producer source. SHA-256:
+`036af1cafd4d840bf33aeebefc02f48466de132462fd3154b8eb90de83d1267f`.
+The real packaged API/worker smoke passed frontend asset-byte/revalidation
+checks, authenticated listing/image/HAI workflows, publishing-account isolation,
+assisted job retry/recovery, and migration-state checks. Owned test processes
+were stopped afterward; no marketplace submission or public tunnel was opened.
+
+With explicit permission to prepare separate HAI source changes, a fresh HAI
+review checkout was created from main `91c8620`. Its reference-only consumer was
+tested against the real rebuilt Windows Autoposter and a separate disposable
+PostgreSQL 16 container. The actual test reported a pass—not a skip—for
+101 records across pages, empty sync, update, deletion, registry/service restart
+replay, token revocation, private-note exclusion, and non-executable reference
+rows. HAI's pre-migrations and concurrent newest-sequence persistence also
+passed on that isolated database. The HAI changes are separate local review
+work, not installed or merged capabilities of HAI main.
+
+That consumer imports on demand. Persistent opaque cursor checkpoints and an
+unattended polling lifecycle remain follow-up work; the current review uses
+durable per-record sequence state to make a restart replay safe. No installed
+HAI service, real source registration, production environment, or human
+acceptance was changed or claimed. The larger production-readiness goal remains
+unfinished.
+
 ## Clean source-install configuration — 2026-09-13
 
 Target: checkout based on `fdede7fc6bb23197ab46aefbf0f1fa65f4eb56c5`.

@@ -40,6 +40,7 @@ def test_hai_manifest_is_honest_and_read_only():
     assert payload["connector_key"] == "secondhand-platforms-autoposter"
     assert payload["mode"] == "read_only_pull"
     assert payload["capabilities"]["incremental_sync"] is True
+    assert payload["capabilities"]["ordered_change_ids"] is True
     assert payload["capabilities"]["tombstones"] is True
     assert payload["capabilities"]["write_back"] is False
     assert payload["capabilities"]["credentials_exported"] is False
@@ -75,6 +76,7 @@ def test_hai_token_is_scoped_incremental_and_revocable():
     record = first_payload["records"][0]
     assert record["id"] == f"listing:{listing_id}"
     assert record["deleted"] is False
+    assert record["change_id"].isdigit()
     assert "Oak desk" in record["content"]
     assert "Never export" not in record["content"]
     assert record["metadata"]["execution_authority"] is False
@@ -119,6 +121,29 @@ def test_hai_cursor_rejects_invalid_values():
 
     invalid_padding = client.get("/api/hai/records?cursor=A", headers=hai_headers)
     assert invalid_padding.status_code == 422
+
+
+def test_hai_records_expose_monotonic_decimal_change_ids_for_replay_ordering():
+    owner = _register("hai-ordering")
+    _, connector = _create_hai_token(owner)
+    listing = client.post("/api/listings", headers=owner, json={"title": "Before"}).json()
+    assert client.patch(f"/api/listings/{listing['id']}", headers=owner, json={"title": "After"}).status_code == 200
+    assert client.delete(f"/api/listings/{listing['id']}", headers=owner).status_code == 204
+    cursor = None
+    identifiers = []
+    for _ in range(3):
+        response = client.get("/api/hai/records", headers=connector,
+                              params={"limit": 1, **({"cursor": cursor} if cursor else {})})
+        assert response.status_code == 200, response.text
+        page = response.json()
+        record = page["records"][0]
+        assert isinstance(record.get("change_id"), str)
+        assert record["change_id"].isdigit()
+        identifiers.append(int(record["change_id"]))
+        cursor = page["next_cursor"]
+    assert identifiers == sorted(set(identifiers))
+    assert len(identifiers) == 3
+    assert all(identifier > 0 for identifier in identifiers)
 
 
 @pytest.mark.parametrize("cursor", [
@@ -296,17 +321,44 @@ def test_hai_export_includes_more_than_one_api_page_without_n_plus_one_queries()
     assert all("internal_notes" not in query and "storage_path" not in query for query in queries)
 
 
-def test_hai_export_never_embeds_credentials_from_a_misconfigured_source_url(monkeypatch):
+@pytest.mark.parametrize("incremental", [False, True], ids=["export", "incremental"])
+@pytest.mark.parametrize("base_url", [
+    "https://user:PRIVATE_PASSWORD@example.com/",
+    "https://example.com/?token=SECRET",
+    "https://example.com/#SECRET",
+    "https://example.com/token=SECRET",
+    "file:///PRIVATE_PASSWORD",
+    "https://[invalid",
+])
+def test_hai_feeds_never_embed_unsafe_source_urls(monkeypatch, incremental, base_url):
     from app.config import get_settings
 
     owner = _register("hai-export-url")
     client.post("/api/listings", headers=owner, json={"title": "Safe item"})
-    monkeypatch.setattr(get_settings(), "public_base_url", "https://user:PRIVATE_PASSWORD@example.com/?token=SECRET")
-    response = client.get("/api/hai/export", headers=owner)
+    _, connector = _create_hai_token(owner)
+    monkeypatch.setattr(get_settings(), "public_base_url", base_url)
+    response = client.get(
+        "/api/hai/records" if incremental else "/api/hai/export",
+        headers=connector if incremental else owner,
+    )
     assert response.status_code == 200
-    assert response.json()["items"][0]["sourceUri"] == ""
+    records_key, source_key = ("records", "source_url") if incremental else ("items", "sourceUri")
+    assert response.json()[records_key][0][source_key] == ""
     assert "PRIVATE_PASSWORD" not in response.text
     assert "SECRET" not in response.text
+
+
+@pytest.mark.parametrize("base_url", ["http://127.0.0.1:8000", "https://example.com/app/"])
+def test_hai_feeds_preserve_safe_source_links(monkeypatch, base_url):
+    from app.config import get_settings
+
+    owner = _register("hai-safe-url")
+    listing = client.post("/api/listings", headers=owner, json={"title": "Safe item"}).json()
+    _, connector = _create_hai_token(owner)
+    monkeypatch.setattr(get_settings(), "public_base_url", base_url)
+    expected = f"{base_url.rstrip('/')}/?listing={listing['id']}"
+    assert client.get("/api/hai/export", headers=owner).json()["items"][0]["sourceUri"] == expected
+    assert client.get("/api/hai/records", headers=connector).json()["records"][0]["source_url"] == expected
 
 
 @pytest.mark.parametrize("character", ["<", ">", "&", "\u2028", "\u2029"])

@@ -12,11 +12,11 @@ The app exposes an owner-scoped, read-only incremental API and a separate **HAI-
 
 `GET /api/hai/export` returns `application/json`, an attachment filename, and `Cache-Control: no-store`. Unauthenticated requests and `hai:read` tokens receive 401. All current owner listings, including archived ones, are included; the endpoint does not stop at the regular API's first page. It reads batches of 100, counts images in the database, loads only export fields/platform metadata, and caps the serialized file at 5 MiB. This is a current-record export, not a transactionally frozen point-in-time backup while concurrent edits occur.
 
-Content is limited to 200,000 UTF-8 bytes and Go-encoded metadata to 16,000 bytes per item to match the inspected HAI parser. A size overflow produces HTTP 413 and no partial download. A misconfigured source base containing URL credentials, a query/fragment, or secret-looking parameters is omitted from source links. Oversized stored listing fields can still require database work and transient memory before rejection; this is not an unlimited-scale export service.
+Content is limited to 200,000 UTF-8 bytes and Go-encoded metadata to 16,000 bytes per item to match the inspected HAI parser. A size overflow produces HTTP 413 and no partial download. In both the manual export and incremental API, a misconfigured source base containing URL credentials, a query/fragment, or secret-looking parameters is omitted from source links. Oversized stored listing fields can still require database work and transient memory before rejection; this is not an unlimited-scale export service.
 
 ## Current HAI Compatibility Gap
 
-The 2026-09-06 source comparison used HAI commit `91c8620c557229f1da4ed15fcbb7088c6a6947a7`:
+The source comparison was refreshed on 2026-09-13; HAI main still resolved to commit `91c8620c557229f1da4ed15fcbb7088c6a6947a7`:
 
 - [Generic parser](https://github.com/Robert-Velhorst/018-HAI/blob/91c8620c557229f1da4ed15fcbb7088c6a6947a7/backend/internal/accountfeed/generic_feed.go): accepts `{cursor, items}` or a bare array. It requires item fields `externalId`, `provider`, and `itemType`, with `sourceUri` for links. Autoposter returns `{records, next_cursor, has_more}` with `id` and `source_url`. An Autoposter envelope can therefore parse as zero items without an error; an HTTP success or empty sync is not ingestion proof.
 - [HTTP fetcher](https://github.com/Robert-Velhorst/018-HAI/blob/91c8620c557229f1da4ed15fcbb7088c6a6947a7/backend/internal/accountfeed/fetcher.go): creates GET requests without an Authorization header. Registering the protected Autoposter URL does not supply its required bearer token. HTTP fetching must also be enabled in HAI.
@@ -33,6 +33,10 @@ The download above supplies the compatible generic format for a manual local-fil
 5. Read the discovery document at `/.well-known/hai-connector.json`, verify the token with `GET /api/hai/status`, then request `GET /api/hai/records`. These steps test this application's API only, not the incompatible HAI consumer above.
 
 The feed is cursor-based. Persist `next_cursor` after each page and pass it as `cursor` on the next request. Upserts contain listing metadata and a source link; deletes are emitted as tombstones. Consumers should deduplicate by record `id` and apply events in cursor order.
+
+Each incremental record also carries `change_id`, a positive decimal string identifying its immutable change-log position. The manifest advertises `ordered_change_ids=true`. Compare these IDs numerically when retaining per-record replay state; do not compare decimal strings lexicographically, use JavaScript floating-point numbers for large identifiers, or treat `updated_at` as an ordering guarantee. Persist the latest applied change ID with each reference so older/equal replays cannot overwrite newer state, including deletion markers. This additive field does not change the opaque pagination cursor contract or the manual export format. A database restore/replacement that resets change history requires an explicit consumer reset/identity plan.
+
+Upserts expose the current listing snapshot, not a historical copy of every revision. A missing listing produces a tombstone even for an earlier upsert change. This is a synchronization feed, not a point-in-time audit archive.
 
 Image additions/deletions and marketplace selection changes also emit upserts, so a consumer that has already synced a listing receives updated `image_count` and `platforms` metadata. These changes are recorded in the same database transaction as the underlying edit. Images themselves remain private. Platform status transitions that do not change selection do not add unnecessary connector events.
 
@@ -53,7 +57,7 @@ Example request, using a placeholder token:
 curl -H "Authorization: Bearer hai_REPLACE_ME" "https://autoposter.example/api/hai/records?limit=100"
 ```
 
-For local Windows use, the source URL is `http://127.0.0.1:8000` from that Windows host. Inside another machine or container, `127.0.0.1` refers to that machine/container, not the Autoposter host. A reviewed network route is required. Do not open the experimental ngrok path before addressing the [documented lifecycle risks](WINDOWS_STANDALONE.md#ngrok).
+For local Windows use, the source URL is `http://127.0.0.1:8000` from that Windows host. Inside another machine or container, `127.0.0.1` refers to that machine/container, not the Autoposter host. A reviewed network route is required. Managed ngrok lifecycle controls have local verification, but a public tunnel still needs explicit approval and target access-policy acceptance; see the [ngrok guide](WINDOWS_STANDALONE.md#ngrok).
 
 ## End-to-End Acceptance Still Required
 

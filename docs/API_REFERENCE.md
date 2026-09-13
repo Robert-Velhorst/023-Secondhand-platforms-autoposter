@@ -149,6 +149,8 @@ Queue idempotency covers every job state. A repeated `publish` request with the 
 
 `/api/hai/status` and `/api/hai/records` require a `hai_...` connector token, not a normal user session. `/api/hai/export` deliberately uses the normal session and rejects connector tokens. It returns a no-store JSON attachment, or HTTP 413 without a partial file if the feed exceeds 5 MiB or HAI's item limits. See [HAI connector](HAI_CONNECTOR.md) for file registration, incremental compatibility gaps, and deletion limitations.
 
+Incremental records include a positive decimal-string `change_id`, ordered by the immutable change log. Consumers can persist this per record to reject stale replays; compare it numerically with an integer type that preserves the full value. `updated_at` is not a substitute for change ordering. `next_cursor` remains opaque and must be passed back unchanged. Both feed formats omit unsafe operator-configured source URLs.
+
 ## Pagination
 
 Paginated product collections return `X-Total-Count`, `X-Limit`, and `X-Offset` headers. Use `limit` and `offset` to page through those results. HAI records instead use opaque `cursor`, `next_cursor`, and `has_more` with `limit` from 1 to 250 (default 100). The HAI file export is complete-or-error, not a paginated response.

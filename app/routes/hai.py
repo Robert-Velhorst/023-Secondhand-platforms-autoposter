@@ -98,6 +98,7 @@ def hai_manifest() -> dict:
         "cursor": {"parameter": "cursor", "opaque": True},
         "capabilities": {
             "incremental_sync": True,
+            "ordered_change_ids": True,
             "tombstones": True,
             "write_back": False,
             "credentials_exported": False,
@@ -186,8 +187,22 @@ def hai_status(user: User = Depends(get_hai_user)) -> dict:
     }
 
 
+def _listing_source_url(listing_id: int) -> str:
+    """Omit unsafe operator-configured links from both HAI feed formats."""
+    base_url = get_settings().public_base_url
+    source_url = f"{base_url.rstrip('/')}/?listing={listing_id}"
+    try:
+        base = urlsplit(base_url)
+        if (base.scheme not in {"http", "https"} or not base.hostname
+                or base.username or base.password or base.query or base.fragment
+                or re.search(r"(token|auth|api[_-]?key|secret|password|bearer)=", source_url, re.I)):
+            return ""
+    except ValueError:
+        return ""
+    return source_url
+
+
 def _listing_record(listing: Listing, changed_at: datetime, *, image_count: int | None = None) -> HaiRecord:
-    settings = get_settings()
     tags = ", ".join(str(tag) for tag in listing.tags if str(tag).strip()) or "none"
     content = "\n".join(
         [
@@ -205,7 +220,7 @@ def _listing_record(listing: Listing, changed_at: datetime, *, image_count: int 
         id=f"listing:{listing.id}",
         title=listing.title or f"Listing {listing.id}",
         content=content,
-        source_url=f"{settings.public_base_url.rstrip('/')}/?listing={listing.id}",
+        source_url=_listing_source_url(listing.id),
         updated_at=changed_at,
         metadata={
             "listing_id": listing.id,
@@ -259,6 +274,7 @@ def hai_records(
             records.append(
                 HaiRecord(
                     id=f"listing:{change.listing_id}",
+                    change_id=str(change.id),
                     title=f"Deleted listing {change.listing_id}",
                     content="",
                     source_url="",
@@ -268,7 +284,7 @@ def hai_records(
                 )
             )
         else:
-            records.append(_listing_record(listing, change.changed_at))
+            records.append(_listing_record(listing, change.changed_at).model_copy(update={"change_id": str(change.id)}))
 
     return HaiRecordPage(
         records=records,
@@ -310,22 +326,13 @@ def hai_export(user: User = Depends(get_current_user), db: Session = Depends(get
         if (len(record.content.encode("utf-8")) > HAI_CONTENT_MAX_BYTES
                 or len(metadata_json.encode("utf-8")) > HAI_METADATA_MAX_BYTES):
             raise HTTPException(413, "A listing exceeds HAI's content or metadata limit; no feed was exported.")
-        source_uri = record.source_url
-        try:
-            base = urlsplit(get_settings().public_base_url)
-            if (base.scheme not in {"http", "https"} or not base.hostname
-                    or base.username or base.password or base.query or base.fragment
-                    or re.search(r"(token|auth|api[_-]?key|secret|password|bearer)=", source_uri, re.I)):
-                source_uri = ""
-        except ValueError:
-            source_uri = ""
         item = {
             "externalId": f"secondhand:listing:{listing.id}",
             "provider": "generic_json_feed",
             "itemType": "document",
             "title": record.title,
             "content": record.content,
-            "sourceUri": source_uri,
+            "sourceUri": record.source_url,
             "metadata": record.metadata,
         }
         encoded = json.dumps(item, ensure_ascii=False, separators=(",", ":")).encode("utf-8")

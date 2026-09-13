@@ -142,6 +142,7 @@ class HaiTokenCreated(HaiTokenOut):
 
 class HaiRecord(BaseModel):
     id: str
+    change_id: str | None = None
     type: str = "secondhand_listing"
     title: str
     content: str
