@@ -8,13 +8,17 @@ Secondhand Platforms Autoposter is a self-hosted listing workspace for preparing
 
 ### Which version does this describe?
 
-This README describes the **`agent/production-launch-hardening` review branch**, tracked in [draft pull request #2](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/pull/2), not an approved production release. At the 2026-09-06 repository check, `main` remained at `d96b27e`; this launcher-hardening update builds on review-branch commit `c0eee9b`. The previously reported 190 tests refer to the earlier baseline, not the current review branch. Follow the branch-specific clone instructions below to obtain the code described here.
+This README describes the **committed `agent/production-launch-hardening` review branch**, tracked in [draft pull request #2](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/pull/2), not an approved production release. At the **2026-09-13** repository check, `main` remained at [`d96b27e`](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/commit/d96b27e85b9027db71a61cc003518b998dacff89); the application baseline for this documentation update is [`3388291`](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/commit/33882913d272f1352b782a7066dd6caeac6eca24). The previously reported 190 tests refer to the earlier baseline, not this review branch. Follow the branch-specific clone instructions below to obtain the code described here.
+
+The repository's current GitHub owner is **Robert-Velhorst**. The original `Noodzakelijk-Online/023-Secondhand-platforms-autoposter` link resolves to this repository. Uncommitted development work, proposed changes, older PR descriptions, and generated local executables are not interchangeable with the committed source described here. In particular, the ngrok warnings below apply to the helper committed at `3388291`; an unpublished replacement is not a supported or accepted capability.
 
 In plain language: the local app prepares and organises listings; people still publish them. A Windows build and a manual HAI file handoff have recorded local verification. Production launch, safe ngrok lifecycle handling, automatic HAI synchronization, and acceptance in the target HAI installation are separate unfinished milestones. The `1.0.0-rc.1` version string is not launch approval or proof of a downloadable signed release.
 
 ## Contents
 
 - [Who this is for](#who-this-is-for)
+- [Start here without a technical background](#start-here-without-a-technical-background)
+- [Frequently asked questions](#frequently-asked-questions)
 - [What the application does](#what-the-application-does)
 - [What it deliberately does not do](#what-it-deliberately-does-not-do)
 - [How the workflow works](#how-the-workflow-works)
@@ -26,6 +30,7 @@ In plain language: the local app prepares and organises listings; people still p
 - [Access through ngrok](#access-through-ngrok)
 - [HAI connector](#hai-connector)
 - [Architecture](#architecture)
+- [Performance and resource use](#performance-and-resource-use)
 - [Data, storage, and privacy](#data-storage-and-privacy)
 - [Configuration reference](#configuration-reference)
 - [API reference](#api-reference)
@@ -53,6 +58,63 @@ The repository is also intended for:
 - HAI integrators who need an owner-scoped, read-only listing feed.
 
 No programming knowledge is required to use the browser interface after an operator has installed or deployed the application. Running from source, building the Windows executable, and deploying production infrastructure do require technical administration.
+
+## Start here without a technical background
+
+Ask your installer or operator for **either** a Windows executable built from the agreed review commit **or** the address of an authorised installation. This README is not a download page for a signed installer, and the repository does not supply an always-on hosted account.
+
+1. Start the Windows app, or open the address supplied by your operator. For a default local installation, the address is `http://127.0.0.1:8000` on that same computer.
+2. Register an **Autoposter account**, then sign in. This account is separate from your Marktplaats, eBay, or other marketplace accounts. There is no shared default username/password.
+3. Open **Listings → New listing** and enter a real item's description, price, condition, category, location, and images. During a demo, use non-sensitive sample content and do not submit it to a marketplace.
+4. Save, check the **Quality assistant**, choose marketplaces, and select **Validate**. Correct the reported omissions before queueing.
+5. Select **Queue assisted package** and open **Queue**. `needs_user_action` means the preparation succeeded and your marketplace work remains.
+6. Copy the prepared information into the marketplace's own form. Review its rules, visibility, delivery options, and fees before deciding to submit.
+7. Only after actual publication, record the resulting marketplace URL in the job's manual-completion action. Do not confirm publication just to clear the queue.
+
+Before closing an editor, confirm that saving succeeded. If it failed, keep the page open and retry **Save**; visible text is not proof that the database stored it. For a fuller walkthrough, read the [User guide](docs/USER_GUIDE.md).
+
+### Words used in the app
+
+| Term | Plain-language meaning |
+| --- | --- |
+| Master listing | Your reusable description of one item |
+| Platform or marketplace | The external site where you intend to advertise the item |
+| Platform override | A different field value or description for one marketplace |
+| Assisted package | Prepared listing information and guidance; not a submitted advertisement |
+| Job / queue / worker | A saved task / the waiting tasks / the background process that prepares them |
+| Revision | A saved version used to distinguish changed listing content from repeated requests |
+| API | The interface the browser and approved integrations use to communicate with the app |
+| Migration | A controlled database-structure upgrade run by the installer or operator |
+| HAI connector | A restricted way to share listing records with a separately operated HAI installation |
+| Release candidate | A version under review, not a promise that production launch is approved |
+
+## Frequently asked questions
+
+### Does “Autoposter” mean it publishes automatically?
+
+No. All five registered marketplace adapters prepare assisted packages. Final submission remains yours. A `published` job records your explicit confirmation in the current implementation; it is not independent verification that the marketplace still hosts the advertisement. Editing, archiving, or deleting an item in Autoposter does not automatically change or remove its external advertisement. The app also does not synchronize sales, buyer messages, or stock across marketplaces.
+
+### Can I use it without internet or from another device?
+
+With the app running on your computer, SQLite and local storage keep listing preparation local; the quality assistant does not need an external AI service. Marketplace visits, ngrok, remote PostgreSQL/S3 storage, and remote integrations require their respective network connections. This is not an offline browser app: if its API is stopped or unreachable, the page cannot save work.
+
+`127.0.0.1` means **this device**, not your other computer or phone. Another device needs an operator-approved reachable deployment. A tunnel forwards traffic to the running Windows app; it does not move the app into cloud hosting or keep it running while the computer sleeps, shuts down, or loses connectivity. The committed ngrok helper has the [safety limitations below](#access-through-ngrok).
+
+### Is there a subscription, AI bill, or marketplace fee?
+
+There is no billing/subscription implementation or external AI requirement in this app. That is not a free-use licence or a promise of zero operating cost. Hosting, storage, backups, a tunnel account, and marketplace placement can have separate charges under your chosen providers. The app does not purchase marketplace extras for you. Repository licensing is [not yet specified](#license-and-third-party-services).
+
+### Who can see my data?
+
+Application reads and writes are scoped to your signed-in owner account, and uploaded images require authentication. However, the person administering the host, database, storage, and backups can potentially access their contents. This is not end-to-end encrypted storage. The local quality assistant does not send listings to an external AI provider. Marketplace submission and a deliberate HAI export share data with their respective destinations.
+
+### What if I forget my password? Can I invite a team?
+
+There is no implemented self-service password-reset email, email-verification flow, multi-factor authentication, invitation-only registration, or shared team workspace. The repository also does not ship an operator password-reset command or establish a tested account-recovery procedure. Use a password manager and agree a recovery/support plan with the operator before relying on the app; do not assume a recovery service already exists. Do not delete or recreate the database to solve a login problem. The registration endpoint is public: a secret-looking URL or restrictive CORS alone does not limit who can create an account on an internet-accessible installation.
+
+### Will exports or deleting my account undo everything?
+
+No. JSON/CSV exports cover supported business records, not a complete database backup; images need a separate export or storage backup. Account deletion is destructive within this app and is not an undoable archive action. It does not delete marketplace advertisements, files already downloaded or shared with HAI, or copies retained in operator backups. Backups and the sanitised audit-retention policy need separate operator handling. See [Data, storage, and privacy](#data-storage-and-privacy).
 
 ## What the application does
 
@@ -151,10 +213,11 @@ Marketplace names and links identify destinations selected by the user. They do 
 The repository contains a PyInstaller build recipe; the generated executable is intentionally ignored by Git and is not a source file. Build it on the Windows machine where it will be reviewed:
 
 ```powershell
+py -3.13 -m venv .venv-build
 .\scripts\build-windows.ps1
 ```
 
-The build script uses an isolated `.venv-build` environment and expects Python 3.13 for packaging. It creates:
+Run these commands from the repository root after cloning the review branch. The environment-creation command is for a **new** packaging environment; preserve an existing working `.venv-build`. The build script uses that isolated environment and expects Python 3.13 for packaging. Its automatic discovery fallback looks for a uv-managed Python 3.13 installation, so merely having another Python version on `PATH` is not sufficient. It creates:
 
 - `dist\SecondhandAutoposter.exe`
 - `dist\SecondhandAutoposter.exe.sha256`
@@ -197,6 +260,10 @@ An occupied port or a data directory held by another current launcher causes sta
 - A modern browser.
 - Optional: Docker Desktop, PostgreSQL, ngrok, and Python 3.13 for Windows packaging.
 
+### Choose and record the version
+
+The review branch can advance. After cloning and entering the repository directory, run `git rev-parse HEAD` to record what you actually obtained. To reproduce the exact application baseline described here, in that fresh clean clone run `git switch --detach 33882913d272f1352b782a7066dd6caeac6eca24` **before** the environment-creation, installation, or startup commands below. That historical commit does not contain this later README-only update. Otherwise, continue with the current review-branch commit and inspect its own verification evidence. Do not switch versions in a working installation without checking schema compatibility, stopping processes, and backing up its data.
+
 ### Windows PowerShell
 
 ```powershell
@@ -207,6 +274,13 @@ py -3.12 -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install -r requirements-dev.txt
 Copy-Item .env.example .env
+```
+
+**Before starting:** edit the new `.env` and remove the entire final section beginning `# Optional legacy Selenium scripts only`, including its values. The committed example mixes web-app settings with quarantined script settings; the web app rejects the nonempty legacy-only keys as `extra_forbidden`. Keep those settings in a separate legacy workflow, not in the web app's `.env`. Do not change unrelated settings in an existing installation.
+
+After saving the corrected `.env`:
+
+```powershell
 python -m alembic upgrade head
 python -m uvicorn app.main:app --reload
 ```
@@ -223,6 +297,11 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements-dev.txt
 cp .env.example .env
+```
+
+Edit the new `.env` to remove the final `# Optional legacy Selenium scripts only` section and its values, for the same reason described in the Windows instructions. Then run:
+
+```bash
 python -m alembic upgrade head
 python -m uvicorn app.main:app --reload
 ```
@@ -237,6 +316,11 @@ These commands are for a **new checkout**. Do not overwrite an existing `.env` o
 
 ```powershell
 Copy-Item .env.example .env
+```
+
+For consistency with source tooling, remove the final `# Optional legacy Selenium scripts only` section and its values from the new `.env`, then start the stack:
+
+```powershell
 docker compose up --build
 ```
 
@@ -267,7 +351,7 @@ Continue past `pg_isready` only after it reports that PostgreSQL is accepting co
 
 > **Not yet a hardened exposure path.** Source review on 2026-09-06 found that `start-ngrok.ps1` starts the tunnel before establishing ownership of the application port. An existing service on that port could therefore be exposed. Its cleanup selects newly observed processes by executable path, not a proven child-process tree; unrelated concurrent launches can be selected and some child processes can be missed. Shared log paths also make concurrent runs unsafe. These are implementation gaps, not configuration guarantees.
 
-Do not use the current script on a shared host or with sensitive data until port ownership, process-tree cleanup, and concurrent-run isolation have been fixed and tested. A reserved domain does not make a tunnel private; internet access controls and account authentication must be reviewed separately. The following commands document the current experimental interface, not a recommendation for production exposure.
+Do not use the committed script on a shared host or with sensitive data until port ownership, process-tree cleanup, and concurrent-run isolation have been fixed and tested. A reserved domain does not make a tunnel private; internet access controls and account authentication must be reviewed separately. The following commands document the `3388291` experimental interface, not a recommendation for production exposure or proof of the unpublished replacement's behaviour.
 
 With ngrok installed/authenticated and the portable executable or Python environment prepared:
 
@@ -376,7 +460,19 @@ flowchart LR
 - Image bytes are never served by a public directory mount.
 - API requests write persistent jobs; a worker claims and processes due work.
 - Assisted adapters produce `needs_user_action`, not invented marketplace success.
-- HAI uses a separate purpose-limited token and can only read the owner's listing feed.
+- The incremental HAI API uses a separate purpose-limited token and can only read the owner's listing feed. The manual HAI file download instead requires the owner's normal signed-in session.
+
+## Performance and resource use
+
+The shipped browser interface is plain HTML, CSS, and JavaScript: no frontend compilation, Node.js runtime, or external AI request is needed for normal use. The API serves it directly. The queue is stored in the application database; Redis, Celery, and a separate message broker are not required.
+
+- Collection endpoints page results rather than sending the entire inventory. Dashboard data comes from one combined owner-scoped endpoint, and filters refresh their own collection.
+- Worker batches and polling are configurable. Image binaries stay outside ordinary JSON responses and exports.
+- Worker health uses database aggregates; reminders bound the candidates they load. Exact quality analytics still inspect every owned listing in batches, so bounded memory does **not** mean constant processing time.
+- PostgreSQL connection pools are bounded **per process**. With the defaults, one API process and one worker can together allow up to 20 pooled/overflow connections (`2 × (5 + 5)`), before migrations, administration, or additional processes. Size the total against the database's connection budget.
+- SQLite uses foreign keys, WAL journaling, a five-second busy timeout, and `synchronous=NORMAL`. These choices support small local workloads; they do not replace tested backups or eliminate contention/power-loss risks.
+
+The [performance guide](docs/PERFORMANCE_SCALE_BASICS.md) records a reproducible synthetic read benchmark and its limits. There is no declared production throughput, maximum concurrent-user count, minimum-RAM guarantee, or uptime SLA. Measure representative inventory, image sizes, query plans, worker latency, and concurrent users on the actual target before increasing deployment scale.
 
 ## Data, storage, and privacy
 
@@ -416,6 +512,8 @@ User exports are portability tools, not complete operational backups. See [Image
 
 Start from `.env.example` for development or `.env.production.example` for deployment. Never commit a completed secrets file.
 
+`Settings` reads `.env` relative to the process working directory; environment variables override values loaded from that file. Run source commands from the repository root and restart API and worker after changing configuration. The standalone launcher supplies its own controlled profile and data paths. Production Compose explicitly loads `.env.production` for its services. The tables below cover the application's declared settings; provider credentials and launcher/Compose-only values are distinguished separately.
+
 ### Application and database
 
 | Variable | Default/example | Purpose |
@@ -446,6 +544,8 @@ Start from `.env.example` for development or `.env.production.example` for deplo
 | `S3_ENDPOINT_URL` | empty | Optional S3-compatible provider endpoint |
 | `S3_KEY_PREFIX` | `uploads` | Bucket key prefix |
 | `TOKEN_SECRET_DIR` | `./data/secrets` | Local secret-reference storage used by the eBay OAuth foundation |
+
+The S3 client uses [boto3's credential resolution](https://docs.aws.amazon.com/boto3/latest/guide/credentials.html#configuring-credentials) rather than custom `S3_ACCESS_KEY` settings. Supply an approved runtime identity or securely injected provider credentials to every process that needs storage. Do not put real keys in this README or a committed `.env`. If the optional OAuth token foundation is used, its secret-reference directory also needs durable, access-controlled storage and backup; the supplied production Compose file mounts uploads, not that secrets directory.
 
 ### Authentication, sessions, and limits
 
@@ -505,7 +605,7 @@ These variables enable only the consent/token foundation. They do not change the
 | `APP_PORT` | Production Compose | Host port mapped to container port 8000 |
 | `UPLOAD_VOLUME` | Production Compose | Required persistent host path/managed volume mounted at `/app/data/uploads` |
 
-The legacy marketplace URL, LastPass, and Selenium variables in `.env.example` are for quarantined scripts only and are not loaded by the supported web workflow.
+The legacy marketplace URL, LastPass, and Selenium variables at the end of `.env.example` are for quarantined scripts only. They are not supported `Settings` fields: remove that section when preparing the web app's `.env`, otherwise nonempty legacy keys cause a configuration-validation error. This README documents the workaround; the example file itself has not been changed in this documentation-only update.
 
 ## API reference
 
@@ -593,7 +693,7 @@ Job states are:
 - `queued`: waiting for a worker or a future cooldown time;
 - `running`: claimed for adapter processing;
 - `needs_user_action`: a valid assisted package exists and the seller must continue on the marketplace;
-- `published`: an official API eventually confirmed publication, or the seller explicitly recorded manual completion;
+- `published`: the seller explicitly recorded manual completion; API-confirmed publication is reserved for a future approved official adapter and is not available today;
 - `failed`: processing failed and may be eligible for retry;
 - `skipped`: intentionally not processed.
 
@@ -656,7 +756,7 @@ The `migrate` service must complete `alembic upgrade head` before the API and wo
 - writable, persistent, private, and backed-up uploads;
 - production-appropriate JSON logging and independently verified edge rate limits.
 
-Startup rejects unsafe production values rather than silently falling back to development behaviour.
+Startup rejects specific unsafe production values rather than silently falling back to development behaviour. These checks are not a security assessment: a long example secret can pass the length check, an allowed CORS origin is not access control, and syntactically valid storage/database settings do not prove availability or backup coverage. Replace **every** example secret with a freshly generated value and verify the target runtime.
 
 The example creates a new environment; do not copy over an existing `.env.production`. For upgrades, stop all older API/worker processes before migration and follow the [operator runbook](docs/OPERATOR_RUNBOOK.md). Compose does not supply TLS certificates, an edge proxy/WAF, backup scheduling, or a managed database. Restrict direct access to the published API port and terminate HTTPS at a reviewed proxy. `--env-file` supplies Compose interpolation values such as `APP_PORT`; service `env_file` supplies the application environment. Neither is a secret manager.
 
@@ -668,12 +768,13 @@ A complete operator backup includes:
 
 - the PostgreSQL database or standalone SQLite database;
 - the local upload directory or the complete private S3 bucket/prefix;
+- the access-controlled `TOKEN_SECRET_DIR` when the optional OAuth token foundation is used, and the standalone installation's local secret file;
 - the deployed Git commit and Alembic revision;
-- environment/secret references without copying plaintext secrets into normal logs.
+- environment/secret references **and an approved way to recover the corresponding secret values**, such as the secret manager's protected recovery procedure; references alone cannot restore a lost secret. Keep plaintext secrets out of ordinary logs and evidence records.
 
 Minimum documented cadence is daily database/uploads backup, an additional pre-migration backup, configuration-reference capture after deployment/rotation, and a monthly restore test.
 
-Restore in this order: stop worker and API, restore database, restore images, deploy a schema-compatible commit, run `alembic upgrade head`, run the doctor, start the API, then start the worker. Keep the worker stopped whenever duplicate external action is a concern.
+Restore in this order: stop worker and API, restore database and images, restore required local secrets and secret-manager access through the approved secure procedure, deploy a schema-compatible commit with the intended configuration, run `alembic upgrade head`, run the doctor, start the API, then start the worker. Keep the worker stopped whenever duplicate external action is a concern.
 
 User JSON/CSV/image exports do not contain the full operational history and are not a disaster-recovery substitute. Follow [Backup, restore, and disaster recovery](docs/BACKUP_RESTORE.md).
 
@@ -723,7 +824,7 @@ The gate runs:
 3. the complete pytest suite;
 4. `python -m app.doctor --json`.
 
-The current suite contains 369 cases spanning API behaviour, authentication, owner isolation, publishing-account ownership/platform checks, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent enqueue/worker claims/retries/health, stale-recovery races and batch bounds, claim-fenced results, connection release during adapter calls, worker database-error recovery, launcher port/data ownership and child-process cleanup, migrations, deployment configuration, bounded dashboard reads, HAI incremental feeds and size-limited generic downloads, frontend delivery/cache revalidation, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention. All 369 passed in the recorded Windows run; the Windows-specific owner-crash Job Object case is skipped on other operating systems.
+The committed `3388291` baseline contains 369 cases spanning API behaviour, authentication, owner isolation, publishing-account ownership/platform checks, uploads, storage, listing revisions, adapters, platform contracts, job states, rate limits, concurrent enqueue/worker claims/retries/health, stale-recovery races and batch bounds, claim-fenced results, connection release during adapter calls, worker database-error recovery, launcher port/data ownership and child-process cleanup, migrations, deployment configuration, bounded dashboard reads, HAI incremental feeds and size-limited generic downloads, frontend delivery/cache revalidation, frontend state/contracts, accessibility structure, browser workflows, data portability, diagnostics, release gates, and false-completion prevention. All 369 passed in the recorded 2026-09-06 Windows run; the Windows-specific owner-crash Job Object case is skipped on other operating systems. This is a versioned evidence record, not a claim that every later local edit has the same test count or has passed release review.
 
 Pytest creates a separate database, upload directory, and secret directory for each process before importing the application. It ignores inherited deployment/storage values and removes its own fixtures after a successful run; failed fixtures remain under `.tmp/test-runs/` for diagnosis. See [Testing strategy](docs/TESTING_STRATEGY.md) for the isolation contract and explicit PostgreSQL integration checks.
 
@@ -745,7 +846,9 @@ GitHub Actions runs the verification gate on pushes and pull requests to `main`.
 
 For the latest recorded evidence, see [Final verification report](docs/FINAL_VERIFICATION_REPORT.md). Browser and accessibility records must be refreshed after UI-affecting changes; static or scripted checks do not replace a real keyboard, zoom, and screen-reader walkthrough.
 
-For a dated, directly inspectable baseline, [GitHub verification run 33993983144](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/33993983144) passed at review-branch commit `124094b` on 2026-09-05: 335 full-suite tests and 61 PostgreSQL job-safety tests. Those 61 checks rerun a subset against a different database; they are not 61 additional distinct product tests. Later commits require their own checks. On 2026-09-06, the release gate still reported **77 missing evidence fields** (36 release, 29 walkthrough, 12 acceptance); that count is a dated template-status snapshot, not the complete count of outstanding engineering tasks.
+The latest application baseline was rechecked on GitHub on 2026-09-13: [verification run 33999316498](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/33999316498) and [supply-chain run 33999316535](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/33999316535) both completed successfully for `3388291`. Verification recorded 368 passed and one Windows-only skip on Linux, plus 61 PostgreSQL job-safety passes. Those 61 checks rerun a subset against a different database; they are not 61 additional distinct product tests. Later commits require their own checks.
+
+On **2026-09-13**, rerunning the release gate still reported **77 missing evidence fields** (36 release, 29 walkthrough, 12 acceptance). That count is a dated template-status snapshot, not the complete count of outstanding engineering tasks. No target deployment, live ngrok session, installed HAI registration, marketplace submission, or human acceptance was performed as part of this README update.
 
 ## Operations and troubleshooting
 
@@ -768,12 +871,13 @@ python -m app.support_bundle --output .tmp\autoposter-support.zip
 | Symptom | Meaning | Safe response |
 | --- | --- | --- |
 | Registration rejects input | Email or password failed schema validation | Use a valid deliverable-format email and at least eight password characters |
+| Startup reports `extra_forbidden` for legacy URL/Selenium keys | The web app's `.env` still contains the legacy-only example section | Remove that section from the web app configuration; do not relax configuration validation or print secrets to diagnose it |
 | Validation lists missing fields/images | The package is intentionally not ready | Correct each item, save, and validate again |
 | Job is `needs_user_action` | The assisted package is ready | Open the platform, complete it deliberately, then record the result |
 | Worker is unhealthy | No recent heartbeat | Inspect worker logs, environment, database reachability, migration head, and pause state |
 | Worker is paused | Persistent emergency stop is active | Inspect the recorded reason; resume only after the incident is resolved |
 | Autosave failed | Visible form changes were not persisted | Keep the page open, inspect the request ID/connectivity, and use **Save** to retry |
-| Migration mismatch | Database is behind Alembic head | Back up first, stop the worker, and run `alembic upgrade head` |
+| Migration mismatch | Database is behind Alembic head | Back up first, stop all API and worker processes, then run `alembic upgrade head` with the intended database configuration |
 | ngrok reports `ERR_NGROK_334` | The requested endpoint is already online | Stop the conflicting endpoint or allocate another domain; do not pool unrelated services |
 | Image metadata exists but bytes do not load | Storage object/path is missing or inaccessible | Stop destructive cleanup, inspect storage credentials/mounts, and reconcile against backups |
 
@@ -877,6 +981,8 @@ The `docs/` directory also contains detailed audit history, design reviews, task
 
 There are both **unfinished implementation/integration tasks** and **external evidence/signoff requirements**. Filling out the evidence templates does not fix code gaps, and fixing code cannot supply a person's acceptance.
 
+The launch owner must agree the intended product scope. Safe ngrok exposure is required before offering the tunnel route; automatic HAI synchronization needs a compatible consumer before it can be promised. Official marketplace publishing is future work unless it is explicitly made part of the accepted launch scope. An assisted/manual release must say so clearly; it must not be sold as fully automated publishing.
+
 | Remaining work | Responsibility and completion proof |
 | --- | --- |
 | ngrok lifecycle safety | Developers: port ownership before exposure, owned-process cleanup, isolated logs, worker checks, and adversarial lifecycle tests |
@@ -899,6 +1005,10 @@ The codebase can be installed and reviewed locally, but a final client productio
 - an acceptance owner, date, accepted risks, deferred blockers, and final launch decision.
 
 Run `python scripts/release_gate.py --json` for the machine-readable missing-evidence list. Do not mark the project production-launch-ready while that gate is blocked.
+
+### Client handoff summary
+
+> The review branch provides a locally verified listing-preparation app, a Windows standalone build recipe, and a manual HAI file handoff. Marketplace publication remains assisted/manual. Production launch still needs the agreed implementation scope completed, target deployment details, PostgreSQL migration proof, production secrets/CORS/storage confirmation, API and worker evidence, backup/restore and edge rate-limit evidence, a real-user walkthrough, manual accessibility QA, and named final acceptance. A passing local or CI test run is not that signoff.
 
 ## License and third-party services
 
