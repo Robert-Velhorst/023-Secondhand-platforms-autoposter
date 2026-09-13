@@ -1,4 +1,8 @@
+import shutil
+from pathlib import Path
+
 import pytest
+from pydantic import ValidationError
 
 from app.config import Settings, validate_startup_safety
 
@@ -18,6 +22,35 @@ def test_env_example_documents_all_runtime_settings():
     expected_keys = {field_name.upper() for field_name in Settings.model_fields}
 
     assert expected_keys - env_example_keys() == set()
+
+
+def test_copied_environment_example_loads_without_legacy_cleanup(tmp_path, monkeypatch):
+    example = Path(".env.example").resolve()
+    shutil.copyfile(example, tmp_path / ".env")
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    settings = Settings()
+
+    assert settings.app_env == "development"
+    assert settings.database_url == "sqlite:///./data/autoposter.db"
+    assert settings.auth_transport == "bearer"
+    assert settings.dev_auto_login is False
+    assert settings.suggestion_provider == "deterministic_local"
+    validate_startup_safety(settings)
+
+
+def test_dotenv_still_rejects_unrecognized_settings(tmp_path):
+    environment = tmp_path / ".env"
+    environment.write_text("API_RATE_LIMIT_REQUEST=10\n", encoding="utf-8")
+
+    with pytest.raises(ValidationError) as error:
+        Settings(_env_file=environment)
+
+    assert [(item["loc"], item["type"]) for item in error.value.errors(include_input=False)] == [
+        (("api_rate_limit_request",), "extra_forbidden"),
+    ]
 
 
 def test_production_like_configuration_profile_passes_startup_safety():

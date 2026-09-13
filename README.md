@@ -276,7 +276,7 @@ python -m pip install -r requirements-dev.txt
 Copy-Item .env.example .env
 ```
 
-**Before starting:** edit the new `.env` and remove the entire final section beginning `# Optional legacy Selenium scripts only`, including its values. The committed example mixes web-app settings with quarantined script settings; the web app rejects the nonempty legacy-only keys as `extra_forbidden`. Keep those settings in a separate legacy workflow, not in the web app's `.env`. Do not change unrelated settings in an existing installation.
+**Before starting:** review the new `.env` and replace its example secret with a random local value. It is a development profile, not a production configuration. The current example contains only web-app settings; no legacy-section removal is needed for a fresh copy. If an existing `.env` was copied from an older version, remove its legacy-only Selenium/LastPass/marketplace-URL keys while preserving any needed historical values separately. Do not overwrite unrelated settings in an existing installation.
 
 After saving the corrected `.env`:
 
@@ -299,7 +299,7 @@ python -m pip install -r requirements-dev.txt
 cp .env.example .env
 ```
 
-Edit the new `.env` to remove the final `# Optional legacy Selenium scripts only` section and its values, for the same reason described in the Windows instructions. Then run:
+Review the new development `.env` and replace its example secret, as described in the Windows instructions. A fresh copy no longer requires legacy-key cleanup. Then run:
 
 ```bash
 python -m alembic upgrade head
@@ -318,7 +318,7 @@ These commands are for a **new checkout**. Do not overwrite an existing `.env` o
 Copy-Item .env.example .env
 ```
 
-For consistency with source tooling, remove the final `# Optional legacy Selenium scripts only` section and its values from the new `.env`, then start the stack:
+Review the new development `.env` and replace its example secret, then start the stack:
 
 ```powershell
 docker compose up --build
@@ -619,7 +619,7 @@ These variables enable only the consent/token foundation. They do not change the
 | `APP_PORT` | Production Compose | Host port mapped to container port 8000 |
 | `UPLOAD_VOLUME` | Production Compose | Required persistent host path/managed volume mounted at `/app/data/uploads` |
 
-The legacy marketplace URL, LastPass, and Selenium variables at the end of `.env.example` are for quarantined scripts only. They are not supported `Settings` fields: remove that section when preparing the web app's `.env`, otherwise nonempty legacy keys cause a configuration-validation error. This README documents the workaround; the example file itself has not been changed in this documentation-only update.
+Historical marketplace URL, LastPass, and Selenium variables are preserved in [the separate legacy example](legacy/selenium/.env.example), not the root `.env.example`. They are not supported `Settings` fields. Remove them from older web-app `.env` files if startup reports `extra_forbidden`; the application intentionally rejects unknown settings rather than hiding configuration mistakes. This separation does not enable or validate the quarantined scripts.
 
 ## API reference
 
@@ -838,7 +838,7 @@ The gate runs:
 3. the complete pytest suite;
 4. `python -m app.doctor --json`.
 
-The revised checkout passed **414 tests with one POSIX-only skip in 67.13 seconds on Windows on 2026-09-13**, along with Ruff, compilation, and the isolated-database doctor check. The suite collects 415 cases. Coverage includes API behaviour, authentication, owner isolation, publishing-account checks, uploads/storage, listing revisions, adapters, job states/rate limits, concurrent enqueue/claims/retries, stale recovery, claim-fenced results, bounded database reads, migrations, deployment configuration, HAI feeds/downloads, frontend contracts, diagnostics, and release gates. The 41 ngrok-specific cases include occupied resources, exact-worker identity, malformed/oversized logs, EOF/I/O failures, wrapper environment preservation, and shutdown with unfinished or blocked requests. The Windows owner-crash and PowerShell-wrapper cases are skipped on other operating systems; the POSIX connection-reuse case is skipped on Windows. Scripted accessibility/browser-related cases do not replace manual acceptance. Historical results and the Linux CI restart fix are recorded in the verification report.
+The revised checkout passed **417 tests with one POSIX-only skip in 69.95 seconds on Windows on 2026-09-13**, along with Ruff, compilation, and the isolated-database doctor check. The suite collects 418 cases. Coverage includes API behaviour, authentication, owner isolation, publishing-account checks, uploads/storage, listing revisions, adapters, job states/rate limits, concurrent enqueue/claims/retries, stale recovery, claim-fenced results, bounded database reads, migrations, deployment configuration, HAI feeds/downloads, frontend contracts, diagnostics, and release gates. Clean-install tests copy the unedited environment example and exercise migrations, real API/worker startup, registration, and a persisted listing. The 41 ngrok-specific cases include occupied resources, exact-worker identity, malformed/oversized logs, EOF/I/O failures, wrapper environment preservation, and shutdown with unfinished or blocked requests. The Windows owner-crash and PowerShell-wrapper cases are skipped on other operating systems; the POSIX connection-reuse case is skipped on Windows. Scripted accessibility/browser-related cases do not replace manual acceptance. Historical results and the Linux CI restart fix are recorded in the verification report.
 
 Pytest creates a separate database, upload directory, and secret directory for each process before importing the application. It ignores inherited deployment/storage values and removes its own fixtures after a successful run; failed fixtures remain under `.tmp/test-runs/` for diagnosis. See [Testing strategy](docs/TESTING_STRATEGY.md) for the isolation contract and explicit PostgreSQL integration checks.
 

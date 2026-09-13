@@ -1,5 +1,46 @@
 # Final Verification Report
 
+## Clean source-install configuration — 2026-09-13
+
+Target: checkout based on `fdede7fc6bb23197ab46aefbf0f1fa65f4eb56c5`.
+An unchanged copy of the old `.env.example` reproduced eight
+`extra_forbidden` validation errors from legacy-only settings. The root example
+now contains only supported web-app fields; all ten historical keys and their
+example values remain in `legacy/selenium/.env.example`. No existing user
+configuration, secret, legacy script, or archived source was overwritten.
+
+The focused run passed 18 configuration, source-install, and legacy-quarantine
+checks in 5.04 seconds, plus Ruff. New regressions load the copied example with
+inherited application settings removed and prove that a misspelled setting is
+still rejected. Strict application settings behavior was not relaxed.
+
+The full local gate then passed Ruff, compilation, **417 tests with one
+POSIX-only skip in 69.95 seconds**, and doctor with the isolated database at
+Alembic head `20260905_0014`. Doctor's development-secret warning remains
+expected in that fixture, not production-secret evidence. The local README,
+Windows guide, and verification-report link check resolved 107 links/anchors.
+
+The source-install check copies the application, frontend, migrations, Alembic
+configuration, and unedited environment example into a fresh directory. It uses
+the existing test interpreter/dependencies, runs the actual Alembic command,
+starts real API and worker subprocesses, loads the frontend, registers a test
+account, saves and retrieves a listing, and verifies the committed row and
+migration head `20260905_0014` through a separate SQLite connection. Owned test
+processes are stopped afterward. This is source startup evidence, not a fresh
+dependency download, Docker build, Windows-package rebuild, or production drill.
+
+An initial harness assertion reopening SQLite immediately after forced process
+cleanup encountered one `disk I/O error`; an unchanged rerun passed. The final
+setup test verifies committed data while the services are alive and closes its
+independent connection explicitly before teardown. It does not claim to prove
+instant post-kill file availability or diagnose that transient error. Existing
+crash/recovery checks remain separate from this clean-install contract.
+
+The example is deliberately a development profile. Production secrets, CORS,
+PostgreSQL, storage, migration approval, operational evidence, human QA, and
+acceptance remain separate gates. No public tunnel, marketplace submission,
+installed HAI change, or legacy automation was performed.
+
 ## POSIX listener restart follow-up — 2026-09-13
 
 The first published managed-lifecycle checkpoint, `dedfa79`, passed the Windows
