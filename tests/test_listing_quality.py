@@ -36,6 +36,9 @@ def test_quality_assistant_flags_incomplete_listing_and_suggests_copy():
 
     assert response.status_code == 200, response.text
     quality = response.json()
+    assert quality["provider"] == "deterministic_local"
+    assert quality["deterministic"] is True
+    assert quality["external_data_sent"] is False
     assert quality["score"] < 70
     assert quality["grade"] in {"needs_work", "blocked"}
     issue_fields = {issue["field"] for issue in quality["issues"]}

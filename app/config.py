@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlparse
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -11,6 +12,10 @@ class Settings(BaseSettings):
     app_env: str = "development"
     secret_key: str = "change-me-in-production"
     database_url: str = "sqlite:///./data/autoposter.db"
+    db_pool_size: int = 5
+    db_max_overflow: int = 5
+    db_pool_timeout_seconds: int = 30
+    db_pool_recycle_seconds: int = 1800
     public_base_url: str = "http://127.0.0.1:8000"
     upload_dir: str = "./data/uploads"
     storage_backend: str = "local"
@@ -33,11 +38,13 @@ class Settings(BaseSettings):
     job_process_inline: bool = True
     job_worker_poll_seconds: int = 5
     job_worker_batch_size: int = 10
+    worker_heartbeat_timeout_seconds: int = 30
     job_stale_running_seconds: int = 1800
     platform_rate_limit_seconds: int = 60
     platform_rate_limit_overrides: str = ""
     session_expire_hours: int = 168
     audit_retention_days: int = 365
+    suggestion_provider: str = "deterministic_local"
     default_locale: str = "en"
     supported_locales: str = "en,nl"
     ebay_oauth_client_id: str = ""
@@ -100,6 +107,10 @@ class Settings(BaseSettings):
         return self.app_env.lower() == "production"
 
     @property
+    def is_standalone(self) -> bool:
+        return self.app_env.lower() == "standalone"
+
+    @property
     def feature_flags(self) -> tuple[FeatureFlag, ...]:
         return build_feature_flags(self)
 
@@ -144,6 +155,8 @@ class Settings(BaseSettings):
 
 def validate_startup_safety(settings: Settings) -> None:
     problems: list[str] = []
+    if settings.app_env.lower() not in {"development", "test", "standalone", "production"}:
+        problems.append("APP_ENV must be development, test, standalone, or production")
     if settings.auth_transport.lower() != "bearer":
         problems.append("AUTH_TRANSPORT must be bearer")
     if settings.storage_backend.lower() not in {"local", "s3"}:
@@ -154,6 +167,14 @@ def validate_startup_safety(settings: Settings) -> None:
         problems.append("LOG_FORMAT must be text or json")
     if settings.max_upload_size_mb <= 0:
         problems.append("MAX_UPLOAD_SIZE_MB must be positive")
+    if settings.db_pool_size <= 0:
+        problems.append("DB_POOL_SIZE must be positive")
+    if settings.db_max_overflow < 0:
+        problems.append("DB_MAX_OVERFLOW must be non-negative")
+    if settings.db_pool_timeout_seconds <= 0:
+        problems.append("DB_POOL_TIMEOUT_SECONDS must be positive")
+    if settings.db_pool_recycle_seconds <= 0:
+        problems.append("DB_POOL_RECYCLE_SECONDS must be positive")
     if settings.login_rate_limit_attempts <= 0:
         problems.append("LOGIN_RATE_LIMIT_ATTEMPTS must be positive")
     if settings.login_rate_limit_window_seconds <= 0:
@@ -166,6 +187,8 @@ def validate_startup_safety(settings: Settings) -> None:
         problems.append("JOB_WORKER_POLL_SECONDS must be positive")
     if settings.job_worker_batch_size <= 0:
         problems.append("JOB_WORKER_BATCH_SIZE must be positive")
+    if settings.worker_heartbeat_timeout_seconds <= 0:
+        problems.append("WORKER_HEARTBEAT_TIMEOUT_SECONDS must be positive")
     if settings.job_stale_running_seconds < 0:
         problems.append("JOB_STALE_RUNNING_SECONDS must be non-negative")
     if settings.platform_rate_limit_seconds < 0:
@@ -174,6 +197,8 @@ def validate_startup_safety(settings: Settings) -> None:
         problems.append("SESSION_EXPIRE_HOURS must be positive")
     if settings.audit_retention_days < 0:
         problems.append("AUDIT_RETENTION_DAYS must be non-negative")
+    if settings.suggestion_provider.lower() != "deterministic_local":
+        problems.append("SUGGESTION_PROVIDER must be deterministic_local until an approved provider is implemented")
     if not settings.default_locale.strip():
         problems.append("DEFAULT_LOCALE must not be empty")
     if not settings.supported_locale_list:
@@ -195,16 +220,31 @@ def validate_startup_safety(settings: Settings) -> None:
         detail = "; ".join(problems)
         raise RuntimeError(f"Invalid configuration: {detail}")
 
-    if not settings.is_production:
+    if not (settings.is_production or settings.is_standalone):
         return
 
     problems = []
     if settings.secret_key in {"", "change-me-in-production", "replace-with-a-long-random-value"}:
         problems.append("SECRET_KEY must be set to a strong non-default value")
+    elif len(settings.secret_key) < 32:
+        problems.append("SECRET_KEY must be at least 32 characters in production")
     for flag in unsafe_production_feature_flags(settings):
         problems.append(flag.production_error)
-    if settings.cors_origins.strip() == "*":
+    origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
+    if not origins or "*" in origins:
         problems.append("CORS_ORIGINS must be restricted in production")
+    elif any(urlparse(origin).scheme not in {"http", "https"} or not urlparse(origin).netloc for origin in origins):
+        problems.append("CORS_ORIGINS entries must be absolute http(s) origins in production")
+    if settings.is_production and not settings.database_url.startswith(("postgresql://", "postgresql+psycopg://")):
+        problems.append("DATABASE_URL must use PostgreSQL in production")
+    parsed_public_url = urlparse(settings.public_base_url)
+    local_standalone_url = (
+        settings.is_standalone
+        and parsed_public_url.scheme == "http"
+        and parsed_public_url.hostname in {"127.0.0.1", "localhost"}
+    )
+    if not settings.public_base_url.startswith("https://") and not local_standalone_url:
+        problems.append("PUBLIC_BASE_URL must use https in production")
 
     if problems:
         detail = "; ".join(problems)

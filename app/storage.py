@@ -1,11 +1,13 @@
 import hashlib
 import re
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
 from fastapi import HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from app.config import Settings, get_settings
 
@@ -37,6 +39,9 @@ class ValidatedUpload:
 
 
 class StorageBackend(Protocol):
+    def listing_image_path(self, listing_id: int, filename: str) -> str:
+        raise NotImplementedError
+
     def save_listing_image(self, listing_id: int, filename: str, upload: ValidatedUpload) -> str:
         raise NotImplementedError
 
@@ -46,20 +51,26 @@ class StorageBackend(Protocol):
     def read_local_file(self, storage_path: str) -> Path | None:
         raise NotImplementedError
 
+    def read_bytes(self, storage_path: str) -> bytes | None:
+        raise NotImplementedError
+
 
 class LocalStorage:
     def __init__(self, root: Path):
         self.root = root
 
+    def listing_image_path(self, listing_id: int, filename: str) -> str:
+        return str(self.root / str(listing_id) / filename)
+
     def save_listing_image(self, listing_id: int, filename: str, upload: ValidatedUpload) -> str:
         listing_dir = self.root / str(listing_id)
         listing_dir.mkdir(parents=True, exist_ok=True)
-        target = listing_dir / filename
+        target = Path(self.listing_image_path(listing_id, filename))
         target.write_bytes(upload.content)
         return str(target)
 
     def delete(self, storage_path: str) -> None:
-        remove_local_file(storage_path)
+        remove_local_file(storage_path, self.root)
 
     def read_local_file(self, storage_path: str) -> Path | None:
         target = Path(storage_path).resolve()
@@ -72,11 +83,16 @@ class LocalStorage:
             return None
         return target
 
+    def read_bytes(self, storage_path: str) -> bytes | None:
+        target = self.read_local_file(storage_path)
+        return target.read_bytes() if target else None
+
 
 class S3Storage:
     def __init__(self, settings: Settings):
         try:
             import boto3
+            from botocore.config import Config
         except ImportError as exc:  # pragma: no cover - dependency is present in supported installs
             raise RuntimeError("boto3 is required when STORAGE_BACKEND=s3") from exc
         self.bucket = settings.s3_bucket
@@ -85,7 +101,11 @@ class S3Storage:
             "s3",
             region_name=settings.s3_region or None,
             endpoint_url=settings.s3_endpoint_url or None,
+            config=Config(connect_timeout=3, read_timeout=5, retries={"mode": "standard", "total_max_attempts": 2}),
         )
+
+    def listing_image_path(self, listing_id: int, filename: str) -> str:
+        return f"s3://{self.bucket}/{self._key(listing_id, filename)}"
 
     def save_listing_image(self, listing_id: int, filename: str, upload: ValidatedUpload) -> str:
         key = self._key(listing_id, filename)
@@ -99,19 +119,29 @@ class S3Storage:
                 "checksum-sha256": upload.checksum_sha256,
             },
         )
-        return f"s3://{self.bucket}/{key}"
+        return self.listing_image_path(listing_id, filename)
 
     def delete(self, storage_path: str) -> None:
         parsed = parse_s3_uri(storage_path)
         if not parsed:
-            return
+            raise ValueError("Storage cleanup requires an S3 URI")
         bucket, key = parsed
-        if bucket != self.bucket:
-            return
+        if bucket != self.bucket or (self.prefix and not key.startswith(f"{self.prefix}/")):
+            raise ValueError("Storage cleanup target is outside the configured bucket/prefix")
         self.client.delete_object(Bucket=bucket, Key=key)
 
     def read_local_file(self, storage_path: str) -> Path | None:
         return None
+
+    def read_bytes(self, storage_path: str) -> bytes | None:
+        parsed = parse_s3_uri(storage_path)
+        if not parsed:
+            return None
+        bucket, key = parsed
+        if bucket != self.bucket:
+            return None
+        response = self.client.get_object(Bucket=bucket, Key=key)
+        return response["Body"].read()
 
     def _key(self, listing_id: int, filename: str) -> str:
         key = f"{listing_id}/{filename}"
@@ -137,15 +167,23 @@ async def validate_and_store_image(
     settings: Settings | None = None,
 ) -> StoredFile:
     validated = await read_validated_image(file, settings)
-    return store_validated_image(validated, listing_id, settings)
+    return await run_in_threadpool(store_validated_image, validated, listing_id, settings)
 
 
 async def read_validated_image(
     file: UploadFile,
     settings: Settings | None = None,
 ) -> ValidatedUpload:
+    return await run_in_threadpool(read_validated_image_sync, file, settings)
+
+
+def read_validated_image_sync(
+    file: UploadFile,
+    settings: Settings | None = None,
+) -> ValidatedUpload:
+    """Read and hash a bounded upload; call from a request worker, not the event loop."""
     settings = settings or get_settings()
-    content = await file.read(settings.max_upload_bytes + 1)
+    content = file.file.read(settings.max_upload_bytes + 1)
     if not content:
         raise HTTPException(status_code=422, detail="Uploaded image is empty")
     if len(content) > settings.max_upload_bytes:
@@ -176,10 +214,16 @@ def store_validated_image(
     upload: ValidatedUpload,
     listing_id: int,
     settings: Settings | None = None,
+    *,
+    on_planned: Callable[[str], None] | None = None,
 ) -> StoredFile:
     stem = Path(upload.original_filename).stem or "image"
     stored_name = f"{stem}-{uuid.uuid4().hex}{upload.extension}"
-    storage_path = get_storage(settings).save_listing_image(listing_id, stored_name, upload)
+    storage = get_storage(settings)
+    storage_path = storage.listing_image_path(listing_id, stored_name)
+    if on_planned is not None:
+        on_planned(storage_path)  # Track before I/O, including partial/uncertain writes.
+    storage.save_listing_image(listing_id, stored_name, upload)
     return StoredFile(
         original_filename=upload.original_filename,
         storage_path=storage_path,
@@ -207,17 +251,22 @@ def safe_filename(filename: str) -> str:
     return name[:180] or "upload"
 
 
-def remove_local_file(path: str) -> None:
+def remove_local_file(path: str, root: Path) -> None:
     if not path:
+        raise ValueError("Storage cleanup requires a path")
+    target = Path(path).resolve()
+    upload_root = root.resolve()
+    if target == upload_root or not target.is_relative_to(upload_root):
+        raise ValueError("Storage cleanup target is outside the configured upload directory")
+    # A failed unlink must be retried, not silently acknowledged as deletion.
+    target.unlink(missing_ok=True)
+    parent = target.parent
+    if parent == upload_root:
         return
     try:
-        target = Path(path)
-        target.unlink(missing_ok=True)
-        parent = target.parent
-        if parent.exists() and not any(parent.iterdir()):
-            parent.rmdir()
+        parent.rmdir()
     except OSError:
-        return
+        pass  # The file is gone; empty-directory housekeeping is best effort.
 
 
 def delete_stored_file(storage_path: str, settings: Settings | None = None) -> None:
@@ -226,6 +275,10 @@ def delete_stored_file(storage_path: str, settings: Settings | None = None) -> N
 
 def local_storage_path(storage_path: str, settings: Settings | None = None) -> Path | None:
     return get_storage(settings).read_local_file(storage_path)
+
+
+def stored_file_bytes(storage_path: str, settings: Settings | None = None) -> bytes | None:
+    return get_storage(settings).read_bytes(storage_path)
 
 
 def parse_s3_uri(storage_path: str) -> tuple[str, str] | None:

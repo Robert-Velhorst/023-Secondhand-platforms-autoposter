@@ -1,8 +1,723 @@
 # Final Verification Report
 
-Date: 2026-07-13
+## Atomic registration and retry recovery — 2026-09-13
 
-Verification target: current working checkout on 2026-07-13. Fresh-clone evidence remains recorded separately at `ca42634` in `docs/FRESH_CLONE_DRY_RUN.md`.
+Target: checkout based on `864b1c8134b43c77e668e605c64b5f68a215ff75`, plus
+the changes recorded here. Three request-level regressions failed twice before
+the fix: concurrent sign-ups returned `200`/`500` instead of `200`/`409`,
+session-commit failure left an account behind, and hashing held a checked-out
+database connection.
+
+Registration now ends its cheap existing-email lookup transaction before
+hashing. A SQLite/PostgreSQL insert handles only conflicts on the unique email
+index and returns the newly inserted user without committing. The account and
+initial session share one commit, and the response does not require a separate
+post-commit account lookup. Existing accounts are neither overwritten nor
+automatically authenticated by a duplicate registration.
+
+Verification:
+
+- Full Windows suite: **524 passed, one POSIX-only skip in 144.08 seconds**
+  (525 cases). Ruff and compilation passed.
+- Disposable migrated PostgreSQL 16: **108 passed in 175.61 seconds**,
+  including all nine registration cases. This is a subset rerun on a second
+  database type, not 108 additional distinct product tests.
+- Nine request-level regressions cover simultaneous mixed-case claims,
+  account/session rollback and retry, pool checkout lifetime, active/disabled
+  duplicate fast paths, unrelated user constraints, session-token collisions,
+  uncommitted visibility, and uncertain-commit recovery through login.
+- Rebuilt unsigned Windows executable SHA-256:
+  `107a5a85c71a6384ec62e372f2410cdbbbd66ff779054be5bbd149b65d606eea`.
+  A trigger on its disposable SQLite database rejected the initial session
+  insert; the API returned a sanitized error with no account left behind.
+  Removing the test trigger allowed successful registration, authenticated
+  profile access, and a `409` duplicate response. Existing API/worker, login,
+  storage, CSV, assisted-job, account-boundary, and static-asset checks passed.
+- The real packaged producer-to-local-review-HAI check passed against disposable
+  PostgreSQL: 101 paginated records, updates/tombstones, persistent disable,
+  restart, zero-replay resume, revocation, and reference-only privacy. HAI
+  remains local uncommitted/unpublished/uninstalled review work.
+- Doctor passed all six checks with explicit test settings against the
+  packaged database. Documentation-link checks passed. Owned test processes
+  and the disposable PostgreSQL container were stopped afterward.
+
+An acknowledgement lost after the database commits can still yield an error
+response while retaining the account and session. The test deliberately keeps
+that committed state and verifies recovery through sign-in; no compensating
+account deletion or automatic bearer-token replay is attempted. See
+[registration transactions and recovery](AUTH_SECURITY_POSTURE.md#registration-transactions-and-recovery).
+No migration was added; head remains `20260913_0016`. Password parameters are
+unchanged, and no production throughput or latency claim is made. Production
+deployment, public ngrok acceptance, installed HAI integration, and human
+launch signoff remain outside this evidence.
+
+## Login account state and connection lifetime — 2026-09-13
+
+Target: checkout based on `df30ab4fcf6c5844504500c939588914ac3acf70`, plus
+the changes recorded here. Eleven new request-level cases failed before the
+fix: disabled accounts received tokens; disable/password/email changes during
+verification were missed; deleting the account caused an internal error; and
+password verification/rehash held a checked-out database connection.
+
+Login now retains only a scalar credential snapshot and releases its read
+transaction before hashing. A conditional SQLite/PostgreSQL update requires
+the same user ID, email, hash, and active status before creating a session.
+The short write transaction includes any legacy rehash, fenced throttle
+clearing, and session creation. It cannot overwrite a concurrently replaced
+password. The response uses profile data captured before session commit,
+avoiding a post-commit account reread. No migration was added; head remains
+`20260913_0016` and its coordinated upgrade requirements still apply.
+
+Verification:
+
+- Full Windows suite: **515 passed, one POSIX-only skip in 152.56 seconds**
+  (516 cases). Ruff and compilation passed.
+- Disposable migrated PostgreSQL 16: **99 passed in 138.82 seconds**. These
+  rerun a subset of the suite, not 99 additional distinct product cases.
+- The fourteen new tests cover both Argon2 and legacy-hash interleavings,
+  disabled accounts, changes during rehash, session-failure rollback, and an
+  unrelated profile-change control. Pool observations show zero checked-out
+  connections during password verification and rehash on both database types.
+- Rebuilt unsigned Windows executable SHA-256:
+  `cbc609cb5c95ac34d8465801cd55dc40b6989b5b164483dd42ea69bebb7f45e9`.
+  Its isolated real API rejected a disabled account without adding a session,
+  then accepted a re-enabled synthetic account and upgraded its legacy hash.
+  API/worker health, current migrations, quota/expiry cleanup, CSV errors,
+  image compensation, locked-file cleanup, assisted jobs, account boundaries,
+  static assets, and HAI export checks passed.
+- Real packaged producer-to-local-review-HAI integration passed against
+  disposable PostgreSQL: 101 paginated records, update, tombstone, persistent
+  disable/restart, zero-replay resume, revocation, and reference-only privacy.
+  HAI source remains uncommitted, unpublished, and uninstalled review work.
+- Doctor passed all six checks against the isolated packaged database with
+  explicit test settings. Documentation links resolved. Owned executable
+  processes and the disposable PostgreSQL container were stopped afterward.
+
+Successful login now performs an additional short guarded write, including
+when no rehash is needed. Password cost settings and thread-pool limits did
+not change; no target throughput, latency, or memory benchmark is claimed.
+Existing sessions are not automatically revoked by direct database password
+changes, and account administration/reset workflows are not introduced.
+See [account-state guarantees and limits](AUTH_SECURITY_POSTURE.md#account-state-at-login).
+Production deployment, public ngrok acceptance, installed HAI integration,
+and human launch signoff remain outside this evidence.
+
+## Atomic login admission and expiry maintenance — 2026-09-13
+
+Target: checkout based on `cdf54849232a6a82536d77af46a1a8b741115291`, plus
+the changes recorded here. Three failing regressions reproduced simultaneous
+password checks exceeding the configured quota, an older successful login
+erasing newer failed activity, and expired identities remaining without worker
+cleanup. The HTTP race tests pause real route execution at password verification;
+they do not replace admission with a stubbed result.
+
+Each login now commits a conditional SQLite/PostgreSQL upsert before checking
+credentials. Its slot remains counted on failure/interruption. A random
+reservation fence makes successful clearing conditional on that request still
+being latest, and clearing commits with user-session creation. Database
+admission errors fail closed. The worker reclaims at most 100 expired records
+per cycle with expiry rechecked during deletion.
+
+Additive revision `20260913_0016` adds nullable `attempt_token`, preserves
+legacy throttle records, accepts the historical metadata-bootstrap path, and
+refuses downgrade while reservation fences remain. Published migrations were
+not edited. API and worker processes must be upgraded together after backup;
+no target production migration or production-sized lock test was performed.
+
+Verification:
+
+- Full Windows suite: **501 passed, one POSIX-only skip in 139.72 seconds**
+  (502 cases). Ruff, compilation, and documentation-link checks passed.
+- Disposable migrated PostgreSQL 16: **85 passed in 101.64 seconds**, including
+  eleven new login tests using real sessions and HTTP dependency wiring.
+  These are subset reruns, not 85 additional distinct product tests.
+- Checks cover 12 concurrent connections at quota three, stale ORM state,
+  older-versus-newer completion, exact expiry/new generations, admission commit
+  rollback, cleanup/refresh races, capped cleanup batches, legacy-row migration
+  preservation, and downgrade refusal. HTTP cases also verify admission failure
+  prevents password work and a failed actual session commit restores the
+  pending throttle clear through rollback.
+- Rebuilt Windows executable SHA-256:
+  `869f2039f3b7ee1b540c9e71c7dead8cd83824988ec5324a3ba27e1877a63788`.
+  Its real API enforced five failed attempts then 429/Retry-After. After only
+  the synthetic test reservation was deliberately expired in the isolated
+  database, the separate worker removed it and a valid login succeeded with
+  its reservation cleared. Existing API, worker, image compensation/cleanup,
+  CSV rejection, and general rate-limit checks passed.
+  Doctor returned `ok` on this isolated SQLite fixture with explicit synthetic
+  development settings. Owned test processes and the disposable PostgreSQL
+  container were stopped after verification; no production data was accessed.
+- Real packaged producer-to-local-review-HAI integration passed again against
+  disposable PostgreSQL: 101 records, update, deletion, durable restart/disable,
+  explicit zero-replay resume, revocation, and reference-only privacy. HAI
+  remains uncommitted, unpublished, and uninstalled local review work.
+
+The quota now counts admitted/in-flight attempts, not only completed failures.
+An older success may leave newer activity counted. Expired cleanup bounds work,
+not total table size; backlog growth and identity rotation still need edge and
+operator controls. UTC host clocks must be synchronized. Production deployment,
+public ngrok acceptance, installed HAI integration, and human signoff remain
+outside this evidence.
+
+## Bounded API rate-limit state — 2026-09-13
+
+Target: checkout based on `a8deb59beed064fe8b8186ada9f5fb07947ff4a7`, plus
+the changes recorded here. Three failing regressions reproduced expired
+identities surviving unrelated requests, unbounded new-identity admission,
+and rejection at the exact fixed-window expiry.
+
+The API limiter now uses monotonic expiry, a 10,000-identity cap, and an expiry
+heap with exactly one entry per bucket. A short lock makes expiry/admission/
+counter updates atomic across request threads. Full capacity returns a
+retryable 429 for new identities; it does not evict active quotas or prevent
+existing identities from using their remaining allowance. Health and static
+routes keep their existing exemptions. The database login throttle and schema
+were not changed.
+
+Verification:
+
+- Full Windows suite: **485 passed, one POSIX-only skip in 128.22 seconds**
+  (486 cases). Ruff, compilation, and documentation-link checks passed.
+- Focused rate-limit, middleware, and authentication suites: **28 passed**.
+  Ten new cases cover expiry reclamation, capacity, exact boundaries, expiry
+  ordering, rounded retry delays, no wall-clock dependence, and bounded index
+  state under 50,000 repeated requests. A 16-thread/1,600-call test admits
+  exactly 37 calls at quota 37. Real HTTP checks verify capacity errors,
+  recovery, and health/static availability.
+- Rebuilt Windows executable SHA-256:
+  `b8c886d480a2d1a15e425d2129bb076818343ae37511e9fd119afdcf0ded9d59`.
+  The actual API accepted 300 requests on a fresh synthetic identity, rejected
+  the next with HTTP 429/Retry-After, and still served health and static content.
+  Existing API/worker workflows, CSV rejection, image-write compensation, and
+  locked-file cleanup retry passed. The packaged test verifies the configured
+  request quota; the 10,000-identity capacity check is a separate source test.
+  Doctor returned `ok` on the isolated packaged SQLite fixture at schema head
+  `20260913_0015`, using explicit synthetic development settings. Owned test
+  processes and the disposable PostgreSQL container were stopped afterward.
+- Real packaged producer-to-local-review-HAI integration passed on disposable
+  PostgreSQL: 101 records, updates/deletion, durable restart/disable, explicit
+  zero-replay resume, revocation, and reference-only privacy. HAI remains local,
+  uncommitted, unpublished, and uninstalled.
+
+This is local resource/correctness evidence, not a production load benchmark.
+Identity churn can still fill the bounded table and temporarily reject new
+legitimate clients. Supplied Authorization headers are not authenticated at the
+limiter stage; per-identity quotas are not an anti-rotation guarantee. Process
+restarts reset state, and multiple API processes do not share it. Independent
+edge rate limits, proxy trust configuration, production deployment, public
+ngrok acceptance, installed HAI, and human signoff remain unverified here.
+
+## Upload and CSV event-loop isolation — 2026-09-13
+
+Target: checkout based on `fe1e15936ab5603b2670623a7ffe34a1e128a1f2`, plus
+the changes recorded here. A real-ASGI two-request probe reproduced health
+requests being blocked by synchronous image storage and CSV processing inside
+async routes. Separate failing cases reproduced HTTP 500 for oversized CSV,
+invalid UTF-8, and a field exceeding the CSV parser limit.
+
+The routes now use FastAPI's shared, capacity-limited request worker pool for
+their synchronous file, hashing, database, and storage work. Async storage
+helpers explicitly offload synchronous calls. CSV input is read with an extra
+byte to detect overflow, requires UTF-8 with optional BOM, and maps parser
+errors to HTTP 422. Strict parsing prevents accepting malformed quoted input.
+Failed imports retain transaction rollback behavior rather than saving partial
+listings. Authentication, ownership, image-write compensation, and the database
+schema are unchanged.
+
+Verification:
+
+- Full Windows suite: **475 passed, one POSIX-only skip in 117.81 seconds**
+  (476 cases). Ruff, compilation, and documentation-link checks passed.
+- Focused responsiveness, portability, and image-write suites: **36 passed**.
+  Both paused-work probes now complete health before release; thread checks
+  verify work is outside the loop. Exact 2,000,000-byte acceptance and one-byte
+  overflow rejection are covered, alongside invalid encoding/parser errors and
+  async helper behavior.
+- Disposable migrated PostgreSQL 16: **74 passed in 83.01 seconds**. These
+  job-safety/cleanup/write-recovery checks rerun a subset, not additional cases.
+- Rebuilt Windows executable SHA-256:
+  `862ff9dd4ada2cccb7ac1a03653566f7468de185209c8a5c2b2e14abe75dd461`.
+  The real packaged API and separate worker passed existing workflows, image
+  failure compensation, locked-file cleanup retry, and CSV size/encoding
+  rejection with unchanged listing counts. Schema head remains `20260913_0015`.
+  Doctor returned `ok` on this isolated SQLite fixture with explicit synthetic
+  development settings. Owned test processes and the disposable PostgreSQL
+  container were stopped after verification; no production data was accessed.
+- Real packaged producer-to-HAI review-consumer integration passed again on
+  disposable PostgreSQL: 101 records, updates, deletion, durable restart/disable,
+  explicit zero-replay resume, token revocation, and reference-only privacy.
+  The HAI changes remain separate local, uncommitted, unpublished, and uninstalled.
+
+This establishes local request isolation, not production load capacity. Pool
+saturation, slow database connections, and edge request-body limits still need
+target measurement/configuration. The CSV cap is checked after multipart
+parsing, so it is not a bound on the network body or parser temporary-disk use.
+Production deployment, public ngrok acceptance, installed HAI integration, and
+human accessibility/walkthrough/signoff remain open.
+
+## Image-write compensation and duplication integrity — 2026-09-13
+
+Target: checkout based on `e1bab5052dfd3194f78ec564c0c2a2ec6cb232a0`, plus
+the changes recorded here. Four failing regressions reproduced category
+attributes being lost on duplication, a missing source image being silently
+omitted, and new files left behind after upload or duplication commit failure.
+
+Both write paths now track targets before storage I/O and compensate handled
+failures after rolling back the business transaction. A fresh session on the
+same database saves cleanup intent; existing reference checks protect a file
+whose database commit succeeded but acknowledgment was lost. Partial local
+writes and uncertain S3 puts are tracked. Duplication preserves category
+attributes, bounds the suffixed title, and returns an actionable conflict rather
+than silently omitting a missing image. The original operation error is retained
+if recovery storage fails; filenames and raw provider details are not logged.
+
+The combined suites exposed a separate logging defect: Alembic disabled already
+imported application loggers. A minimal regression confirmed it. Migration
+environment configuration now preserves existing loggers; immutable versioned
+migrations and head `20260913_0015` were not changed. The final recovery-error
+logging assertions pass without relaxing their checks.
+
+Final verification:
+
+- Windows: **466 passed, one POSIX-only skip in 114.71 seconds**; 467 collected.
+- Disposable migrated PostgreSQL 16: **74 passed in 80.52 seconds**, including
+  same-database recovery, rolled-back versus acknowledged-lost commits, and an
+  unavailable recovery database. These are subset reruns, not extra product tests.
+- Ruff, compilation, documentation links, and doctor on the isolated packaged
+  SQLite fixture passed. No production configuration or database was verified.
+- Rebuilt Windows executable SHA-256:
+  `4b5a7bf4c7ca1fe9a40af9b24e724659fd64e1bedbdfc07d3882f9929e7977f0`.
+  The actual API/worker passed existing workflows, locked-file retry, duplication
+  with category attributes and a 160-character title, and missing-image conflict
+  with no partial clone. A trigger in only the disposable fixture rejected a
+  real image-row insert after its file write; the API returned an error and the
+  newly written file was removed. The trigger and owned test processes were
+  cleaned up.
+- The real rebuilt producer-to-HAI review-consumer test passed again on
+  disposable PostgreSQL: paging, update, tombstone, durable restart/disable,
+  explicit resume, revocation, and non-executable/private-note-safe references.
+  HAI remains separate local, uncommitted, unpublished, and uninstalled work.
+
+The first combined runs failed only the new recovery-log assertion; the
+logging defect above was reproduced separately and corrected before the final
+runs. This is not a pre-write durable journal: process termination before
+compensation intent is persisted, or an unavailable recovery database, can
+still leave an orphan object. Historical orphan discovery, real S3/provider
+evidence, production deployment, public ngrok acceptance, installed HAI, and
+human walkthrough/accessibility/signoff remain outside this proof. The full
+production-readiness goal is still open.
+
+## Transactional image cleanup and recovery — 2026-09-13
+
+Target: Autoposter checkout based on `318eb158501eb8363e70c4ebfd7df05653795d3d`,
+plus the cleanup changes described here. Two failing regressions proved that
+account deletion removed images before its database commit and removed a
+shared image still referenced by another account. Three further failures showed
+account/listing/image deletion returning HTTP 500 after the database deletion
+had committed when storage cleanup raised an error.
+
+Deletion now records durable cleanup intent in the same transaction and attempts
+physical deletion only after commit. A bounded worker retries failures and
+expired five-minute claims; claim identifiers fence late acknowledgments. Local
+paths and S3 bucket/prefix boundaries are enforced. Reconciliation reports
+pending cleanup without file paths. Revision `20260913_0015` adds only the
+outbox and its due index; downgrade refuses to discard pending work. Historical
+bootstrap migrations were not changed.
+
+Verification:
+
+- Full Windows suite: **450 passed, one POSIX-only skip in 120.47 seconds**
+  (451 collected). Ruff, compilation, and documentation-link checks passed.
+- Disposable PostgreSQL 16: **71 passed in 86.98 seconds**, including real
+  concurrent sessions, rollback/claim failures, crash-before/after-unlink
+  recovery, late acknowledgment fencing, and additive migration round trips.
+  These are subset reruns, not extra distinct product tests or target-host proof.
+- A fresh Python worker process recovered persisted cleanup after simulated
+  storage failures on all three deletion endpoints. S3 tests use a controlled
+  client; no real bucket was accessed.
+- Rebuilt Windows executable SHA-256:
+  `bd264a834b214a058f9f04239c64d7a89b70e20269557e32103af323220db03c`.
+  The actual API/worker passed assets/cache, authentication, owner isolation,
+  uploads, HAI, and assisted-job retry/recovery checks at head `20260913_0015`.
+  A real Windows handle denied image deletion: the API still returned 204,
+  cleanup intent persisted with `PermissionError`, and the separate packaged
+  worker removed the file after the handle was released and retry made due.
+- Doctor reported `ok` against that isolated packaged SQLite fixture with
+  explicit synthetic development settings, not production configuration.
+- Real producer-to-HAI integration passed against the rebuilt executable and
+  disposable PostgreSQL: 101 records, updates, tombstone, fresh DB/service/
+  registry restart, HTTP-handler disable persistence, explicit zero-replay
+  resume, revocation, and no private notes or executable references. The
+  separate HAI review now includes durable checkpoints and source controls;
+  the earlier checkpoint limitations below describe older review state.
+  HAI changes remain uncommitted, unpublished, and uninstalled.
+
+The first full Windows run, concurrent with packaging and PostgreSQL tests,
+reported 448 passed, one skipped, and one launcher startup failure in
+`blocking-sync-api-server-return`. The isolated case and subsequent full run
+passed. The original failure lacked child output; its cause remains unconfirmed.
+The test now includes that output on early exit. No timeout or safety assertion
+was relaxed, and no launcher production fix is claimed from this rerun.
+
+Cleanup is eventual and does not discover historical/pre-row-upload orphans,
+delete external copies/backups, or permanently erase S3 historical versions.
+No production-sized migration/load test, real S3 erasure proof, public ngrok
+session, installed HAI acceptance, or human accessibility/user signoff is
+established here. The larger production-readiness goal remains unfinished.
+
+## HAI source-link safety and ordered replay — 2026-09-13
+
+Target: Autoposter checkout based on `0294fde`, plus the scoped producer changes
+described here. Six endpoint regressions reproduced unsafe configured source
+links escaping through `/api/hai/records` while the manual export rejected the
+same inputs. Both paths now use one source-link safeguard. Normal loopback and
+mounted HTTPS links remain intact. A separate failing regression established
+the new decimal-string `change_id` contract for durable consumer replay order.
+
+The final HAI-focused run passed **39 tests**. The full Windows suite passed
+**431 tests with one POSIX-only skip in 77.29 seconds**; Ruff, compilation, and
+107 checked local documentation links/anchors passed. Doctor reported `ok`
+against the isolated packaged-test SQLite database at Alembic head
+`20260905_0014`, using explicit synthetic development configuration. This is
+not evidence of production secrets, PostgreSQL deployment, or target storage.
+
+The Windows executable was rebuilt from this producer source. SHA-256:
+`036af1cafd4d840bf33aeebefc02f48466de132462fd3154b8eb90de83d1267f`.
+The real packaged API/worker smoke passed frontend asset-byte/revalidation
+checks, authenticated listing/image/HAI workflows, publishing-account isolation,
+assisted job retry/recovery, and migration-state checks. Owned test processes
+were stopped afterward; no marketplace submission or public tunnel was opened.
+
+With explicit permission to prepare separate HAI source changes, a fresh HAI
+review checkout was created from main `91c8620`. Its reference-only consumer was
+tested against the real rebuilt Windows Autoposter and a separate disposable
+PostgreSQL 16 container. The actual test reported a pass—not a skip—for
+101 records across pages, empty sync, update, deletion, registry/service restart
+replay, token revocation, private-note exclusion, and non-executable reference
+rows. HAI's pre-migrations and concurrent newest-sequence persistence also
+passed on that isolated database. The HAI changes are separate local review
+work, not installed or merged capabilities of HAI main.
+
+That consumer imports on demand. Persistent opaque cursor checkpoints and an
+unattended polling lifecycle remain follow-up work; the current review uses
+durable per-record sequence state to make a restart replay safe. No installed
+HAI service, real source registration, production environment, or human
+acceptance was changed or claimed. The larger production-readiness goal remains
+unfinished.
+
+## Clean source-install configuration — 2026-09-13
+
+Target: checkout based on `fdede7fc6bb23197ab46aefbf0f1fa65f4eb56c5`.
+An unchanged copy of the old `.env.example` reproduced eight
+`extra_forbidden` validation errors from legacy-only settings. The root example
+now contains only supported web-app fields; all ten historical keys and their
+example values remain in `legacy/selenium/.env.example`. No existing user
+configuration, secret, legacy script, or archived source was overwritten.
+
+The focused run passed 18 configuration, source-install, and legacy-quarantine
+checks in 5.04 seconds, plus Ruff. New regressions load the copied example with
+inherited application settings removed and prove that a misspelled setting is
+still rejected. Strict application settings behavior was not relaxed.
+
+The full local gate then passed Ruff, compilation, **417 tests with one
+POSIX-only skip in 69.95 seconds**, and doctor with the isolated database at
+Alembic head `20260905_0014`. Doctor's development-secret warning remains
+expected in that fixture, not production-secret evidence. The local README,
+Windows guide, and verification-report link check resolved 107 links/anchors.
+
+The source-install check copies the application, frontend, migrations, Alembic
+configuration, and unedited environment example into a fresh directory. It uses
+the existing test interpreter/dependencies, runs the actual Alembic command,
+starts real API and worker subprocesses, loads the frontend, registers a test
+account, saves and retrieves a listing, and verifies the committed row and
+migration head `20260905_0014` through a separate SQLite connection. Owned test
+processes are stopped afterward. This is source startup evidence, not a fresh
+dependency download, Docker build, Windows-package rebuild, or production drill.
+
+An initial harness assertion reopening SQLite immediately after forced process
+cleanup encountered one `disk I/O error`; an unchanged rerun passed. The final
+setup test verifies committed data while the services are alive and closes its
+independent connection explicitly before teardown. It does not claim to prove
+instant post-kill file availability or diagnose that transient error. Existing
+crash/recovery checks remain separate from this clean-install contract.
+
+The example is deliberately a development profile. Production secrets, CORS,
+PostgreSQL, storage, migration approval, operational evidence, human QA, and
+acceptance remain separate gates. No public tunnel, marketplace submission,
+installed HAI change, or legacy automation was performed.
+
+## POSIX listener restart follow-up — 2026-09-13
+
+The first published managed-lifecycle checkpoint, `dedfa79`, passed the Windows
+checks below but its [Linux verification run](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/34751617800)
+failed four immediate-rebind assertions after in-flight request cleanup:
+408 tests passed, two Windows-only tests skipped, and four failed with
+`Errno 98`. The PostgreSQL job and the separate supply-chain workflow passed.
+This failure is retained here rather than presented as green cross-platform CI.
+
+A read-only WSL Python 3.12 diagnostic loaded the exact launcher source through
+stdin, opened and actively closed a real TCP connection, then reproduced the
+same rebind error. No Linux packages, installed services, or HAI data were
+modified. POSIX now sets `SO_REUSEADDR` before bind to allow reuse after
+`TIME_WAIT`, following [Python's socket documentation](https://docs.python.org/3/library/socket.html#socket.create_server).
+Windows retains `SO_EXCLUSIVEADDRUSE`; `SO_REUSEPORT` is not enabled.
+
+The same real Linux diagnostic then passed both immediate restart and rejection
+of a competing live listener with reuse enabled. A POSIX-specific regression
+preserves both checks. The Windows-focused launcher/ngrok suite passed
+54 tests with that one POSIX case skipped in 37.05 seconds; Ruff passed.
+Independent read-only review approved this scoped correction. The full Windows
+gate then passed Ruff, compilation, **414 tests with one POSIX-only skip in
+67.13 seconds**, and doctor against the isolated database at head
+`20260905_0014` (expected development-secret warning only). Results from
+the earlier Windows build below remain dated evidence, not a substitute for
+the follow-up CI run.
+
+The follow-up Windows executable rebuilt with SHA-256
+`ba4339d08f8eb844f4928e0f61324584d91cf8692a2bb44995fcbf8a414639a0`.
+Its full isolated HTTP/HAI/upload/account/retry/recovery/assets drill, occupied
+port/directory and actual-owner-crash drill, and packaged API/worker handoff
+drill all passed again. The last drill measured about 22 ms before port/data
+reacquisition after forced cleanup. No public endpoint was opened.
+
+## Managed ngrok lifecycle — 2026-09-13
+
+Target: review checkout based on `7e823fea0d72aa6520e7dd6a33f36a4fb53a18b0`,
+with the managed-ngrok implementation and accompanying regressions. Earlier
+dated sections remain historical; they do not describe the revised helper.
+
+- The PowerShell wrapper now delegates to the launcher. Exclusive loopback
+  binding and the data lock precede tunnel startup. Ngrok, API, and worker run
+  in separate owned process trees; Windows uses suspended assignment to private
+  Job Objects. No process-name sweep or shared run-log directory is used.
+- Readiness requires local and public API responses with this launch's marker
+  and a fresh heartbeat for its exact worker ID. Tests reject another worker,
+  a mismatched identity, malformed endpoints, failed startup, changed/requested
+  endpoint mismatches, oversized log fragments, log EOF, and read/write/close
+  failures. The wrapper's caller environment and directory remain unchanged.
+- Regression-first investigation reproduced a hanging incomplete request and
+  a blocked synchronous request surviving Uvicorn cancellation. The tunnel
+  supervisor now runs the API in an owned child and retains data/socket
+  ownership until all child threads terminate. A real server-return case and
+  an injected status-file failure are covered; the latter reproduced a
+  15-second timeout before the dedicated-interpreter exit fallback was added.
+- Log-failure regressions reproduced swallowed write errors with raw provider
+  stderr, an uncaught close error, and a one-shot close failure hidden by a
+  successful retry. Errors are now sanitized and preserved through cleanup;
+  both log resources are attempted once the reader has stopped. An actively
+  blocked reader is not synchronously closed under its I/O lock.
+- Final `python scripts/verify.py`: Ruff and compilation passed;
+  **414 tests passed in 75.15 seconds** on Windows/Python 3.14. Doctor reached
+  Alembic head `20260905_0014` in an isolated SQLite database. Its default
+  development-secret warning is not production-secret approval. This includes
+  41 ngrok cases; there are two Windows-only cases across the full suite.
+- Independent read-only review approved the scoped patch after the fixes, with
+  no remaining actionable ownership, socket-handoff, CLI, or cleanup findings.
+  That review did not constitute provider, deployment, or HAI acceptance.
+- The final Python 3.13/PyInstaller Windows build succeeded with SHA-256
+  `380a09e1a69161ba293a4fcb060e34ff35b882f12d0481694a690c536c94832a`.
+  Its fresh-data HTTP workflow passed API/worker health, migration head, private
+  uploads, account isolation, failed-job reuse, retry, stale-job recovery,
+  owner-only HAI generic download, and byte-matching frontend/304 cache checks.
+- A packaged ownership drill rejected an occupied port before data creation,
+  rejected an occupied directory before secret/database creation, and verified
+  that terminating the actual owned launcher child stopped its captured worker
+  descendants and released resources before outer test containment ended.
+- A separate local drill used the source supervisor with the actual packaged
+  API and worker children. Windows socket sharing targeted the real packaged
+  interpreter; both health markers and the filtered heartbeat matched. It
+  terminated an API with an unfinished request while preserving supervisor
+  ownership, then released the port/data lock. An initial immediate-rebind
+  assertion observed WinError 10048; a bounded retry passed with about 21 ms
+  OS release delay. This was a harness timing correction, not a product patch.
+- No public tunnel, marketplace submission, production deployment, installed
+  HAI modification, or live HAI source registration occurred in this pass.
+  Agent/public transport tests use explicit local substitutes. The packaged
+  child drill is not a full real-provider frozen-ngrok acceptance run.
+- Release checks still report **77 missing evidence fields**: 36 release,
+  29 walkthrough, 12 acceptance. No operator evidence or signoff was fabricated.
+
+Remaining boundaries: supervision after readiness checks process/log liveness,
+not continuous public HTTP or heartbeat freshness. Migrations, DNS, and OS
+failures are not covered by one universal timeout. Cleanup is forced and may
+interrupt work. Data locks coordinate only current cooperating launchers using
+the same directory. Real-provider compatibility, public access policy, target
+PostgreSQL operations, automatic HAI consumption, manual accessibility and
+real-user QA, backup/restore, edge controls, and launch acceptance remain open.
+Marketplace posting remains assisted/manual.
+
+## Launcher port, data, and process ownership — 2026-09-06
+
+Target: working checkout based on `c0eee9bc079f98b507f7990db233b92d8c2a0330`, with exclusive standalone startup ownership and Windows worker-tree cleanup.
+
+- Regression checks reproduced migration execution before detecting an occupied port in both the direct server and CLI entry paths. Startup now reserves the loopback socket and locks the data directory before creating secrets, running migrations, or starting children. A duplicate launch cannot perform those operations through this launcher.
+- The launcher retains its original socket until worker cleanup, passing Uvicorn a duplicate. Real-socket tests verify exclusivity even after the server closes that duplicate, and resource release after migration, worker-launch, and server failures.
+- Windows workers are assigned to a private kill-on-close Job Object while suspended, then resumed. Tests exercise real child/grandchild listeners, root termination, owner crash, and an unrelated same-executable process that must remain alive. The POSIX fallback uses a private process group; the Windows owner-crash test is explicitly platform-specific.
+- A crash test initially assumed that file locks disappear synchronously with process exit. A controlled diagnostic observed different root and lock-holder Python process IDs, confirmed job membership, and reacquired the lock about 22 milliseconds after job cleanup. Microsoft documents delayed OS lock release after abrupt termination. The test now waits for the actual release with a five-second bound; normal lock release remains checked immediately. This is not a stale-lock-file deletion mechanism.
+- The focused Windows run passed **16 tests in 17.96 seconds**. The full `python scripts/verify.py` gate passed Ruff, compilation, **369 tests in 123.45 seconds**, and doctor. Doctor used a newly created isolated SQLite database at Alembic head `20260905_0014`; its default development-secret warning is not production-secret verification. The 13 new launcher cases are included in the total.
+- Independent read-only review found no blocking runtime defect and independently passed the same 16 focused tests in 30.99 seconds. Win32 structure sizes, access masks, suspended assignment, and resource-cleanup order were checked. Remaining non-blocking gaps include injected failures in the Windows assignment/resume/cleanup APIs and ignored `CloseHandle` error returns; this is not exhaustive OS-fault coverage.
+- The Windows executable rebuilt with SHA-256 `3bffa5882044b5a5c01ecc43e67199dc1e2c5489abd2ba85b9e0bc1b41fe3d4c`. Its normal isolated HTTP workflow passed API/worker health, migration head `20260905_0014`, private uploads, account isolation, retry, abandoned-job recovery, HAI generic download, and byte-matching frontend assets with body-free conditional 304 responses. The harness stopped its own process tree afterward.
+- A second isolated packaged drill passed occupied-port rejection before data-directory creation, occupied-directory rejection before secret/database creation, and healthy API/worker startup. It then terminated the exact application child of the owned PyInstaller bootloader. Original Windows process handles confirmed that every captured worker descendant terminated, while the port and directory lock became reusable **before** the outer safety job was closed. An initial harness assumption that the bootloader had only one direct child failed because Windows also created `conhost.exe`; the corrected drill identified the app by its exact executable path within the already-owned child set. This harness correction did not change application source. A subsequent process inspection found no remaining `SecondhandAutoposter.exe` process.
+- A local scan resolved **92 documentation links and anchors** across README, the Windows guide, and this report. The release gate still reports **77 missing evidence fields**, including unaccepted final signoff; those records were not filled with local-test results or fabricated operator evidence.
+- Scope limits: the data lock coordinates only cooperating launchers with the same directory; it does not protect against older builds, direct API/worker commands, or another directory configured for the same database. Worker termination is forced, so stale-job recovery remains relevant. No schema changes, public tunnel, production deployment, installed HAI changes, or marketplace calls were performed. The separate ngrok helper retains its documented lifecycle gaps and is not made safe by this foundation alone.
+
+## Frontend delivery and analytics verification — 2026-09-06
+
+Target: working checkout based on `53e96a2d7ef8cefc4e17bd173f224d7ce0f66427`, with CSP-compatible analytics bars, frontend revalidation, and a real tab icon.
+
+- Five new HTTP tests failed before implementation: no frontend revalidation policy and no icon link. They then passed, covering GET/HEAD and body-free conditional 304 responses for HTML, JavaScript, and CSS, plus the actual same-origin icon. The full `python scripts/verify.py` gate passed Ruff, compilation, **354 tests in 218.21 seconds**, and doctor. Doctor used the isolated QA database at migration head `20260905_0014`; its only warning was the development default secret, not a production-configuration assessment.
+- The browser regression check initially failed with three `style-src-attr` violations. The corrected chart rendered relative widths **100%, 50%, and 0%**, matching displayed counts 10, 5, and 0, with zero CSP violations. Escaped labels and the empty-data state also passed. `scripts/browser_dashboard_checks.js` retains this separately executable check; it is not part of the pytest count.
+- A clean Chromium session at `http://127.0.0.1:8913/` passed reload and navigation through Dashboard, Listings, Queue, Accounts, and Settings with **no fresh console or page errors**. HTML, JavaScript, CSS, and the SVG icon returned the revalidation policy; the browser observed a body-free JavaScript 304. Desktop 1440 × 1000 and mobile 390 × 844 screenshots were inspected, with the analytics bar visible and no mobile horizontal overflow. This resolves the specific analytics and favicon errors recorded in the preceding HAI checkpoint, not every possible app error.
+- A temporary QA script initially used a Node `URL` global unavailable in the CLI evaluation environment. That harness error was corrected and the named browser session was recreated before the passing clean run; it was not an application exception. No production security policy was relaxed.
+- `no-cache` retains conditional-fetch efficiency while requiring validation on normal reuse. It does not update already-open tabs, retroactively purge old-policy caches, or prove browser-history/proxy behavior. Safe upgrade steps and these limits are in [Troubleshooting](TROUBLESHOOTING.md).
+- The Windows executable rebuilt with SHA-256 `abb2501ee4f0daca16bb32d0368c408ca5a5ad907d9aca1abc8b4aa5a10e4124`. A fresh isolated run passed API/worker health, migration head `20260905_0014`, upload metadata, account isolation, retry and abandoned-job recovery, and owner-only HAI downloads. Served HTML, JavaScript, CSS, and SVG icon matched current source bytes and passed conditional 304 checks with no response body. The harness stopped its process tree; a process check found no remaining executable. The separate source QA server and named browser were also stopped.
+- Independent read-only review found no blocking defects. Its two minor coverage recommendations were implemented: retained strict CSP is asserted explicitly, and cache tests cover the icon plus an old ETag/Last-Modified request after a real file update. The final full gate then passed **356 tests in 344.82 seconds**, Ruff, compilation, and doctor; the browser regression check also passed again. The seven HTTP delivery cases are included in those 356 tests, not additional tests. A local documentation scan resolved 63 links before the final Windows-build note was added; its links were unchanged.
+- Release evidence remains incomplete, final acceptance is not accepted, and release/final-response checks remain **blocked with 77 missing evidence fields**. Target deployment, safe ngrok lifecycle, automatic HAI synchronization and deletion handling, operational evidence, real-user walkthroughs, and manual accessibility QA remain open. Marketplace posting is assisted/manual.
+
+## Manual HAI file handoff verification — 2026-09-06
+
+Target: working checkout based on `9bd5f68d79740f4486b116831e64fd53f8e23eb5`, with the generic HAI export, bilingual Settings download, and consumer contract harness.
+
+- Full local pytest run: **349 passed in 314.51 seconds**. Ruff, Python compilation, and JavaScript syntax checking passed. A final focused run passed **26 HAI/report tests in 75.85 seconds**; 67 local documentation links and their referenced anchors resolved. The new export regression tests cover owner-only access, connector-token rejection, privacy, current and deleted listings, stable identifiers, empty feeds, all 301 listings across batches, query counts, unsafe source-URL omission, UTF-8 boundaries, Go metadata escaping, and the 5 MiB whole-file limit. No partial attachment is returned on overflow.
+- The export reads selected listing columns in batches of 100, obtains image counts in SQL instead of loading image records, and bounds the assembled output. This limits ordinary ORM/output growth, not database scan cost or transient memory for an oversized stored field. Concurrent edits do not produce a transactionally frozen backup.
+- Actual API, browser, and rebuilt Windows-executable downloads each passed HAI's real `ParseGenericFeed` and local-file `Registry.Sync` at pinned HAI commit `91c8620c557229f1da4ed15fcbb7088c6a6947a7`: one operation was created, then a replay refreshed it without duplication. The isolated harness uses HAI's in-memory repository and never modifies an installed HAI service. See [reproduction instructions](HAI_CONNECTOR.md#reproduce-the-real-consumer-contract-check).
+- Chromium at `http://127.0.0.1:8913/` showed the expected nonblank app without a framework error overlay. Checks at 1440 × 1000 and 390 × 844 covered a real Settings download, Dutch labels and keyboard activation, no mobile horizontal overflow, and a simulated HTTP 413 with visible feedback and a re-enabled button. An observed 57-pixel desktop token-name input was corrected with a stacked form and rechecked above 150 pixels. This is focused browser QA, not a non-technical walkthrough or full accessibility audit.
+- Browser limitations remain explicit: existing analytics inline styles trigger Content Security Policy console errors, and the favicon request returns 404. During development, a reload retained an older script; clearing only the test browser's cache loaded the new copy. Automatic asset refresh across upgrades is not verified. The deliberate 413 response also produced an expected network error. Manual screen-reader and zoom checks remain open.
+- Windows standalone rebuilt with SHA-256 `0d5daa88f4bd7bcbc2cf8380cfc96cff16a0cbbba8c8c143df62294bd4a2fe13`. Its fresh isolated runtime passed API/worker health, migration head `20260905_0014`, dashboard, upload metadata, malformed-cursor rejection, publishing-account isolation, idempotent failed-job reuse, explicit retry, and abandoned-job recovery with two attempts and one recovery log. Terminal claims were cleared. The generic download passed owner/token checks, and every served frontend asset matched current source bytes. No marketplaces were contacted.
+- The named test browser and source API were stopped; no packaged executable process remained. The final-response preflight and release gate remain **blocked**, with **77 missing evidence fields**, incomplete release evidence, and final acceptance not accepted.
+- Doctor exited successfully against the isolated packaged-test database at head `20260905_0014`; its only warning was the source check's development default secret. The executable itself generated its persistent random secret. No user's existing database or production environment was inspected by this check.
+- This establishes a manually downloaded generic-file path, not automatic HTTP synchronization, deletion propagation, durable target HAI ingestion, safe ngrok lifecycle, target production deployment, or final acceptance. Marketplace publishing remains assisted/manual. Earlier dated evidence below remains historical.
+
+## Claim-fenced execution verification — 2026-09-05
+
+Target: working checkout based on `c7ec312ff6b5b13ab9917193f4f2d681ecfbf6fc`, with claim identifiers, short adapter-input transactions, and Alembic revision `20260905_0014`.
+
+- Initial red tests reproduced **11 failures in 8.12 seconds**: nine late success/error/quota outcomes overwrote recovered, reclaimed, or completed work; both adapter resource checks found a held database connection. Two delayed-start cases also failed in **3.37 seconds**, proving an old caller could execute a replacement claim.
+- Claims now carry an identifier from acquisition to start and finalization. Only the current claimant can save the job, platform mapping, attempt, or completion log. Adapter input reads finish and release their connection before the call. Recovery/retry/cooldown/completion clear the identifier as appropriate. This does not provide lease renewal or fence provider-side side effects.
+- Review and regression checks additionally reproduced malformed-result failures, mixed quota-header selection, and database input outages being misclassified as adapter failures. These now use validated outcomes, one shared valid-header selector, and propagation to the worker's database-error handling. A constrained SQLite downgrade reproduced lost job history; native column removal now retains the job, its logs, and its attempts.
+- Focused worker/account/rate-limit verification first passed **83 tests in 51.58 seconds**. The final job/migration/worker-resilience/quota checks passed **79 tests in 35.07 seconds**. Independent read-only review found no remaining critical or important defect after the corrections.
+- The final local gate passed Ruff, compilation, **335 tests in 218.37 seconds**, and doctor. Doctor used an isolated verification database at head `20260905_0014`, not the user's existing local or production database. Its only warning was the development default secret.
+- On code commit `3df1906266298b91fdc7560868b3442a84ea1dc8`, [GitHub verification](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/33993720514) passed **335 tests in 24.57 seconds** and all **61 migrated PostgreSQL cases in 30.33 seconds**. The dependency audit also passed. This includes migration history preservation and the final review controls; it is not target-production evidence.
+- The final-source Windows executable rebuilt with SHA-256 `ddb3c47b4fdc8b7f01f6a4ea63e27bac8fec0af053ba61b28683230cb7cfd635`. Its isolated HTTP workflow passed API/worker health, dashboard, upload and HAI metadata, cursor rejection, account isolation, failed-job idempotency, explicit retry, and separate-worker stale recovery. The runtime database reached `20260905_0014`; the recovered terminal job had no claim identifier, and the internal identifier was absent from its API response. Two attempts and one recovery log were recorded. No marketplaces were contacted.
+- The duplicate local PostgreSQL attempt did not produce a passing result. A separate connection probe timed out; the diagnostic was explicitly interrupted, and its process terminated. The verified disposable service's subsequent stop succeeded. The CI PostgreSQL evidence above is the passing result for this change. No unrelated Docker services were changed.
+- Cleanup was confirmed: Docker reported both the dedicated container and its anonymous volume absent, and no `SecondhandAutoposter` test process remained. This resolves the disposable-service cleanup uncertainty recorded in the preceding checkpoint.
+- Deployment requires stopping every old API/worker process before migration and restarting all of them from the same new release; mixed old/new workers are unsafe. Target deployment/migration evidence, lease renewal, real HAI consumer integration, manual accessibility and user walkthroughs, backups/edge proof, and final acceptance remain open. Marketplace posting remains assisted/manual.
+
+## Stale-recovery race and resource-bound verification — 2026-09-05
+
+Target: working checkout based on `02e17572f679a1bcdae797327f88e097a16bae78`, with conditional stale recovery, bounded worker recovery, and 16 additional job-safety cases.
+
+- The initial race reproduction produced **11 failures in 4.14 seconds**. A second connection committed a newer completion, reclaim, or update after the real stale-selection query; recovery overwrote every newer state with `queued`. Two simultaneous recoverers also both reported success. Both null and non-null start timestamps were exercised. Two additional failing cases showed one worker cycle recovering all six stale rows even with batch sizes zero and two.
+- Recovery now selects only IDs and update/start timestamps. Each update must still match the observed running version; only a winning update records a recovery log, in the same transaction. The worker passes its batch limit into recovery. Direct helper callers retain the optional unbounded mode for compatibility. No schema migration, claim-token lease, or external-adapter behavior change is included.
+- Focused job, worker, and resilience checks passed **56 tests in 36.48 seconds**. The extended bounded-backlog cases passed **2 tests in 4.06 seconds**, including repeated cycles draining the remaining jobs. Independent read-only review found no blocking defect. Its suggested paused/disabled-recovery and log-failure rollback controls were added and passed **3 tests in 14.02 seconds**, with a real database foreign-key failure for the rollback case.
+- The final full gate passed Ruff, compilation, **312 tests in 150.49 seconds**, and doctor, including the three final review controls. The local database is at Alembic head `20260809_0013`; the development default-secret warning remains.
+- The Windows executable rebuilt successfully with SHA-256 `ceff830691a098145cfbb453c89eb5792368af1f5b5eb829535c516cab6af92f`. Its isolated HTTP workflow passed API/worker health, dashboard, private image upload, HAI incremental metadata and malformed-cursor handling, account-isolation checks, idempotent failed-job reuse, and explicit retry. A deliberately abandoned running row in the harness's fresh database was recovered by the executable's separate worker to `needs_user_action`, with two total attempts and exactly one recovery log. No marketplace calls were made.
+- The local migrated PostgreSQL **16.15** run completed **36 tests in 439.39 seconds**, including all recovery-race and batch cases. It began before the three final review-control tests were added. Despite slow local fixture migrations, the same run was preserved to completion. A separate query confirmed zero remaining `jobtest_*` schemas afterward.
+- On code commit `21d3717045ed3eb88fe03127cd01866b8a241554`, [GitHub verification](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/33992291382) passed the final **312-test suite in 22.98 seconds** and all **39 migrated PostgreSQL cases in 20.63 seconds**, including the three review controls. The dependency audit also passed. This is disposable-database and CI evidence, not target-production proof.
+- Cleanup: the packaged application's test processes exited, and no `SecondhandAutoposter` process remained. The disposable PostgreSQL service's stop request returned a Docker Desktop HTTP 500 error; container/volume removal is not confirmed. Only the dedicated test service was targeted; unrelated Docker services were not restarted or changed.
+- Limits: returned candidates, Python memory, writes, and logs are bounded per worker cycle; total database scan/sort work is not guaranteed to be bounded. Large-running-set query-plan/index measurements remain a scaling follow-up. This fix does not renew/fence long-running external calls or establish exactly-once external publication. Target deployment, real HAI consumer integration, manual accessibility/user walkthroughs, and final acceptance remain open.
+
+## Publishing-account boundary verification — 2026-09-05
+
+Target: working checkout based on `e011d7891cc6566410f2735ccd7363623f4f7bdb`, with the publishing-account boundary fix and 23 additional tests.
+
+- Before the fix, the focused regression run produced **14 failures and 2 legitimate-control passes**. It reproduced foreign-owner account IDs accepted in integer, numeric-string, and integral-float forms, invalid later selections causing partial request effects, and missing account checks in direct enqueue/retry/worker paths. A separate four-case worker/stale-recovery run captured the unauthorized account object actually reaching the adapter. Current assisted adapters ignore account credentials; these results do not show credential misuse or marketplace publication.
+- `app/services/jobs.py` now resolves selected accounts with both the listing owner and target platform in the database query. Enqueue validates before idempotency lookup, retry validates before state changes, and execution validates before the adapter call. `app/api.py` preflights all selected accounts before revision/queue writes and returns a generic HTTP 404 for unavailable selections. Existing invalid jobs fail with a recorded attempt rather than reaching an adapter. No schema migration or historical-row rewrite is included.
+- An additional adversarial case reproduced an SQLite `OverflowError` for account ID `2**63`. The shared helper now rejects out-of-range IDs before database binding. The final `tests/test_publishing_account_boundary.py` run passed **19 tests in 14.32 seconds**, including unchanged no-account and matching-account assisted packages and repeated-request idempotency. The nearest original job/revision/ownership/worker suites passed **35 cases in 14.01 seconds**.
+- Four additional cases in `tests/test_job_claim_safety.py` use separate connections to change account owner/platform after valid enqueue and duplicate reuse, then verify rejection at duplicate enqueue or worker execution. The existing transaction-integrity test still exercises a real foreign-key failure after admission checks and preserves caller changes. These tests use the same session expiration behavior as the application.
+- The final `python scripts/verify.py` run passed Ruff, compilation, **296 tests in 122.15 seconds**, and doctor. The development default-secret warning remains; the local database is at Alembic head `20260809_0013`. The no-account helper path adds no account lookup; selected-account lookups use the primary key plus owner/platform predicates.
+- The final `scripts/build-windows.ps1` completed on Windows 11 with Python 3.13.14. Executable SHA-256: `36689a9eac563cc84451bfac28ed894f2eb7f01295a13dc3f43313d635c65de8`.
+- Isolated HTTP checks against that executable passed API/worker health, dashboard, private image upload, HAI incremental metadata, malformed-cursor HTTP 422, repeated failed-job reuse, and explicit retry processed by the separate worker to `needs_user_action`. Two fresh users verified generic HTTP 404 for foreign and wrong-platform accounts with unchanged revision and no partial queue. The oversized account also returned HTTP 404; a matching account supplied as a numeric string produced an assisted package with one attempt. The test process tree exited; a process check found no remaining `SecondhandAutoposter.exe` process. These checks do not contact marketplaces or install a consumer in HAI.
+- All **23 job-safety tests passed on disposable PostgreSQL 16 in 187.65 seconds**, with each case migrating a new schema to Alembic head. This run preceded the final oversized-ID guard; the guard does not affect these cases. Independent read-only review found no concrete surviving bypass or introduced legitimate-flow regression in the candidate source. A later standalone schema-count query timed out during local Docker delays, so that extra zero-schema observation was not obtained; the suite itself completed fixture cleanup successfully. The dedicated container stop completed, and subsequent inspection confirmed both the container and its anonymous data volume no longer existed. No production database was used.
+- `python scripts/release_gate.py --json` still returns the expected blocked status with **77 missing evidence fields**. This is a deployment/acceptance gate, not a failure of the automated application suite.
+- Remaining full-goal requirements include target deployment, long-running lease/crash safety for external actions, a real HAI consumer installation, manual accessibility/user walkthroughs, and client acceptance. This account-boundary repair does not establish final production readiness or automatic marketplace publishing.
+
+## Worker database-error recovery verification — 2026-09-05
+
+Target: working checkout based on `6d777a8cf577c391f5a5536ddf3d71f80c1fad41`, with runtime worker recovery and eleven new resilience tests.
+
+- Five regression failures reproduced worker termination at real SQLite queue-claim and heartbeat-write locks, plus missing recovery for operational/interface/pool-timeout errors. The fixed loop closes sessions before waiting, uses capped exponential backoff, resets after a complete successful cycle, and logs only safe diagnostic fields. Startup/configuration, programming/integrity errors, and shutdown signals still propagate.
+- Final full local gate passed: Ruff, compilation, **273 tests in 79.02 seconds**, and doctor. The local development default-secret warning remains; the local database is at Alembic head `20260809_0013`.
+- A full-suite test-order failure was traced to Alembic logging configuration disabling existing loggers. The resilience fixture explicitly restores its logger for each test; migration tests followed by resilience tests passed **14 cases in 23.97 seconds**, and the final full gate includes that repair.
+- Independent read-only review found no introduced runtime blocker. Its suggested long-poll and open-session cleanup cases were added before the final full gate. The tests verify actual database effects, released connections, bounded delays, reset after recovery, and suppression of raw SQL/error details in warning logs.
+- Windows executable rebuilt with SHA-256 `68bab4a5d1e371e4a1fd91b8ce367f218ea87a49a2ed427a628450fafc5f9416`. Isolated Windows HTTP workflow passed API/worker health, dashboard, image upload, HAI incremental metadata, malformed-cursor HTTP 422, repeated failed publish HTTP 200, and explicit retry followed by separate-worker `needs_user_action` with two attempts. Test processes were stopped afterward.
+- Separate source-worker and Windows-executable processes each survived a real stop/start of disposable PostgreSQL 16.15 on a fixed local port, resumed with the same process and worker identity, and processed a new incomplete listing once to `failed` with a recorded heartbeat count of one. Docker's delayed restart in the Windows case extended the outage enough to reach the 60-second retry cap; after the database actually returned, the same executable worker recovered. The final drill returned `status: passed` for both runtimes. This is not target-deployment or external-publication evidence.
+- The drill's process trees exited, and the dedicated PostgreSQL container and its disposable volume were removed. Container and process checks confirmed they were absent. No existing application database, production credentials, or marketplace calls were used.
+- This does not establish production deployment, driver-call timeout guarantees, long-running lease/crash safety, exactly-once external publication, real HAI consumer installation, manual accessibility, or final acceptance. Heartbeat counts remain best-effort telemetry, especially after an ambiguous commit. These limits and intervention steps are documented in the operator runbook.
+
+## Repeated and concurrent enqueue verification — 2026-09-05
+
+Target: working checkout based on `d90d95e53f97c5d9e9bca67c33267481c9055ec7`, with enqueue idempotency and transaction-isolation repairs.
+
+- Five failing regression cases reproduced duplicate-key errors for existing failed/skipped jobs, a simultaneous enqueue race, an invalid-account error invalidating the caller's session, and an actual repeated publish API request after validation failure.
+- Enqueue now reuses the exact existing key in every state. New job and initial log insertion share a savepoint; a concurrent duplicate returns the persisted winner, while unrelated integrity errors still propagate. Caller-owned pending work is flushed outside the savepoint and preserved when the duplicate is recovered. Repeating a failed request is not an implicit retry.
+- Final full local gate passed: Ruff, compilation, **262 tests in 50.69 seconds**, and doctor. The development default-secret warning remains; the local database is at Alembic head `20260809_0013`.
+- All **19 job-safety tests passed on PostgreSQL 16.15 in 51.51 seconds**, each using a newly created schema migrated from empty to Alembic head. The final cases include a forced two-connection missing-key race, one resulting job/log, and preservation of both callers' pending records, alongside the earlier worker/retry concurrency coverage. The same cases passed on isolated SQLite in the full suite.
+- Independent read-only review found no introduced blocker. Its suggested coverage improvement—preserving caller work specifically on the recovered duplicate-key path—was added to the forced-race case before the final SQLite and PostgreSQL runs.
+- PostgreSQL cleanup confirmed zero `jobtest_*` schemas. The dedicated disposable container was stopped and confirmed absent; no production database was used.
+- Windows executable rebuilt with SHA-256 `02573cfac5ce7333427255a0295b70bd743902bd2e8805bf6ebdbb946602f863`. Fresh isolated executable HTTP checks passed: API and separate-worker health, dashboard HTTP 200, private image upload, HAI metadata, and malformed-cursor HTTP 422.
+- The executable's worker processed an incomplete listing to `failed`. Repeating the publish request returned HTTP 200 with the same failed job and one attempt. After correcting the listing, explicit retry returned `queued`, and the separate worker produced `needs_user_action` with two attempts. The test processes were stopped afterward.
+- This verifies local and disposable-database behavior, not exactly-once external publication, long-running lease/crash recovery, target-environment load or deployment, a real HAI consumer installation, manual accessibility, or client acceptance. Those requirements remain open.
+
+## Job-claim and concurrent-worker verification — 2026-09-05
+
+Target: working checkout based on `97f8b88baf90040b2dda0e52425fc6f5c7ffa433`, with job-claim and retry repairs.
+
+- Seven failing regression cases reproduced unwanted execution of another worker's running job, immediate stale recovery after reclaiming an old attempt, active-job retries restarting work, retries bypassing `JOB_PROCESS_INLINE=false`, and inline execution bypassing scheduled backoff.
+- Public job processing now requires a successful due-job claim; worker execution uses its already-claimed IDs. Claims clear old attempt timestamps. Retries preserve active work, use a conditional status/version update, and respect the separate-worker setting.
+- Final full local gate passed: Ruff, compilation, **253 tests in 91.13 seconds**, and doctor. The development default-secret warning remains; the local database is at Alembic head `20260809_0013`.
+- The initial **10 job-safety checks passed on PostgreSQL 16.15 in 91.83 seconds**. Each case ran Alembic migrations from empty in a fresh isolated schema. Two scenarios used four simultaneous database sessions to process 24 jobs each: missing-field failures and valid assisted packages, with exactly one recorded attempt per job. The same scenarios passed on SQLite. These are real database/session checks, not separate OS worker-process stress tests.
+- Independent read-only review found no introduced blockers and identified a version-guard coverage gap. An eleventh case now verifies that a delayed retry cannot restart newer work which has already returned to the same terminal status. It failed with the timestamp predicate temporarily removed and passed after restoration; the final full local gate includes it. The CI PostgreSQL job runs all eleven cases.
+- Added a dedicated `postgres-workers` GitHub Actions job to retain the migrated PostgreSQL regression coverage. Test credentials are confined to its disposable service. No production credentials or existing application database were used.
+- PostgreSQL cleanup confirmed zero `jobtest_*` schemas, then the dedicated container was stopped and confirmed absent.
+- Windows executable rebuilt with SHA-256 `0440e8994706825fa6dbba2674cc7800e34bfe85d65245084441b65e927ca69a`. Fresh isolated Windows 11 executable HTTP checks passed: API/worker health, dashboard, private image upload, HAI incremental metadata, and malformed-cursor HTTP 422.
+- The executable's actual separate worker processed an incomplete listing once to `failed`; after correcting the listing, the retry API returned `queued` without increasing attempts, and the worker subsequently produced `needs_user_action` with two total attempts. Test processes were stopped afterward.
+- This does not prove exactly-once external publication, long-running lease-expiry safety, target-environment load, production deployment, a real HAI consumer installation, manual accessibility, or client acceptance. Those requirements remain open.
+
+## Test-data isolation verification — 2026-09-05
+
+Target: working checkout based on `f8e765275621fdc2fe5583fc97b5d16332adc9a8`, with centralized pytest configuration and process-specific storage.
+
+- Reproduced a test collection-order bug using a disposable sentinel database: an inherited `DATABASE_URL` could select application data before individual test modules installed their test settings. The worker test fixtures then changed that database. No real application data was used for this reproduction.
+- Pytest now selects isolated SQLite, upload, and secret paths before application database imports, resets inherited deployment/storage settings to test defaults, and stops collection if the database module was already loaded.
+- Real subprocess regression checks passed: the sentinel database remained byte-for-byte unchanged, existing uploads were preserved, production/S3 settings were overridden, two runs used different paths, successful fixtures were removed, and preloaded database imports stopped safely. Failed-run fixtures remain available for diagnosis.
+- Final full local gate passed: Ruff, compilation, **242 tests in 109.55 seconds**, and doctor. The local development default-secret warning remains; the database is at Alembic head `20260809_0013`.
+- Removed the obsolete shared test-database setting from CI. The doctor step remains separate from pytest and checks the operator's current configuration.
+- Application runtime code did not change in this pass; the Windows executable was not rebuilt. Target deployment, live concurrent workers, HAI consumer integration, manual accessibility, and client acceptance remain separate outstanding checks.
+
+## Read-path resource verification — 2026-09-05
+
+Target: working checkout based on `62c52f7438d1dbb28f9d348f6b57f872dbc56673`, with worker health, analytics, and action-center read optimizations.
+
+- Full local gate passed: Ruff, compilation, **240 tests**, and doctor. The development default-secret warning remains expected.
+- All six new resource/behavior checks passed on SQLite and on a real, disposable PostgreSQL **16.15** server. The PostgreSQL database migrated from empty to Alembic head `20260809_0013`. Tests cover bounded object loading, exact counts, owner scope, stale/paused worker reporting, all reminder types, priority, and the top-20 limit.
+- Synthetic before/after benchmark returned identical normalized responses for all three paths. Peak Python allocations decreased by 90.4% for worker health, 95.5% for analytics, and 99.2% for action-center reminders. See [Performance and scale](PERFORMANCE_SCALE_BASICS.md) for fixture, timings, method, and limitations.
+- Windows executable rebuilt and exercised through actual HTTP requests with fresh isolated SQLite data: API, separate worker, dashboard aggregates/action center, image upload, HAI incremental metadata, and malformed-cursor handling passed.
+- Executable SHA-256: `a3f1071f9c291bec989700cbe96f5904769d585566a9e8756af8d0dc75ada93f`.
+- Target deployment, concurrent PostgreSQL query/worker measurements, real HAI consumer integration, manual accessibility, and client acceptance are still outside this local verification result. The full product goal remains open.
+
+## HAI integration regression verification — 2026-09-05
+
+Target: working checkout based on `111bff6926316bd0d2c56be34b6800796ff5ce00`, with the HAI cursor and related-record feed fixes described below.
+
+- Reproduced HTTP 500 for oversized HAI cursor integers and incorrect acceptance of malformed cursor content before the fix. Invalid cursors now return HTTP 422; the maximum supported integer remains accepted.
+- Reproduced missing incremental events after image uploads and marketplace selection changes. Image addition/deletion and marketplace selection/deselection now update HAI metadata through transactional change records.
+- `python scripts/verify.py`: passed, including Ruff, compilation, **234 tests**, and doctor. The development default-secret warning remains expected; migrations are at `20260809_0013`.
+- Focused HAI regression suite: **11 passed**.
+- Windows executable rebuilt using Python 3.13.14/PyInstaller 6.22.0. SHA-256: `e7ca55217033b4ec13a169862fd2af711ad563f0e3d533c67ddf8fe338a74113`.
+- Fresh isolated executable run on Windows 11: API and separate worker healthy; browser entry point served; SQLite and persistent secret created; registration, HAI token creation, private image upload, marketplace selection, incremental HAI metadata, and oversized-cursor HTTP 422 all passed through actual HTTP requests.
+- `scripts/start-ngrok.ps1 -VerifyOnly -Port 18762`, with an isolated data directory: passed local API/worker startup and public HTTPS health, then stopped its test services. The earlier endpoint-allocation blocker did not recur in this run. This proves temporary tunnel access; production hosting and HAI-side registration remain separate requirements.
+- Release gate: still blocked, **77 missing evidence fields**. This regression verification does not supply target PostgreSQL deployment proof, a real HAI installation's consumer results, or manual accessibility/client acceptance.
+
+The earlier evidence below is retained as a dated historical record. Its test count and executable hash refer to that earlier build.
+
+## Earlier verification — 2026-08-09
+
+Date: 2026-08-09
+
+Verification target: `agent/production-launch-hardening` working checkout based on starting commit
+`0fa6d381a47139038d68b857537a02070740efae`. The exact release commit is recorded after the verified
+changes are committed and pushed to the existing draft PR.
 
 ## Verification Command
 
@@ -10,44 +725,52 @@ Verification target: current working checkout on 2026-07-13. Fresh-clone evidenc
 python scripts/verify.py
 ```
 
-Result: passed from the working checkout. See `docs/FRESH_CLONE_DRY_RUN.md` for the earlier fresh-clone dry run.
+Result: passed from the working checkout in one complete gate run.
 
 ## Gate Results
 
 - Ruff lint: passed.
 - Python compile checks: passed.
-- Pytest suite: passed, 190 tests.
-- Doctor diagnostics: passed with local-development warnings.
+- Pytest suite: passed, 226 tests in one run.
+- Focused HAI, private storage, Windows, deployment, architecture, and documentation suite: passed, 21 tests.
+- Alembic CLI from an empty database: passed at head `20260809_0013`.
+- Doctor: database, migrations, uploads, adapters, and legacy isolation passed at head `20260809_0013`; local default-secret warning expected.
+- Windows executable: clean build and clean-data launch passed, followed by an exact-source rebuild after the cursor edge fix; API and worker healthy, database and persistent secret created, final executable size 43,670,075 bytes, SHA-256 `6f791859c6bb70101e85b0c5c3ab417f5e962b12b2e52869b1c2df75bcfa1ed2`.
+- HAI connector: discovery, hashed/expiring/revocable token lifecycle, owner isolation, cursor feed, tombstones, malformed-cursor handling, and read-only contract passed.
+- Image privacy: raw storage paths removed from listing responses; owner-authenticated local/S3 reads, independent duplicate storage, reference-safe deletion, and account purge passed.
+- Dependency audit: installed-environment strict audit found no known vulnerabilities. The local Python 3.14 requirements-file resolver timed out; the Python 3.12 GitHub supply-chain job remains the authoritative requirements-file check.
+- Ngrok launcher: process/log isolation and fail-closed cleanup passed; live allocation is externally blocked by the account's existing endpoint (`ERR_NGROK_334`).
+- Docker engine: read-only version/config query timed out on this host, so a current image build and target PostgreSQL container drill remain unverified locally.
+- Reconciliation: passed with zero issues on the fresh migrated database.
+- Operator control: status healthy and job processing not paused.
+- Sanitized support bundle: generated successfully.
+- Production Compose configuration: passed when supplied the required external env file and upload volume.
+- Earlier browser workflow evidence covers registration, onboarding, listing creation, autosave, action-center refresh, and a 390 x 844 responsive check. The requested in-app Browser runtime failed to initialize during this hardening pass, so the new HAI settings and private-image flow still require fresh manual visual/accessibility evidence.
 - Release gate: blocked as expected until external evidence records are complete.
 - Final response preflight: blocked as expected until release gate and final acceptance are ready.
 
-## Expected Local Warnings
+## Expected Local Warning
 
-The doctor command returned `warning` status for expected local-development conditions:
-
-- Development is using the default `SECRET_KEY`.
-- The local SQLite database is not stamped at Alembic head `20260703_0010`.
-
-These warnings do not block local verification, but they remain production launch blockers until deployment uses a strong `SECRET_KEY` and the target database is migrated to Alembic head.
+Doctor reports that development uses the default `SECRET_KEY`. This is correct for this isolated
+local run and does not weaken the production guard, which rejects default or short secrets,
+unrestricted CORS, non-PostgreSQL databases, non-HTTPS public URLs, or unsafe feature flags.
 
 ## Release Gate Snapshot
 
-`python scripts/release_gate.py` currently reports `blocked` and `python scripts/release_gate.py --json` lists the missing evidence fields, per-record counts, and total missing evidence count because:
+`python scripts/release_gate.py --json` reports `blocked` with a total missing evidence count of 77.
+`python scripts/final_response_check.py --json` also reports `blocked` because:
 
-- release readiness still says not release-ready yet
-- release evidence has `Not captured` entries
-- non-technical user walkthrough evidence has `Not captured` entries
-- final acceptance is not accepted
+- release readiness still says not release-ready yet;
+- deployment and security evidence contains `Not captured` fields;
+- the real non-technical user walkthrough contains `Not captured` fields;
+- final acceptance is not accepted.
 
 ## Current Release Assessment
 
-The repository passes its automated verification gate at the verification target above. It is suitable for continued demo and hardening work.
+The repository passes its local implementation and automated verification components. It is ready
+for a demo/hardening review and for deployment into a supplied staging environment.
 
-It is not yet a final client launch release because the release readiness checklist still requires environment-specific evidence:
-
-- target database migration evidence
-- production secrets and CORS confirmation
-- worker process confirmation
-- backup/restore evidence
-- browser, responsive, and full manual accessibility walkthroughs
-- platform compliance acceptance
+It is not yet a final client launch release. Remaining external gates are target deployment access,
+PostgreSQL migration proof, production secret/CORS/storage confirmation, API and worker process
+evidence, backup/restore proof, edge rate-limit evidence, a real-user walkthrough, manual keyboard/
+zoom/screen-reader QA, acceptance of assisted marketplace posting, and named final signoff.

@@ -1,4 +1,8 @@
+import shutil
+from pathlib import Path
+
 import pytest
+from pydantic import ValidationError
 
 from app.config import Settings, validate_startup_safety
 
@@ -20,10 +24,39 @@ def test_env_example_documents_all_runtime_settings():
     assert expected_keys - env_example_keys() == set()
 
 
+def test_copied_environment_example_loads_without_legacy_cleanup(tmp_path, monkeypatch):
+    example = Path(".env.example").resolve()
+    shutil.copyfile(example, tmp_path / ".env")
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    settings = Settings()
+
+    assert settings.app_env == "development"
+    assert settings.database_url == "sqlite:///./data/autoposter.db"
+    assert settings.auth_transport == "bearer"
+    assert settings.dev_auto_login is False
+    assert settings.suggestion_provider == "deterministic_local"
+    validate_startup_safety(settings)
+
+
+def test_dotenv_still_rejects_unrecognized_settings(tmp_path):
+    environment = tmp_path / ".env"
+    environment.write_text("API_RATE_LIMIT_REQUEST=10\n", encoding="utf-8")
+
+    with pytest.raises(ValidationError) as error:
+        Settings(_env_file=environment)
+
+    assert [(item["loc"], item["type"]) for item in error.value.errors(include_input=False)] == [
+        (("api_rate_limit_request",), "extra_forbidden"),
+    ]
+
+
 def test_production_like_configuration_profile_passes_startup_safety():
     settings = Settings(
         app_env="production",
-        secret_key="production-secret-with-enough-entropy",
+        secret_key="production-secret-with-enough-entropy-32chars",
         database_url="postgresql+psycopg://autoposter:secret@db.example.com:5432/autoposter",
         public_base_url="https://autoposter.example.com",
         cors_origins="https://autoposter.example.com",
@@ -36,6 +69,37 @@ def test_production_like_configuration_profile_passes_startup_safety():
     )
 
     validate_startup_safety(settings)
+
+
+def test_standalone_profile_allows_loopback_sqlite_with_secure_defaults():
+    settings = Settings(
+        app_env="standalone",
+        secret_key="standalone-secret-with-enough-entropy-32chars",
+        database_url="sqlite:///./data/standalone.db",
+        public_base_url="http://127.0.0.1:8000",
+        cors_origins="http://127.0.0.1:8000",
+        auto_create_tables=False,
+        dev_auto_login=False,
+        job_process_inline=False,
+    )
+
+    validate_startup_safety(settings)
+
+
+def test_standalone_profile_rejects_insecure_non_loopback_public_url():
+    settings = Settings(
+        app_env="standalone",
+        secret_key="standalone-secret-with-enough-entropy-32chars",
+        database_url="sqlite:///./data/standalone.db",
+        public_base_url="http://example.test",
+        cors_origins="http://example.test",
+        auto_create_tables=False,
+        dev_auto_login=False,
+        job_process_inline=False,
+    )
+
+    with pytest.raises(RuntimeError, match="PUBLIC_BASE_URL"):
+        validate_startup_safety(settings)
 
 
 def test_platform_rate_limit_overrides_are_platform_specific():

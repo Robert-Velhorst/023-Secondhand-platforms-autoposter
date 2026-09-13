@@ -5,6 +5,9 @@ import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+from sqlalchemy.exc import OperationalError
+
 from app.database import Base, SessionLocal, engine
 from app.models import (
     AuditEvent,
@@ -15,8 +18,10 @@ from app.models import (
     PlatformAccount,
     PlatformOAuthState,
     PublishingJob,
+    StorageDeletion,
     User,
 )
+from app.routes.auth import delete_user_data
 from app.services.audit import purge_expired_audit_events, record_audit_event
 from tests.test_api import PNG_BYTES, client
 
@@ -37,6 +42,77 @@ def auth_headers(prefix: str):
     )
     assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['token']}"}
+
+
+def create_account_deletion_image(headers):
+    response = client.post("/api/listings", headers=headers, json={"title": "Deletion safety"})
+    assert response.status_code == 200, response.text
+    listing_id = response.json()["id"]
+    response = client.post(
+        f"/api/listings/{listing_id}/images",
+        headers=headers,
+        files={"file": ("keep-until-committed.png", PNG_BYTES, "image/png")},
+    )
+    assert response.status_code == 200, response.text
+    image_id = response.json()["images"][0]["id"]
+    with SessionLocal() as db:
+        storage_path = db.get(ListingImage, image_id).storage_path
+        owner_id = db.get(Listing, listing_id).owner_id
+    return owner_id, listing_id, image_id, Path(storage_path)
+
+
+def test_failed_account_deletion_commit_preserves_uploaded_image(monkeypatch):
+    headers = auth_headers("rollback")
+    owner_id, listing_id, image_id, path = create_account_deletion_image(headers)
+
+    def fail_commit():
+        raise OperationalError("COMMIT", {}, RuntimeError("injected commit failure"))
+
+    with SessionLocal() as db:
+        user = db.get(User, owner_id)
+        monkeypatch.setattr(db, "commit", fail_commit)
+        with pytest.raises(OperationalError, match="injected commit failure"):
+            delete_user_data(db, user)
+        db.rollback()
+
+    with SessionLocal() as db:
+        assert db.get(User, owner_id) is not None
+        assert db.get(Listing, listing_id) is not None
+        assert db.get(ListingImage, image_id) is not None
+        assert db.query(StorageDeletion).count() == 0
+        assert db.query(AuditEvent).filter(AuditEvent.action == "account_deleted").count() == 0
+    assert path.is_file(), "A rolled-back account deletion must not destroy the uploaded image"
+    assert path.read_bytes() == PNG_BYTES
+    response = client.get(f"/api/listings/{listing_id}/images/{image_id}/content", headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.content == PNG_BYTES
+
+
+def test_account_deletion_preserves_image_referenced_by_another_account():
+    headers = auth_headers("shared-delete")
+    owner_id, _, _, path = create_account_deletion_image(headers)
+    other_headers = auth_headers("shared-keep")
+    response = client.post("/api/listings", headers=other_headers, json={"title": "Keep shared image"})
+    assert response.status_code == 200, response.text
+    other_listing_id = response.json()["id"]
+    # Legacy/imported rows may share a stored object even though new duplicates copy it.
+    with SessionLocal() as db:
+        image = ListingImage(listing_id=other_listing_id, storage_path=str(path), filename="shared.png")
+        db.add(image)
+        db.commit()
+        other_image_id = image.id
+
+    response = client.delete("/api/auth/me", headers=headers)
+    assert response.status_code == 204, response.text
+    with SessionLocal() as db:
+        assert db.get(User, owner_id) is None
+        assert db.get(ListingImage, other_image_id) is not None
+    assert path.is_file(), "Deleting one account must preserve another account's referenced image"
+    response = client.get(
+        f"/api/listings/{other_listing_id}/images/{other_image_id}/content", headers=other_headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.content == PNG_BYTES
 
 
 def create_portable_workspace(headers):
@@ -341,7 +417,10 @@ def test_delete_me_purges_owned_data_and_revokes_session():
         files={"file": ("cabinet.png", PNG_BYTES, "image/png")},
     )
     assert image_response.status_code == 200, image_response.text
-    image_path = image_response.json()["images"][0]["storage_path"]
+    image_id = image_response.json()["images"][0]["id"]
+    with SessionLocal() as db:
+        image_path = db.query(ListingImage.storage_path).filter(ListingImage.id == image_id).scalar()
+    assert image_path
     publish_response = client.post(
         f"/api/listings/{listing['id']}/publish",
         headers=headers,

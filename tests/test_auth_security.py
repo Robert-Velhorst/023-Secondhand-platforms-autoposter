@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import SessionLocal
 from app.models import LoginThrottle, User
-from app.rate_limit import _identifier_hash, check_login_rate_limit, login_buckets
+from app.rate_limit import _identifier_hash, reserve_login_attempt
 from app.security import hash_password_pbkdf2, verify_password
 from tests.test_api import client
 
@@ -16,7 +16,6 @@ def unique_email() -> str:
 
 
 def clear_login_throttles() -> None:
-    login_buckets.clear()
     db: Session = SessionLocal()
     try:
         db.query(LoginThrottle).delete()
@@ -153,7 +152,7 @@ def test_successful_login_clears_failed_login_throttle():
         db.close()
 
 
-def test_expired_login_throttle_is_purged():
+def test_expired_login_throttle_starts_a_fresh_admission_window():
     clear_login_throttles()
     settings = get_settings()
     identifier = "test-client:expired@example.com"
@@ -170,8 +169,8 @@ def test_expired_login_throttle_is_purged():
         )
         db.commit()
 
-        check_login_rate_limit(db, identifier)
+        reserve_login_attempt(db, identifier)
 
-        assert db.query(LoginThrottle).count() == 0
+        assert db.query(LoginThrottle).one().attempts == 1
     finally:
         db.close()

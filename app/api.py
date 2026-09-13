@@ -3,6 +3,7 @@ import io
 import json
 import zipfile
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import ValidationError
@@ -53,24 +54,30 @@ from app.schemas import (
     ValidationResult,
 )
 from app.services.audit import record_audit_event
+from app.services.image_writes import image_write_scope
 from app.services.jobs import (
+    PublishingAccountError,
     confirm_manual_completion,
     enqueue_publish_job,
     get_or_create_mapping,
+    load_publishing_account,
     process_job,
     retry_job,
 )
 from app.services.oauth import consume_ebay_authorization_callback, create_ebay_authorization_url
-from app.services.quality import analyze_listing_quality
+from app.services.storage_cleanup import cleanup_after_commit, queue_storage_deletions
+from app.services.suggestions import get_suggestion_provider
 from app.storage import (
-    delete_stored_file,
+    ValidatedUpload,
     local_storage_path,
-    read_validated_image,
+    read_validated_image_sync,
     safe_filename,
     store_validated_image,
+    stored_file_bytes,
 )
 
 router = APIRouter(prefix="/api")
+MAX_LISTING_CSV_BYTES = 2_000_000
 SENSITIVE_CONNECTION_KEYS = ("password", "secret", "token", "api_key", "apikey", "access_key", "private_key")
 LISTING_CSV_FIELDS = [
     "title",
@@ -197,8 +204,11 @@ def delete_listing(
     db: Session = Depends(get_db),
 ):
     listing = _load_listing(db, user.id, listing_id)
+    image_paths = [image.storage_path for image in listing.images]
+    cleanup_ids = queue_storage_deletions(db, image_paths)
     db.delete(listing)
     db.commit()
+    cleanup_after_commit(cleanup_ids)
 
 
 @router.post("/listings/{listing_id}/duplicate", response_model=ListingOut, tags=["Listings"])
@@ -210,7 +220,7 @@ def duplicate_listing(
     source = _load_listing(db, user.id, listing_id)
     clone = Listing(
         owner_id=user.id,
-        title=f"{source.title} copy".strip(),
+        title=f"{source.title[:155].rstrip()} copy".strip(),
         description=source.description,
         price_cents=source.price_cents,
         currency=source.currency,
@@ -227,38 +237,58 @@ def duplicate_listing(
         model=source.model,
         color=source.color,
         material=source.material,
+        category_attributes=source.category_attributes,
         notes=source.notes,
         internal_notes=source.internal_notes,
         tags=source.tags,
         status="draft",
     )
-    db.add(clone)
-    db.flush()
-    for image in source.images:
-        db.add(
-            ListingImage(
-                listing_id=clone.id,
-                filename=image.filename,
-                storage_path=image.storage_path,
-                content_type=image.content_type,
-                file_size=image.file_size,
-                checksum_sha256=image.checksum_sha256,
-                position=image.position,
+    with image_write_scope(db) as track_image:
+        db.add(clone)
+        db.flush()
+        for image in source.images:
+            content = stored_file_bytes(image.storage_path)
+            if content is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A source image is unavailable. Restore or remove the missing image before duplicating.",
+                )
+            stored_file = store_validated_image(
+                ValidatedUpload(
+                    original_filename=image.filename,
+                    content=content,
+                    content_type=image.content_type,
+                    file_size=len(content),
+                    checksum_sha256=image.checksum_sha256,
+                    extension=Path(image.filename).suffix or ".img",
+                ),
+                clone.id,
+                on_planned=track_image,
             )
-        )
-    db.commit()
+            db.add(
+                ListingImage(
+                    listing_id=clone.id,
+                    filename=image.filename,
+                    storage_path=stored_file.storage_path,
+                    content_type=image.content_type,
+                    file_size=stored_file.file_size,
+                    checksum_sha256=image.checksum_sha256,
+                    position=image.position,
+                )
+            )
+        db.commit()
     return _load_listing(db, user.id, clone.id)
 
 
 @router.post("/listings/{listing_id}/images", response_model=ListingOut, tags=["Images"])
-async def upload_image(
+def upload_image(
     listing_id: int,
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     listing = _load_listing(db, user.id, listing_id)
-    validated = await read_validated_image(file)
+    validated = read_validated_image_sync(file)
     duplicate = (
         db.query(ListingImage)
         .filter(
@@ -269,21 +299,46 @@ async def upload_image(
     )
     if duplicate:
         return _load_listing(db, user.id, listing.id)
-    stored_file = store_validated_image(validated, listing.id)
-    position = len(listing.images)
-    db.add(
-        ListingImage(
-            listing_id=listing.id,
-            filename=stored_file.original_filename,
-            storage_path=stored_file.storage_path,
-            content_type=stored_file.content_type,
-            file_size=stored_file.file_size,
-            checksum_sha256=stored_file.checksum_sha256,
-            position=position,
+    with image_write_scope(db) as track_image:
+        stored_file = store_validated_image(validated, listing.id, on_planned=track_image)
+        position = len(listing.images)
+        db.add(
+            ListingImage(
+                listing_id=listing.id,
+                filename=stored_file.original_filename,
+                storage_path=stored_file.storage_path,
+                content_type=stored_file.content_type,
+                file_size=stored_file.file_size,
+                checksum_sha256=stored_file.checksum_sha256,
+                position=position,
+            )
         )
-    )
-    db.commit()
+        db.commit()
     return _load_listing(db, user.id, listing.id)
+
+
+@router.get("/listings/{listing_id}/images/{image_id}/content", tags=["Images"])
+def get_image_content(
+    listing_id: int,
+    image_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    listing = _load_listing(db, user.id, listing_id)
+    image = next((item for item in listing.images if item.id == image_id), None)
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+    content = stored_file_bytes(image.storage_path)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Image content is unavailable")
+    return Response(
+        content=content,
+        media_type=image.content_type,
+        headers={
+            "Cache-Control": "private, max-age=300",
+            "Content-Disposition": f'inline; filename="{safe_filename(image.filename)}"',
+        },
+    )
 
 
 @router.patch("/listings/{listing_id}/images/order", response_model=ListingOut, tags=["Images"])
@@ -313,9 +368,11 @@ def delete_image(
     image = next((item for item in listing.images if item.id == image_id), None)
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
-    delete_stored_file(image.storage_path)
+    storage_path = image.storage_path
+    cleanup_ids = queue_storage_deletions(db, [storage_path])
     db.delete(image)
     db.commit()
+    cleanup_after_commit(cleanup_ids)
     return _load_listing(db, user.id, listing.id)
 
 
@@ -373,7 +430,8 @@ def listing_quality(
     db: Session = Depends(get_db),
 ):
     listing = _load_listing(db, user.id, listing_id)
-    return analyze_listing_quality(listing)
+    settings = get_settings()
+    return get_suggestion_provider(settings.suggestion_provider).analyze(listing)
 
 
 def effective_platform_overrides(
@@ -408,20 +466,28 @@ def publish_listing(
     db: Session = Depends(get_db),
 ):
     listing = _load_listing(db, user.id, listing_id)
-    if payload.force_new_revision:
-        listing.revision += 1
-        db.add(ListingDraft(listing_id=listing.id, payload={"force_new_revision": True}, source="regenerate_package"))
-        db.commit()
-        listing = _load_listing(db, user.id, listing_id)
-    jobs = []
-    for platform_key in payload.platforms:
-        get_adapter(platform_key)
-        account_id = payload.account_ids.get(platform_key)
-        job = enqueue_publish_job(db, listing, platform_key, account_id)
-        if payload.process_now and get_settings().job_process_inline:
-            job = process_job(db, job.id)
-        jobs.append(job)
-    return jobs
+    try:
+        # Validate the entire selection before revision changes or per-job commits.
+        for platform_key in payload.platforms:
+            get_adapter(platform_key)
+            load_publishing_account(db, listing.owner_id, platform_key, payload.account_ids.get(platform_key))
+        if payload.force_new_revision:
+            listing.revision += 1
+            db.add(ListingDraft(
+                listing_id=listing.id, payload={"force_new_revision": True}, source="regenerate_package",
+            ))
+            db.commit()
+            listing = _load_listing(db, user.id, listing_id)
+        jobs = []
+        for platform_key in payload.platforms:
+            account_id = payload.account_ids.get(platform_key)
+            job = enqueue_publish_job(db, listing, platform_key, account_id)
+            if payload.process_now and get_settings().job_process_inline:
+                job = process_job(db, job.id)
+            jobs.append(job)
+        return jobs
+    except PublishingAccountError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 def process_job_task(job_id: int) -> None:
@@ -443,11 +509,11 @@ def list_jobs(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    listing_ids = [id_ for (id_,) in db.query(Listing.id).filter(Listing.owner_id == user.id).all()]
     query = (
         db.query(PublishingJob)
         .options(selectinload(PublishingJob.logs))
-        .filter(PublishingJob.listing_id.in_(listing_ids))
+        .join(Listing)
+        .filter(Listing.owner_id == user.id)
     )
     if platform:
         query = query.filter(PublishingJob.platform == platform)
@@ -492,7 +558,10 @@ def retry_publish_job(job_id: int, user: User = Depends(get_current_user), db: S
     )
     if not job or job.listing.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Job not found")
-    return retry_job(db, job)
+    try:
+        return retry_job(db, job)
+    except PublishingAccountError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/jobs/{job_id}/manual-completion", response_model=PublishingJobOut, tags=["Jobs"])
@@ -1087,30 +1156,39 @@ def export_listings_csv(user: User = Depends(get_current_user), db: Session = De
 
 
 @router.post("/import/listings.csv", response_model=DataImportResult, tags=["Data portability"])
-async def import_listings_csv(
+def import_listings_csv(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    content = await file.read(2_000_000)
+    content = file.file.read(MAX_LISTING_CSV_BYTES + 1)
     if not content:
         raise HTTPException(status_code=422, detail="CSV file is empty")
-    text = content.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text))
-    if not reader.fieldnames:
-        raise HTTPException(status_code=422, detail="CSV file must include a header row")
-    missing_fields = set(LISTING_CSV_FIELDS) - set(reader.fieldnames)
-    if missing_fields:
-        raise HTTPException(status_code=422, detail=f"CSV file is missing fields: {', '.join(sorted(missing_fields))}")
-
+    if len(content) > MAX_LISTING_CSV_BYTES:
+        raise HTTPException(status_code=413, detail=f"CSV exceeds {MAX_LISTING_CSV_BYTES:,} byte limit")
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=422, detail="CSV file must use UTF-8 encoding") from exc
+    reader = csv.DictReader(io.StringIO(text), strict=True)
     result = DataImportResult()
-    for row_number, row in enumerate(reader, start=2):
-        try:
-            listing_payload = _listing_from_csv_row(row)
-        except (ValidationError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail=f"CSV row {row_number}: {exc}") from exc
-        db.add(Listing(owner_id=user.id, **listing_payload.model_dump()))
-        result.listings_created += 1
+    try:
+        if not reader.fieldnames:
+            raise HTTPException(status_code=422, detail="CSV file must include a header row")
+        missing_fields = set(LISTING_CSV_FIELDS) - set(reader.fieldnames)
+        if missing_fields:
+            raise HTTPException(
+                status_code=422, detail=f"CSV file is missing fields: {', '.join(sorted(missing_fields))}",
+            )
+        for row_number, row in enumerate(reader, start=2):
+            try:
+                listing_payload = _listing_from_csv_row(row)
+            except (ValidationError, ValueError) as exc:
+                raise HTTPException(status_code=422, detail=f"CSV row {row_number}: {exc}") from exc
+            db.add(Listing(owner_id=user.id, **listing_payload.model_dump()))
+            result.listings_created += 1
+    except csv.Error as exc:
+        raise HTTPException(status_code=422, detail="CSV is malformed or contains an oversized field") from exc
     record_audit_event(db, user, "listings_csv_imported", {"listings_created": result.listings_created})
     db.commit()
     return result

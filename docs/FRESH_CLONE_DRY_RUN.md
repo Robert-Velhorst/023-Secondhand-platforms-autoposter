@@ -1,48 +1,45 @@
 # Fresh-Clone Dry Run
 
-Date: 2026-07-12
+Date: 2026-08-08
 
-Commit verified: `ca42634`
+Commit verified: `7107e4293217df2bac44e9bd113e026f689870b0`
 
 Clone source:
 
-```bash
-https://github.com/Noodzakelijk-Online/023-Secondhand-platforms-autoposter
+```text
+https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter.git
 ```
 
 Clone target:
 
-```bash
-C:\Users\ahmad\AppData\Local\Temp\autoposter-fresh-clone-ca42634
+```text
+C:\Users\NO\Documents\Codex\2026-07-13\lo\work\repo\.tmp\fresh-clone-7107e42
 ```
 
 ## Commands Run
 
 ```bash
-git clone https://github.com/Noodzakelijk-Online/023-Secondhand-platforms-autoposter C:\Users\ahmad\AppData\Local\Temp\autoposter-fresh-clone-ca42634
-cd C:\Users\ahmad\AppData\Local\Temp\autoposter-fresh-clone-ca42634
-git rev-parse --short HEAD
-python scripts\verify.py
+git -c http.sslBackend=openssl clone --branch agent/production-launch-hardening --single-branch https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter.git .tmp/fresh-clone-7107e42
+cd .tmp/fresh-clone-7107e42
+python scripts/verify.py
 ```
+
+The first verification attempt was discarded because it inherited the source checkout working
+directory. The recorded result below is from a second run whose pytest `rootdir` was the fresh
+clone path shown above.
 
 ## Result
 
-Fresh-clone verification passed at commit `ca42634`.
+Fresh-clone verification passed at commit `7107e4293217df2bac44e9bd113e026f689870b0`.
 
 - Ruff lint: passed.
 - Python compile checks: passed.
-- Pytest suite: passed, 139 tests.
-- Doctor diagnostics: passed with local-development warnings.
+- Pytest suite: passed, 210 tests.
+- Doctor: database, uploads, adapters, and legacy isolation passed.
+- Expected warnings: development default secret and the brand-new local SQLite database not yet
+  stamped at Alembic head `20260808_0012`.
 
-## Expected Local Warnings
-
-The doctor command returned warning status for local development defaults:
-
-- Development is using the default `SECRET_KEY`.
-- The fresh local SQLite database was not stamped at Alembic head `20260703_0009`.
-
-These warnings do not block the fresh-clone dry run. They remain deployment launch gates for production secrets and target database migration evidence.
-
-## Scope
-
-This proves the pushed repository can be cloned cleanly and pass the automated verification gate from that clone. It does not prove browser QA, production deployment, production database migration, backup/restore, or official platform publishing readiness.
+GitHub Verify and Supply Chain workflows also passed for the same commit. This proves the pushed
+implementation can be cloned and verified independently. It does not prove target deployment,
+PostgreSQL migration, backup/restore, manual accessibility, real-user acceptance, or official
+marketplace publication.

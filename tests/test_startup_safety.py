@@ -18,10 +18,13 @@ def test_production_rejects_unsafe_defaults():
 def test_production_accepts_safe_startup_configuration():
     settings = Settings(
         app_env="production",
-        secret_key="production-secret-with-enough-entropy",
+        secret_key="production-secret-with-enough-entropy-32chars",
         cors_origins="https://example.com",
+        database_url="postgresql+psycopg://autoposter:secret@db.example.com:5432/autoposter",
+        public_base_url="https://example.com",
         auto_create_tables=False,
         dev_auto_login=False,
+        job_process_inline=False,
     )
 
     validate_startup_safety(settings)
@@ -91,6 +94,40 @@ def test_s3_storage_requires_bucket():
         validate_startup_safety(settings)
 
 
+def test_production_rejects_short_secret_non_postgresql_and_inline_processing():
+    settings = Settings(
+        app_env="production",
+        secret_key="too-short",
+        cors_origins="https://example.com",
+        auto_create_tables=False,
+        public_base_url="http://example.com",
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        validate_startup_safety(settings)
+
+    message = str(exc.value)
+    assert "SECRET_KEY must be at least 32 characters" in message
+    assert "DATABASE_URL must use PostgreSQL" in message
+    assert "PUBLIC_BASE_URL must use https" in message
+    assert "JOB_PROCESS_INLINE must be false" in message
+
+
+def test_production_rejects_invalid_cors_origin():
+    settings = Settings(
+        app_env="production",
+        secret_key="production-secret-with-enough-entropy-32chars",
+        cors_origins="autoposter.example.com",
+        database_url="postgresql+psycopg://autoposter:secret@db.example.com:5432/autoposter",
+        public_base_url="https://autoposter.example.com",
+        auto_create_tables=False,
+        job_process_inline=False,
+    )
+
+    with pytest.raises(RuntimeError, match="CORS_ORIGINS entries must be absolute"):
+        validate_startup_safety(settings)
+
+
 def test_feature_flags_are_reported_from_settings():
     settings = Settings(dev_auto_login=True, auto_create_tables=False, job_process_inline=False)
 
@@ -100,3 +137,10 @@ def test_feature_flags_are_reported_from_settings():
     assert flags["dev_auto_login"].production_allowed is False
     assert flags["auto_create_tables"].enabled is False
     assert flags["inline_job_processing"].enabled is False
+
+
+def test_unimplemented_external_suggestion_provider_is_rejected():
+    settings = Settings(suggestion_provider="external-ai")
+
+    with pytest.raises(RuntimeError, match="SUGGESTION_PROVIDER must be deterministic_local"):
+        validate_startup_safety(settings)

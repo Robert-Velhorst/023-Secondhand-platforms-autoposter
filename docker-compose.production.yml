@@ -1,0 +1,32 @@
+services:
+  migrate:
+    build: .
+    env_file:
+      - .env.production
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  autoposter:
+    build: .
+    env_file:
+      - .env.production
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      - "${UPLOAD_VOLUME:?Set UPLOAD_VOLUME to a persistent host path or managed volume}:/app/data/uploads"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker:
+    build: .
+    env_file:
+      - .env.production
+    command: ["python", "-m", "app.worker"]
+    volumes:
+      - "${UPLOAD_VOLUME:?Set UPLOAD_VOLUME to a persistent host path or managed volume}:/app/data/uploads"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped

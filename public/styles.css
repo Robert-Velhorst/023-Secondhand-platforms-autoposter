@@ -344,18 +344,17 @@ nav {
   font-size: 13px;
 }
 
-.analytics-bar-row > div {
+.analytics-bar-row svg {
+  display: block;
+  width: 100%;
   height: 8px;
   border-radius: 999px;
   background: #e7edf2;
   overflow: hidden;
 }
 
-.analytics-bar-row i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--primary);
+.analytics-bar-row rect {
+  fill: var(--primary);
 }
 
 .analytics-issues {
@@ -741,6 +740,28 @@ textarea {
   gap: 10px;
 }
 
+.hai-token-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  align-items: end;
+}
+
+.hai-token-once {
+  display: grid;
+  gap: 8px;
+  border: 2px solid var(--warn);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-wrap: anywhere;
+}
+
+.hai-token-once code {
+  display: block;
+  user-select: all;
+  white-space: pre-wrap;
+}
+
 .diagnostic-checks {
   display: grid;
   gap: 8px;
@@ -837,7 +858,52 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .hai-token-form {
+    grid-template-columns: 1fr;
+  }
+
   .workspace {
     padding: 14px;
   }
+}
+/* Local onboarding and exception-based action center. */
+.action-center-panel {
+  margin: 1rem 0;
+  padding: 1rem;
+  background: var(--surface, #fff);
+  border: 1px solid var(--line, #dce3e8);
+  border-radius: 0.75rem;
+}
+
+.onboarding-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.onboarding-step {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--line, #dce3e8);
+}
+
+.onboarding-step.complete {
+  opacity: 0.72;
+}
+
+.action-item {
+  border-left: 4px solid #5b7083;
+}
+
+.action-item.critical {
+  border-left-color: #b42318;
+}
+
+.action-item.warning {
+  border-left-color: #b7791f;
 }

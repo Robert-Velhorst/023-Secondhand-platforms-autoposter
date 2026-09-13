@@ -1,6 +1,6 @@
 # Supply Chain And Dependencies
 
-The production application dependencies are declared in `requirements.txt`. Legacy browser-automation dependencies remain isolated in `requirements-legacy.txt` and are not installed for the FastAPI app.
+The production application dependencies are declared in `requirements.txt`. Test and lint tools are isolated in `requirements-dev.txt`, and legacy browser-automation dependencies remain isolated in `requirements-legacy.txt`; neither is installed in the production image.
 
 ## Vulnerability Audit
 
@@ -12,6 +12,11 @@ python scripts/audit_dependencies.py
 ```
 
 The script audits `requirements.txt` with `pip-audit --strict`. The GitHub Actions workflow `.github/workflows/supply-chain.yml` runs the same audit on pushes, pull requests, a weekly schedule, and manual dispatch.
+
+GitHub Actions dependencies are pinned to immutable commit SHAs for their documented Node 24
+releases. The container base image is digest-pinned. Dependabot checks Python, GitHub Actions, and
+Docker dependencies weekly. Workflows use
+read-only repository permissions, concurrency cancellation, and explicit job timeouts.
 
 ## Dependency Rules
 

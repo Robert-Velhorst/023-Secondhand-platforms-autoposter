@@ -57,3 +57,30 @@ Before client launch, this review should be refreshed after:
 - any remote storage backend,
 - any new admin/operator UI,
 - any new endpoint that reads or mutates owned data.
+
+## Loop Two: Operator And Recovery Controls (2026-08-08)
+
+The second loop challenged failure containment. A worker could previously be stopped only by
+stopping its process, which was slow and easy to mishandle during a duplicate-risk incident.
+The persistent operator-control singleton and `python -m app.operator_control pause --reason ...`
+now stop new job claims across worker restarts. The status is exposed in diagnostics and worker
+health without exposing user data. Remaining production proof: exercise pause and resume with the
+target PostgreSQL database and process manager.
+
+The same loop challenged support collection and data repair. The support-bundle command now emits
+only aggregate counts, safe configuration, doctor results, and secret-presence booleans. The
+reconciliation command is check-only by default and its repair mode is intentionally limited to
+deterministic image-position gaps. Orphan deletion and publication inference remain manual.
+
+## Loop Three: Product Claims And External Trust (2026-08-08)
+
+The third loop treated every external boundary as hostile or unavailable. Listing guidance now
+identifies its provider as `deterministic_local`, reports that no external data was sent, and cannot
+be configured to an unimplemented provider. All marketplace adapters continue to return assisted
+packages and `needs_user_action`; no UI or API path converts preparation into a false published
+claim. A manual completion needs an owner-supplied marketplace URL.
+
+The action center is owner-scoped and derived from existing records; it does not invent reminders
+or transmit analytics. Remaining external gates are intentionally not papered over: deployment,
+target PostgreSQL, backup/restore, edge rate limiting, real-user accessibility, official provider
+credentials, and final acceptance still require evidence from the client environment.
