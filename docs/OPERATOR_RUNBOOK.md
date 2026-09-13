@@ -36,7 +36,7 @@ Revision `20260905_0014` adds nullable `publishing_jobs.claim_token`. This is an
 
 1. Pause job processing and stop **all** old API/worker processes, including standalone executables and API processes that can execute jobs inline. Wait for in-flight work to finish where possible; reconcile any uncertain external outcome before retrying it.
 2. Back up the target database and verify the recovery procedure. The automated disposable migration tests are not a backup for your target data.
-3. Install the new release, run `alembic upgrade head`, and check `python -m app.doctor --json` reports current head `20260913_0015` (including claim fencing and the cleanup outbox).
+3. Install the new release, run `alembic upgrade head`, and check `python -m app.doctor --json` reports current head `20260913_0016` (including claim fencing, the cleanup outbox, and login reservation fencing).
 4. Start the API and worker from the same release, verify health, and resume processing. Check an assisted job reaches `needs_user_action` and its history is retained.
 
 Do not perform a mixed-version rolling deployment: old workers ignore claim identifiers and can still overwrite newer results. Claim fencing prevents stale **local writes**; it cannot cancel an already-started external request, renew a lease, or guarantee exactly-once marketplace publication. Current adapters prepare assisted packages only.
@@ -81,6 +81,37 @@ process crash before recovery intent was saved. Those require separate,
 backup-aware storage reconciliation; do not blindly scan and delete files.
 See [Image Storage](IMAGE_STORAGE.md#deletion-and-recovery) for retry semantics,
 storage boundaries, privacy retention, and provider-version limitations.
+
+## Login-admission upgrade
+
+Revision `20260913_0016` adds nullable `login_throttles.attempt_token` without
+rewriting or resetting existing throttle records. A preexisting failed-attempt
+count remains effective until its window expires. The change does not rename
+existing columns or modify published migrations. PostgreSQL still needs a DDL
+lock for the column addition: the disposable tests do not establish target
+lock duration or zero-downtime safety on a large table.
+
+Stop all API and worker processes, back up the database, apply
+`alembic upgrade head`, then restart both from the same release. Do not mix old
+and new login handlers: older code does not reserve/fence attempts. Confirm
+doctor reports `20260913_0016`, a controlled login succeeds, the configured
+quota returns 429/Retry-After, and the worker reclaims expired test records.
+Use a synthetic account/identity; do not lock out a real user's account for QA.
+
+The worker deletes at most 100 expired throttle records per cycle, including
+when publishing is paused. Pausing publishing is not a database-write freeze.
+Stop both processes before backups/restores requiring a quiet database. This
+cleanup is not a hard table-size bound; investigate persistent backlog growth
+and confirm edge admission controls.
+
+Prefer forward repairs in production. An explicitly approved downgrade refuses
+to remove the fence column while any non-null reservations remain. First stop
+new login traffic/API processes, allow the current worker to drain expired
+reservations after their configured windows, then stop all processes and take
+a fresh backup before considering downgrade. Do not manually erase active
+throttle records to force it through. Storage-outbox drain requirements also
+apply when downgrading to earlier revisions. Reverting code removes the new
+concurrent-login protections. See [rate-limit semantics](RATE_LIMITS.md#atomic-login-admission).
 
 ## Start Services
 

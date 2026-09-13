@@ -34,7 +34,7 @@ Doctor warnings are allowed for local development defaults; doctor errors fail t
 
 GitHub Actions runs the same command on pushes and pull requests to `main` via `.github/workflows/verify.yml`.
 
-The same workflow also runs a `postgres-workers` job against a disposable PostgreSQL 16 service. Its sixty-one job-safety tests use real connections and migrations, not merely compiled PostgreSQL SQL.
+The same workflow also runs a `postgres-workers` job against a disposable PostgreSQL 16 service. Its job, storage-cleanup, image-write, and login-admission tests use real connections and migrations, not merely compiled PostgreSQL SQL.
 
 ## Current Test Layers
 
@@ -45,7 +45,7 @@ The same workflow also runs a `postgres-workers` job against a disposable Postgr
 | Acceptance workflow | `tests/test_acceptance_workflow.py` | Seller setup-to-portability API acceptance flow covering accounts, templates, mappings, listing/image creation, quality, validation, assisted jobs, analytics, export/import, and audit activity. |
 | Owner isolation | `tests/test_owner_isolation.py` | Cross-user visibility and mutation boundaries for owned listings, jobs, accounts, templates, and category mappings. |
 | Publishing-account boundary | `tests/test_publishing_account_boundary.py` | Foreign-owner IDs in accepted numeric forms, wrong/missing/nonpositive IDs, whole-request preflight, valid selected/no-account controls, direct enqueue, retry API/service, worker execution, and stale-job recovery without unauthorized adapter calls. |
-| Auth/security | `tests/test_auth_security.py`, `tests/test_api_rate_limit.py` | Password hashing, login/logout/session behavior, token revocation, bearer-only auth posture, database-backed hashed failed-login throttling with expiry/success clearing/`Retry-After`, and general API throttling. |
+| Auth/security | `tests/test_auth_security.py`, `tests/test_api_rate_limit.py`, `tests/test_login_admission.py`, `tests/test_login_throttle_db.py` | Password hashing, sessions/revocation, bearer-only auth, atomic pre-verification admission, concurrent HTTP/DB checks, fenced successful clearing, rollback, bounded expiry cleanup, additive migration preservation, and general API throttling. |
 | SaaS/account readiness | `tests/test_saas_readiness.py` | Personal-account readiness contract, billing-free status, workspace deferral, and owner-scoped usage counts. |
 | Storage | `tests/test_storage_uploads.py`, `tests/test_startup_safety.py` | Filename sanitization, MIME/signature validation, duplicate detection, delete/reorder behavior, metadata persistence, local file cleanup, S3-compatible object writes/deletes, and storage config validation. |
 | Category mappings | `tests/test_category_mappings.py` | Mapping CRUD/upsert/patch behavior and mapping use in validation/publish output. |

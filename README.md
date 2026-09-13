@@ -571,7 +571,7 @@ The S3 client uses [boto3's credential resolution](https://docs.aws.amazon.com/b
 | --- | --- | --- |
 | `DEV_AUTO_LOGIN` | `false` | Reserved development-only shortcut; rejected in production/standalone |
 | `SESSION_EXPIRE_HOURS` | `168` | Bearer-session lifetime |
-| `LOGIN_RATE_LIMIT_ATTEMPTS` | `5` | Failed attempts per email/IP window |
+| `LOGIN_RATE_LIMIT_ATTEMPTS` | `5` | Atomically admitted attempts per email/IP window, including in-flight checks; a still-latest success clears its window |
 | `LOGIN_RATE_LIMIT_WINDOW_SECONDS` | `300` | Login throttle window |
 | `API_RATE_LIMIT_REQUESTS` | `300` | Requests per supplied Authorization header (or observed client IP if absent), per process/window |
 | `API_RATE_LIMIT_WINDOW_SECONDS` | `60` | API throttle window |
@@ -721,7 +721,7 @@ Recovery checks the selected job version again before returning it to the queue,
 
 Each claim also carries a random identifier through execution. A delayed worker cannot start a replacement claim or save a late success, error, or quota response after its claim has been replaced. The job result, platform mapping, and attempt/log writes share one guarded transaction. Adapter calls receive detached listing/image/account inputs after the read connection has been released; package preparation does not hold a database transaction open. These safeguards protect local database state, not provider-side effects: lease renewal and exactly-once external publication are not implemented.
 
-Upgrading across Alembic revision `20260905_0014` requires stopping all old API and worker processes first, including inline processing. Current head `20260913_0015` also adds durable storage cleanup. Back up the database and uploads, apply migrations, and restart every process with the new code. Do not mix old and new workers: old code does not enforce claim identifiers or retry the cleanup outbox. See the [claim-fencing upgrade procedure](docs/OPERATOR_RUNBOOK.md#claim-fencing-upgrade) and [storage-cleanup upgrade](docs/OPERATOR_RUNBOOK.md#storage-cleanup-upgrade-and-operation).
+Upgrading across Alembic revision `20260905_0014` requires stopping all old API and worker processes first, including inline processing. Current head `20260913_0016` also includes durable storage cleanup and atomic login reservation fencing. Back up the database and uploads, apply migrations, and restart every process with the new code. Do not mix old and new processes: old code does not enforce these protections. See the [claim-fencing upgrade procedure](docs/OPERATOR_RUNBOOK.md#claim-fencing-upgrade), [storage-cleanup upgrade](docs/OPERATOR_RUNBOOK.md#storage-cleanup-upgrade-and-operation), and [login-admission upgrade](docs/OPERATOR_RUNBOOK.md#login-admission-upgrade).
 
 Inline requests must claim due queued work; they do not execute a job already claimed by a worker or bypass its scheduled backoff. Retrying an already queued/running job leaves it unchanged. Retrying terminal work uses a conditional version check and, when `JOB_PROCESS_INLINE=false`, leaves execution to the separate worker. A fresh claim clears the previous attempt's start/finish timestamps so it is not immediately recovered as stale.
 
@@ -842,6 +842,8 @@ The gate runs:
 3. the complete pytest suite;
 4. `python -m app.doctor --json`.
 
+The latest atomic-login checkpoint passed **501 tests with one POSIX-only skip in 139.72 seconds on Windows on 2026-09-13** (502 cases), plus Ruff and compilation. All **85 PostgreSQL subset checks** passed. Sixteen new cases cover concurrent admission, successful-completion fencing, error rollback, expiry cleanup, and migration preservation. See the [current verification record](docs/FINAL_VERIFICATION_REPORT.md#atomic-login-admission-and-expiry-maintenance--2026-09-13). Production deployment and human acceptance remain separate requirements.
+
 The latest API rate-limit resource checkpoint passed **485 tests with one POSIX-only skip in 128.22 seconds on Windows on 2026-09-13** (486 cases), plus Ruff and compilation. Ten new cases cover memory bounds, expiry, capacity behavior, concurrent admission, and real HTTP errors. See the [current verification record](docs/FINAL_VERIFICATION_REPORT.md#bounded-api-rate-limit-state--2026-09-13); these checks do not prove production load capacity or edge enforcement.
 
 The newer upload/CSV responsiveness checkpoint passed **475 tests with one POSIX-only skip in 117.81 seconds on Windows on 2026-09-13** (476 cases), plus Ruff and compilation. Nine new cases cover event-loop isolation, async image helpers, exact CSV size boundaries, and encoding/parser errors without partial imports. See the [current verification record](docs/FINAL_VERIFICATION_REPORT.md#upload-and-csv-event-loop-isolation--2026-09-13). The earlier checkpoints below retain their original evidence; none is production acceptance or a saturated-load guarantee.
@@ -850,7 +852,7 @@ The latest image-write recovery checkpoint passed **466 tests with one POSIX-onl
 
 Pytest creates a separate database, upload directory, and secret directory for each process before importing the application. It ignores inherited deployment/storage values and removes its own fixtures after a successful run; failed fixtures remain under `.tmp/test-runs/` for diagnosis. See [Testing strategy](docs/TESTING_STRATEGY.md) for the isolation contract and explicit PostgreSQL integration checks.
 
-GitHub's `postgres-workers` job is configured to run 74 job-safety, storage-cleanup, and image-write recovery cases against a disposable PostgreSQL 16 service, including changed-account checks, stale-recovery races, bounded backlog draining, claim-fenced completion, resource release, cleanup retries/concurrency, uncertain image commits, and migration preservation through separate database connections. All 74 passed locally against disposable PostgreSQL 16 on 2026-09-13. Each case migrates its own newly created schema to Alembic head and removes that schema afterward. These rerun a subset of the product tests against a different database; they are not 74 additional distinct cases or evidence of a deployed production database. Use the checks attached to the exact commit for GitHub CI status.
+GitHub's `postgres-workers` job is configured to run 85 job-safety, storage-cleanup, image-write recovery, and login-admission cases against a disposable PostgreSQL 16 service. All 85 passed locally on 2026-09-13, including eleven login cases for concurrent HTTP/DB admission, completion fencing, rollback, expiry cleanup, and migration preservation. Each case migrates its own newly created schema to Alembic head and removes that schema afterward. These rerun a subset of the product tests against a different database; they are not 85 additional distinct cases or evidence of a deployed production database. Use the checks attached to the exact commit for GitHub CI status.
 
 Additional checks:
 

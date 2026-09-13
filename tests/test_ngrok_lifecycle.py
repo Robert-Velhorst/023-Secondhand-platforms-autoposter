@@ -347,7 +347,7 @@ def test_source_launcher_verifies_real_api_worker_cors_and_cleans_up(tmp_path):
             pass
     assert json.loads(record.read_text())["port_owned"] is True
     with sqlite3.connect(data / "autoposter.db") as database:
-        assert database.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "20260913_0015"
+        assert database.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "20260913_0016"
         assert database.execute("SELECT count(*) FROM worker_heartbeats").fetchone()[0] >= 1
 
 

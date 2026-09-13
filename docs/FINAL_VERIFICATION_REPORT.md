@@ -1,5 +1,62 @@
 # Final Verification Report
 
+## Atomic login admission and expiry maintenance — 2026-09-13
+
+Target: checkout based on `cdf54849232a6a82536d77af46a1a8b741115291`, plus
+the changes recorded here. Three failing regressions reproduced simultaneous
+password checks exceeding the configured quota, an older successful login
+erasing newer failed activity, and expired identities remaining without worker
+cleanup. The HTTP race tests pause real route execution at password verification;
+they do not replace admission with a stubbed result.
+
+Each login now commits a conditional SQLite/PostgreSQL upsert before checking
+credentials. Its slot remains counted on failure/interruption. A random
+reservation fence makes successful clearing conditional on that request still
+being latest, and clearing commits with user-session creation. Database
+admission errors fail closed. The worker reclaims at most 100 expired records
+per cycle with expiry rechecked during deletion.
+
+Additive revision `20260913_0016` adds nullable `attempt_token`, preserves
+legacy throttle records, accepts the historical metadata-bootstrap path, and
+refuses downgrade while reservation fences remain. Published migrations were
+not edited. API and worker processes must be upgraded together after backup;
+no target production migration or production-sized lock test was performed.
+
+Verification:
+
+- Full Windows suite: **501 passed, one POSIX-only skip in 139.72 seconds**
+  (502 cases). Ruff, compilation, and documentation-link checks passed.
+- Disposable migrated PostgreSQL 16: **85 passed in 101.64 seconds**, including
+  eleven new login tests using real sessions and HTTP dependency wiring.
+  These are subset reruns, not 85 additional distinct product tests.
+- Checks cover 12 concurrent connections at quota three, stale ORM state,
+  older-versus-newer completion, exact expiry/new generations, admission commit
+  rollback, cleanup/refresh races, capped cleanup batches, legacy-row migration
+  preservation, and downgrade refusal. HTTP cases also verify admission failure
+  prevents password work and a failed actual session commit restores the
+  pending throttle clear through rollback.
+- Rebuilt Windows executable SHA-256:
+  `869f2039f3b7ee1b540c9e71c7dead8cd83824988ec5324a3ba27e1877a63788`.
+  Its real API enforced five failed attempts then 429/Retry-After. After only
+  the synthetic test reservation was deliberately expired in the isolated
+  database, the separate worker removed it and a valid login succeeded with
+  its reservation cleared. Existing API, worker, image compensation/cleanup,
+  CSV rejection, and general rate-limit checks passed.
+  Doctor returned `ok` on this isolated SQLite fixture with explicit synthetic
+  development settings. Owned test processes and the disposable PostgreSQL
+  container were stopped after verification; no production data was accessed.
+- Real packaged producer-to-local-review-HAI integration passed again against
+  disposable PostgreSQL: 101 records, update, deletion, durable restart/disable,
+  explicit zero-replay resume, revocation, and reference-only privacy. HAI
+  remains uncommitted, unpublished, and uninstalled local review work.
+
+The quota now counts admitted/in-flight attempts, not only completed failures.
+An older success may leave newer activity counted. Expired cleanup bounds work,
+not total table size; backlog growth and identity rotation still need edge and
+operator controls. UTC host clocks must be synchronized. Production deployment,
+public ngrok acceptance, installed HAI integration, and human signoff remain
+outside this evidence.
+
 ## Bounded API rate-limit state — 2026-09-13
 
 Target: checkout based on `a8deb59beed064fe8b8186ada9f5fb07947ff4a7`, plus

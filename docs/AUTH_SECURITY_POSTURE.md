@@ -36,7 +36,7 @@ HTTPS requests also receive `Strict-Transport-Security: max-age=31536000; includ
 - Terminate TLS at the deployment edge and preserve HTTPS scheme forwarding so HSTS is emitted for browser traffic.
 - Store bearer tokens only in the frontend runtime needed by the static dashboard; do not copy them into logs, URLs, analytics, screenshots, or exports.
 - Keep `API_RATE_LIMIT_REQUESTS` and `API_RATE_LIMIT_WINDOW_SECONDS` enabled for general API throttling in addition to login-specific throttling.
-- Login throttling stores only a SHA-256 hash of the client/email throttle identifier, clears after a successful login, expires old windows, and returns `Retry-After` on lockout.
+- Login throttling atomically reserves attempts before credential verification and stores a SHA-256 client/email identifier plus counters, timestamps, and an internal reservation fence. Only a still-latest successful attempt clears its window, in the same transaction as session creation. Expired records are reclaimed in bounded worker batches; lockout responses include `Retry-After`. See [atomic login admission](RATE_LIMITS.md#atomic-login-admission) for concurrency, interrupted-request, identity, and backlog limits.
 - Use `POST /api/auth/logout` to revoke a session when the user signs out.
 
 ## If Cookie Auth Is Added Later

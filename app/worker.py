@@ -7,6 +7,7 @@ from sqlalchemy.exc import InterfaceError, OperationalError, TimeoutError
 from app.config import get_settings, validate_startup_safety
 from app.database import SessionLocal, init_db
 from app.observability import configure_logging
+from app.rate_limit import purge_expired_login_throttles
 from app.services.jobs import process_due_jobs
 from app.services.storage_cleanup import process_due_storage_deletions
 from app.services.worker_health import record_heartbeat
@@ -20,6 +21,7 @@ def run_once() -> int:
     try:
         processed = process_due_jobs(db, settings.job_worker_batch_size)
         process_due_storage_deletions(db, settings=settings)
+        purge_expired_login_throttles(db)
         return processed
     finally:
         db.close()

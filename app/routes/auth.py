@@ -20,7 +20,7 @@ from app.models import (
     User,
     UserSession,
 )
-from app.rate_limit import check_login_rate_limit, record_failed_login, record_successful_login
+from app.rate_limit import clear_successful_login, reserve_login_attempt
 from app.schemas import AuthLogin, AuthRegister, AuthToken, UserOut
 from app.security import create_session, hash_password, password_needs_rehash, revoke_session, verify_password
 from app.services.audit import record_audit_event
@@ -49,15 +49,13 @@ def register(payload: AuthRegister, db: Session = Depends(get_db)) -> AuthToken:
 @router.post("/auth/login", response_model=AuthToken, tags=["Auth"])
 def login(payload: AuthLogin, request: Request, db: Session = Depends(get_db)) -> AuthToken:
     identifier = f"{request.client.host if request.client else 'unknown'}:{payload.email.lower()}"
-    check_login_rate_limit(db, identifier)
+    reservation = reserve_login_attempt(db, identifier)
     user = db.query(User).filter(User.email == payload.email.lower()).one_or_none()
     if not user or not verify_password(payload.password, user.password_hash):
-        record_failed_login(db, identifier)
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if password_needs_rehash(user.password_hash):
         user.password_hash = hash_password(payload.password)
-        db.commit()
-    record_successful_login(db, identifier)
+    clear_successful_login(db, reservation)
     token = create_session(db, user)
     return AuthToken(token=token, user=UserOut.model_validate(user))
 

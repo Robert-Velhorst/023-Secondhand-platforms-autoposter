@@ -6,7 +6,7 @@ The app includes a conservative per-platform cooldown for publishing jobs. This 
 
 `API_RATE_LIMIT_REQUESTS` defaults to 300 and `API_RATE_LIMIT_WINDOW_SECONDS`
 to 60. This is a fixed-window, in-memory limit **per API process**, separate
-from database-backed failed-login throttling and publishing cooldowns.
+from database-backed login-attempt throttling and publishing cooldowns.
 
 - The key is a SHA-256 hash of the supplied Authorization header, or the client
   host observed by the app if that header is absent. This runs before route
@@ -37,7 +37,43 @@ Restarting a process resets its API limiter. Multiple API processes do not
 share these counters. Independently verified proxy/CDN/WAF limits, request-body
 limits, and target load tests remain production requirements; this change is
 not evidence that those controls exist. The database-backed login throttle is
-unchanged by this API-memory hardening.
+separate from the process-local API limiter.
+
+## Atomic login admission
+
+`LOGIN_RATE_LIMIT_ATTEMPTS` defaults to 5 and
+`LOGIN_RATE_LIMIT_WINDOW_SECONDS` to 300. The database key remains a hash of
+the observed client host plus lowercased email; raw email/client identifiers
+are not stored in the throttle table. This is not a global per-account or
+distributed-attacker limit: changing the client/email pair changes the key.
+
+Each login now reserves a slot with one conditional database upsert **before**
+checking credentials. Concurrent requests cannot all pass an empty-window
+check and only increment after expensive password work. The reservation is
+committed before verification, so no throttle row lock spans password hashing.
+Database admission errors stop login; there is no in-memory fallback.
+
+The counter represents admitted attempts, including in-flight requests, not
+only completed failures. Failed, interrupted, or uncertain requests retain
+their slot until expiry. A successful login clears the window only if its
+random reservation token is still the latest one. Older successful requests
+cannot clear newer attempts. That conditional clear and the new user session
+commit together; a failed session commit does not clear the throttle. Sequential
+successful logins normally clear their window immediately. Under concurrency,
+an older success can legitimately leave a newer window/counter in place.
+
+Expiry uses persisted UTC timestamps so API processes share the same state;
+keep host clocks synchronized. Expired windows restart at the exact boundary.
+The legacy `last_failed_at` column now records the last admitted attempt's
+timestamp; it is not proof that the attempt ultimately failed. The new
+`attempt_token` is an internal completion fence, not an authentication token.
+
+A running worker reclaims at most 100 expired throttle rows per cycle, even
+when publishing is paused. The delete rechecks expiry so a concurrently
+refreshed window survives. This bounds cleanup work, **not total table size**:
+an offline/overloaded worker or identity churn faster than cleanup can grow
+the backlog. Independent edge controls and operational monitoring remain
+necessary. See the [upgrade/rollback procedure](OPERATOR_RUNBOOK.md#login-admission-upgrade).
 
 ## Current Configuration
 

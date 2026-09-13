@@ -44,6 +44,17 @@ mode retains its previous Uvicorn graceful-drain policy.
 
 ## Verified Portable Build
 
+The latest 2026-09-13 atomic-login build has SHA-256
+`869f2039f3b7ee1b540c9e71c7dead8cd83824988ec5324a3ba27e1877a63788`.
+Its real API/worker at head `20260913_0016` passed login quota enforcement,
+worker cleanup after deliberately expiring an isolated test reservation, and
+subsequent successful login/clear. Existing API/worker/image/CSV/rate-limit and
+real producer-to-local-review-HAI checks also passed. See the
+[atomic-login verification](FINAL_VERIFICATION_REPORT.md#atomic-login-admission-and-expiry-maintenance--2026-09-13)
+and [coordinated upgrade procedure](OPERATOR_RUNBOOK.md#login-admission-upgrade).
+This is an unsigned local review executable, not production deployment or
+live ngrok/installed-HAI acceptance. Earlier hashes below are historical.
+
 The latest 2026-09-13 bounded API-limiter build has SHA-256
 `b8c886d480a2d1a15e425d2129bb076818343ae37511e9fd119afdcf0ded9d59`.
 Its actual API accepted the configured 300 requests for a new synthetic
