@@ -28,12 +28,11 @@ def test_standalone_environment_is_persistent_private_and_worker_backed(tmp_path
     assert os.environ["SECRET_KEY"] == first_secret
 
 
-def test_packaging_and_ngrok_scripts_encode_safe_windows_contracts():
+def test_packaging_contains_launcher_and_migrations():
     root = resource_root()
     launcher = (root / "app" / "launcher.py").read_text(encoding="utf-8")
     spec = (root / "packaging" / "autoposter.spec").read_text(encoding="utf-8")
     build = (root / "scripts" / "build-windows.ps1").read_text(encoding="utf-8")
-    ngrok = (root / "scripts" / "start-ngrok.ps1").read_text(encoding="utf-8")
 
     assert "run_migrations()" in launcher
     assert "--worker-child" in launcher
@@ -41,16 +40,6 @@ def test_packaging_and_ngrok_scripts_encode_safe_windows_contracts():
     assert "SecondhandAutoposter" in spec
     assert "console=True" in spec
     assert "Get-FileHash" in build
-    assert '$env:APP_ENV = "standalone"' in ngrok
-    assert '$env:CORS_ORIGINS = $publicUrl' in ngrok
-    assert '$env:DEV_AUTO_LOGIN = "false"' in ngrok
-    assert "http://127.0.0.1:$Port/api/health" in ngrok
-    assert '"--inspect=false"' in ngrok
-    assert "ConvertFrom-Json" in ngrok
-    assert "Get-Content -LiteralPath $ngrokLog" in ngrok
-    assert 'Invoke-RestMethod -Uri "$publicUrl/api/health"' in ngrok
-    assert "[switch]$VerifyOnly" in ngrok
-    assert "WindowStyle Hidden" in ngrok
 
 
 def test_sites_hosting_is_not_misrepresented_for_fastapi_runtime():

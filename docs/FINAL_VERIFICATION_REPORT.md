@@ -1,5 +1,71 @@
 # Final Verification Report
 
+## Managed ngrok lifecycle — 2026-09-13
+
+Target: review checkout based on `7e823fea0d72aa6520e7dd6a33f36a4fb53a18b0`,
+with the managed-ngrok implementation and accompanying regressions. Earlier
+dated sections remain historical; they do not describe the revised helper.
+
+- The PowerShell wrapper now delegates to the launcher. Exclusive loopback
+  binding and the data lock precede tunnel startup. Ngrok, API, and worker run
+  in separate owned process trees; Windows uses suspended assignment to private
+  Job Objects. No process-name sweep or shared run-log directory is used.
+- Readiness requires local and public API responses with this launch's marker
+  and a fresh heartbeat for its exact worker ID. Tests reject another worker,
+  a mismatched identity, malformed endpoints, failed startup, changed/requested
+  endpoint mismatches, oversized log fragments, log EOF, and read/write/close
+  failures. The wrapper's caller environment and directory remain unchanged.
+- Regression-first investigation reproduced a hanging incomplete request and
+  a blocked synchronous request surviving Uvicorn cancellation. The tunnel
+  supervisor now runs the API in an owned child and retains data/socket
+  ownership until all child threads terminate. A real server-return case and
+  an injected status-file failure are covered; the latter reproduced a
+  15-second timeout before the dedicated-interpreter exit fallback was added.
+- Log-failure regressions reproduced swallowed write errors with raw provider
+  stderr, an uncaught close error, and a one-shot close failure hidden by a
+  successful retry. Errors are now sanitized and preserved through cleanup;
+  both log resources are attempted once the reader has stopped. An actively
+  blocked reader is not synchronously closed under its I/O lock.
+- Final `python scripts/verify.py`: Ruff and compilation passed;
+  **414 tests passed in 75.15 seconds** on Windows/Python 3.14. Doctor reached
+  Alembic head `20260905_0014` in an isolated SQLite database. Its default
+  development-secret warning is not production-secret approval. This includes
+  41 ngrok cases; there are two Windows-only cases across the full suite.
+- Independent read-only review approved the scoped patch after the fixes, with
+  no remaining actionable ownership, socket-handoff, CLI, or cleanup findings.
+  That review did not constitute provider, deployment, or HAI acceptance.
+- The final Python 3.13/PyInstaller Windows build succeeded with SHA-256
+  `380a09e1a69161ba293a4fcb060e34ff35b882f12d0481694a690c536c94832a`.
+  Its fresh-data HTTP workflow passed API/worker health, migration head, private
+  uploads, account isolation, failed-job reuse, retry, stale-job recovery,
+  owner-only HAI generic download, and byte-matching frontend/304 cache checks.
+- A packaged ownership drill rejected an occupied port before data creation,
+  rejected an occupied directory before secret/database creation, and verified
+  that terminating the actual owned launcher child stopped its captured worker
+  descendants and released resources before outer test containment ended.
+- A separate local drill used the source supervisor with the actual packaged
+  API and worker children. Windows socket sharing targeted the real packaged
+  interpreter; both health markers and the filtered heartbeat matched. It
+  terminated an API with an unfinished request while preserving supervisor
+  ownership, then released the port/data lock. An initial immediate-rebind
+  assertion observed WinError 10048; a bounded retry passed with about 21 ms
+  OS release delay. This was a harness timing correction, not a product patch.
+- No public tunnel, marketplace submission, production deployment, installed
+  HAI modification, or live HAI source registration occurred in this pass.
+  Agent/public transport tests use explicit local substitutes. The packaged
+  child drill is not a full real-provider frozen-ngrok acceptance run.
+- Release checks still report **77 missing evidence fields**: 36 release,
+  29 walkthrough, 12 acceptance. No operator evidence or signoff was fabricated.
+
+Remaining boundaries: supervision after readiness checks process/log liveness,
+not continuous public HTTP or heartbeat freshness. Migrations, DNS, and OS
+failures are not covered by one universal timeout. Cleanup is forced and may
+interrupt work. Data locks coordinate only current cooperating launchers using
+the same directory. Real-provider compatibility, public access policy, target
+PostgreSQL operations, automatic HAI consumption, manual accessibility and
+real-user QA, backup/restore, edge controls, and launch acceptance remain open.
+Marketplace posting remains assisted/manual.
+
 ## Launcher port, data, and process ownership — 2026-09-06
 
 Target: working checkout based on `c0eee9bc079f98b507f7990db233b92d8c2a0330`, with exclusive standalone startup ownership and Windows worker-tree cleanup.

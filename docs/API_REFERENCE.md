@@ -36,6 +36,16 @@ Use `request_id` when matching browser reports to server logs. Retry only when `
 | `GET` | `/api/dashboard` | Authenticated combined analytics, action-center, recent-listing, and latest-job payload. |
 | `GET` | `/api/worker-status` | Worker heartbeat readiness plus persistent operator-pause state. |
 
+`GET /api/worker-status` remains a public aggregate readiness endpoint. Supply
+`?worker_id=worker-<32 lowercase hexadecimal characters>` to check only that
+worker: a healthy unrelated worker cannot satisfy this query. Filtered responses
+also return `worker_id`; unfiltered responses retain the aggregate shape. A
+malformed ID returns 422; no fresh matching worker or an operator pause returns
+503. This is diagnostic information, not user authentication or permission to
+process jobs. The managed ngrok API adds `X-Autoposter-Instance` and
+`Cache-Control: no-store` to both health and worker-status responses so startup
+checks can distinguish this launch from another service or cached response.
+
 ## Authentication
 
 | Method | Path | Purpose |

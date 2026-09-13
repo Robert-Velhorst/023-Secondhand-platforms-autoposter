@@ -22,13 +22,13 @@ def run_once() -> int:
         db.close()
 
 
-def run_forever() -> None:
+def run_forever(worker_id: str | None = None) -> None:
     settings = get_settings()
     validate_startup_safety(settings)
     configure_logging(settings.log_level, settings.log_format)
     if settings.auto_create_tables:
         init_db()
-    worker_id = f"worker-{uuid.uuid4().hex}"
+    worker_id = worker_id or f"worker-{uuid.uuid4().hex}"
     logger.info("Worker started: %s", worker_id)
     retry_delay = settings.job_worker_poll_seconds
     max_retry_delay = max(60, retry_delay)

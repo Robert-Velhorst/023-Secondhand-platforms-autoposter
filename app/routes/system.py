@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
@@ -34,8 +34,11 @@ def health() -> dict:
 
 
 @router.get("/worker-status", tags=["Diagnostics"])
-def worker_status_endpoint(response: Response, db: Session = Depends(get_db)) -> dict:
-    status = worker_status(db, get_settings().worker_heartbeat_timeout_seconds)
+def worker_status_endpoint(
+    response: Response, db: Session = Depends(get_db),
+    worker_id: str | None = Query(default=None, pattern=r"^worker-[0-9a-f]{32}$", max_length=39),
+) -> dict:
+    status = worker_status(db, get_settings().worker_heartbeat_timeout_seconds, worker_id)
     if status["status"] != "ok":
         response.status_code = 503
     return status

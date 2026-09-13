@@ -2,8 +2,10 @@
 
 import argparse
 import os
+import re
 import secrets
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -11,8 +13,9 @@ import urllib.error
 import urllib.request
 import webbrowser
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 from app.processes import owned_process
 
@@ -87,6 +90,87 @@ def _worker_command() -> list[str]:
     return [sys.executable, "-m", "app.launcher", "--worker-child"]
 
 
+def _api_command() -> list[str]:
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--api-child"]
+    return [sys.executable, "-m", "app.launcher", "--api-child"]
+
+
+@contextmanager
+def owned_api(listener: socket.socket, instance: str, bootstrap: Path) -> Iterator[subprocess.Popen]:
+    """Keep all API threads inside an owned process before releasing data ownership."""
+    command = [*_api_command(), "--instance-id", instance, "--api-bootstrap", str(bootstrap),
+               "--port", str(listener.getsockname()[1])]
+    options = {} if os.name == "nt" else {"pass_fds": (listener.fileno(),)}
+    with owned_process(command, stdin=subprocess.PIPE, **options) as process:
+        try:
+            deadline = time.monotonic() + 180
+            while True:
+                if process.poll() is not None:
+                    raise RuntimeError("The owned API stopped before socket handoff")
+                try:
+                    with bootstrap.open("rb") as record:
+                        raw_pid = record.read(32)
+                except FileNotFoundError:
+                    raw_pid = b""
+                if raw_pid:
+                    if not raw_pid.isdigit() or len(raw_pid) > 20 or int(raw_pid) <= 0:
+                        raise RuntimeError("The owned API reported an invalid socket handoff")
+                    break
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("The owned API did not request its socket before timeout")
+                time.sleep(0.02)
+            # Windows launchers/bootloaders can have a different PID from the real
+            # interpreter. The child reports its own PID in this unique run directory;
+            # the socket payload goes only through that owned child's stdin pipe.
+            payload = listener.share(int(raw_pid)).hex() if os.name == "nt" else str(listener.fileno())
+            process.stdin.write(payload.encode("ascii") + b"\n")
+            process.stdin.flush()
+            process.stdin.close()
+            yield process
+        finally:
+            if process.stdin and not process.stdin.closed:
+                process.stdin.close()
+
+
+def serve_api_child(bootstrap: Path, instance: str) -> int:
+    temporary = bootstrap.with_suffix(".tmp")
+    temporary.write_text(str(os.getpid()), encoding="ascii")
+    temporary.replace(bootstrap)
+    raw = sys.stdin.buffer.readline(8193)
+    if not raw.endswith(b"\n") or len(raw) > 8192:
+        raise RuntimeError("Invalid API socket handoff")
+    listener = (socket.fromshare(bytes.fromhex(raw.decode("ascii").strip())) if os.name == "nt"
+                else socket.socket(fileno=int(raw)))
+    try:
+        with listener:
+            _run_api(listener, instance)
+    finally:
+        # A server can return while non-daemon request threads are still alive.
+        # Tell the supervisor to terminate the whole owned API, not just its server.
+        try:
+            bootstrap.with_suffix(".stopped").touch()
+        except OSError:
+            # Storage failure must not strand non-daemon request threads. Exit
+            # this dedicated API interpreter; the supervisor owns tree cleanup.
+            os._exit(1)
+    return 0
+
+
+def _run_api(listener: socket.socket, instance: str = "") -> None:
+    import uvicorn
+
+    from app.main import app
+    from app.ngrok import InstanceHealth
+
+    server = uvicorn.Server(uvicorn.Config(
+        InstanceHealth(app, instance) if instance else app, host="127.0.0.1", port=listener.getsockname()[1],
+        proxy_headers=True, forwarded_allow_ips="127.0.0.1", access_log=False,
+    ))
+    with listener.dup() as server_socket:
+        server.run(sockets=[server_socket])
+
+
 def _open_when_ready(url: str) -> None:
     for _ in range(60):
         try:
@@ -143,29 +227,49 @@ def owned_data_directory(data_dir: Path) -> Iterator[None]:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
-def serve(host: str, port: int, open_browser: bool) -> int:
+def serve(host: str, port: int, open_browser: bool, *, ngrok_path: str | None = None,
+          ngrok_domain: str = "", verify_only: bool = False) -> int:
     with owned_listener(host, port) as listener, owned_data_directory(default_data_dir()):
         port = listener.getsockname()[1]
-        configure_standalone_environment(port)
-        run_migrations()
-        with owned_process(_worker_command()):
-            if open_browser:
+        with ExitStack() as lifecycle:
+            tunnel = None
+            if ngrok_path is not None:
+                from app.ngrok import managed_tunnel, monitor_session, tunnel_environment
+
+                tunnel = lifecycle.enter_context(managed_tunnel(
+                    listener, default_data_dir(), command=[ngrok_path], domain=ngrok_domain,
+                ))
+                lifecycle.enter_context(tunnel_environment(tunnel.public_url))
+            configure_standalone_environment(port)
+            run_migrations()
+            instance = secrets.token_hex(16) if tunnel else ""
+            worker_command = _worker_command()
+            if instance:
+                worker_command += ["--worker-id", f"worker-{instance}"]
+            worker = lifecycle.enter_context(owned_process(worker_command))
+            if open_browser and tunnel is None:
                 threading.Thread(
                     target=_open_when_ready,
                     args=(f"http://127.0.0.1:{port}",),
                     daemon=True,
                 ).start()
-            import uvicorn
-
-            from app.main import app
-
-            server = uvicorn.Server(uvicorn.Config(
-                app, host="127.0.0.1", port=port, proxy_headers=True,
-                forwarded_allow_ips="127.0.0.1", access_log=False,
-            ))
-            # Uvicorn may close its socket; retain our own handle until child cleanup finishes.
-            with listener.dup() as server_socket:
-                server.run(sockets=[server_socket])
+            if tunnel:
+                bootstrap = tunnel.log_dir / "api.pid"
+                api = lifecycle.enter_context(owned_api(listener, instance, bootstrap))
+                server = SimpleNamespace(should_exit=False)
+                lifecycle.enter_context(monitor_session(
+                    server, tunnel, worker, f"http://127.0.0.1:{port}", instance,
+                    verify_only=verify_only, open_browser=open_browser,
+                ))
+                try:
+                    while not server.should_exit:
+                        if api.poll() is not None or bootstrap.with_suffix(".stopped").exists():
+                            raise RuntimeError("The owned API stopped; stopping the worker and ngrok")
+                        time.sleep(0.1)
+                except KeyboardInterrupt:
+                    pass
+            else:
+                _run_api(listener)
     return 0
 
 
@@ -174,17 +278,40 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", default="127.0.0.1", choices=["127.0.0.1", "localhost"])
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--ngrok", action="store_true", help="Explicitly expose this instance through ngrok HTTPS")
+    parser.add_argument("--ngrok-path", default="ngrok", help="Path to an installed ngrok executable")
+    parser.add_argument("--ngrok-domain", default="", help="Reserved ngrok hostname or HTTPS origin")
+    parser.add_argument("--verify-only", action="store_true", help="Verify ngrok API/worker readiness, then stop")
     parser.add_argument("--worker-child", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--worker-id", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--api-child", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--api-bootstrap", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--instance-id", default="", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error("--port must be between 1 and 65535")
+    if (args.verify_only or args.ngrok_domain) and not args.ngrok:
+        parser.error("--verify-only and --ngrok-domain require --ngrok")
+    if args.worker_child and args.ngrok:
+        parser.error("Worker child mode cannot start ngrok")
+    if args.api_child:
+        if (args.worker_child or args.ngrok or args.api_bootstrap is None
+                or not re.fullmatch(r"[0-9a-f]{32}", args.instance_id)):
+            parser.error("API child mode requires a socket bootstrap and generated instance identity")
+        return serve_api_child(args.api_bootstrap, args.instance_id)
+    if args.api_bootstrap is not None or args.instance_id:
+        parser.error("API socket options require API child mode")
+    if args.worker_id and (not args.worker_child or not re.fullmatch(r"worker-[0-9a-f]{32}", args.worker_id)):
+        parser.error("--worker-id requires worker child mode and a generated worker identity")
     if args.worker_child:
         configure_standalone_environment(args.port)
         from app.worker import run_forever
 
-        run_forever()
+        run_forever(worker_id=args.worker_id or None)
         return 0
-    return serve(args.host, args.port, not args.no_browser)
+    return serve(args.host, args.port, not args.no_browser,
+                 ngrok_path=args.ngrok_path if args.ngrok else None,
+                 ngrok_domain=args.ngrok_domain, verify_only=args.verify_only)
 
 
 if __name__ == "__main__":

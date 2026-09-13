@@ -28,22 +28,22 @@ def record_heartbeat(db: Session, worker_id: str, processed_jobs: int = 0) -> Wo
     return heartbeat
 
 
-def worker_status(db: Session, heartbeat_timeout_seconds: int) -> dict:
+def worker_status(db: Session, heartbeat_timeout_seconds: int, worker_id: str | None = None) -> dict:
     now = datetime.now(UTC)
     cutoff = now - timedelta(seconds=heartbeat_timeout_seconds)
-    active_workers, processed_jobs = (
+    aggregate = (
         db.query(func.count(WorkerHeartbeat.worker_id), func.coalesce(func.sum(WorkerHeartbeat.processed_jobs), 0))
         .filter(WorkerHeartbeat.last_seen_at >= cutoff)
-        .one()
     )
-    latest = (
-        db.query(WorkerHeartbeat.last_seen_at, WorkerHeartbeat.started_at)
-        .order_by(WorkerHeartbeat.last_seen_at.desc())
-        .first()
-    )
+    latest_query = db.query(WorkerHeartbeat.last_seen_at, WorkerHeartbeat.started_at)
+    if worker_id is not None:
+        aggregate = aggregate.filter(WorkerHeartbeat.worker_id == worker_id)
+        latest_query = latest_query.filter(WorkerHeartbeat.worker_id == worker_id)
+    active_workers, processed_jobs = aggregate.one()
+    latest = latest_query.order_by(WorkerHeartbeat.last_seen_at.desc()).first()
     control = operator_control_status(db)
     status = "paused" if control["job_processing_paused"] else ("ok" if active_workers else "error")
-    return {
+    result = {
         "status": status,
         "active_workers": active_workers,
         "last_heartbeat_at": latest.last_seen_at.isoformat() if latest else None,
@@ -54,3 +54,6 @@ def worker_status(db: Session, heartbeat_timeout_seconds: int) -> dict:
         "pause_reason": control["reason"],
         "control_updated_at": control["updated_at"],
     }
+    if worker_id is not None:
+        result["worker_id"] = worker_id
+    return result
