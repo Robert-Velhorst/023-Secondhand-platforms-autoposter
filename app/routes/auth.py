@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import update
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -32,19 +34,32 @@ router = APIRouter(prefix="/api")
 
 @router.post("/auth/register", response_model=AuthToken, tags=["Auth"])
 def register(payload: AuthRegister, db: Session = Depends(get_db)) -> AuthToken:
-    existing = db.query(User).filter(User.email == payload.email.lower()).one_or_none()
-    if existing:
+    email = payload.email.lower()
+    existing = db.query(User.id).filter(User.email == email).one_or_none()
+    # This is only a cheap duplicate fast path; the unique index arbitrates
+    # races. No connection or transaction should span password hashing.
+    db.rollback()
+    if existing is not None:
         raise HTTPException(status_code=409, detail="Email is already registered")
-    user = User(
-        email=payload.email.lower(),
-        name=payload.name,
-        password_hash=hash_password(payload.password),
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        insert = postgres_insert
+    elif dialect == "sqlite":
+        insert = sqlite_insert
+    else:
+        raise RuntimeError("Registration requires SQLite or PostgreSQL")
+    user = db.scalars(
+        insert(User)
+        .values(email=email, name=payload.name, password_hash=hash_password(payload.password))
+        .on_conflict_do_nothing(index_elements=[User.email])
+        .returning(User)
+    ).one_or_none()
+    if user is None:
+        raise HTTPException(status_code=409, detail="Email is already registered")
+    # Keep the new account uncommitted until its initial session is stored.
+    user_out = UserOut.model_validate(user)
     token = create_session(db, user)
-    return AuthToken(token=token, user=UserOut.model_validate(user))
+    return AuthToken(token=token, user=user_out)
 
 
 @router.post("/auth/login", response_model=AuthToken, tags=["Auth"])

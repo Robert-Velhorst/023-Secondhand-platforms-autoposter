@@ -34,7 +34,7 @@ Doctor warnings are allowed for local development defaults; doctor errors fail t
 
 GitHub Actions runs the same command on pushes and pull requests to `main` via `.github/workflows/verify.yml`.
 
-The same workflow also runs a `postgres-workers` job against a disposable PostgreSQL 16 service. Its job, storage-cleanup, image-write, login-admission, and login-account-state tests use real connections and migrations, not merely compiled PostgreSQL SQL.
+The same workflow also runs a `postgres-workers` job against a disposable PostgreSQL 16 service. Its job, storage-cleanup, image-write, login-admission, login-account-state, and registration-transaction tests use real connections and migrations, not merely compiled PostgreSQL SQL.
 
 `tests/test_login_account_state.py` drives real login requests through isolated
 SQLite or migrated PostgreSQL sessions. It covers disabled accounts, concurrent
@@ -43,6 +43,14 @@ legacy credentials, changes during rehash, failed-session rollback, and an
 unrelated profile-change control. Pool checkout observations require zero held
 connections during verification and rehash. These tests do not establish
 production load capacity or provide account-administration functionality.
+
+`tests/test_registration_transactions.py` runs real registration requests on
+isolated SQLite or migrated PostgreSQL. It covers simultaneous mixed-case
+email claims, account/session rollback and retry, zero held connections during
+hashing, active/disabled duplicate fast paths, unrelated constraint failures,
+session-token conflicts, uncommitted visibility, and lost-commit-acknowledgement
+recovery through login. A lost acknowledgement is deliberately not counted as
+a rollback: a committed account remains intact.
 
 ## Current Test Layers
 

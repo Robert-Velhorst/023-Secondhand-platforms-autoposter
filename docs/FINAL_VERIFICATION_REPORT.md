@@ -1,5 +1,56 @@
 # Final Verification Report
 
+## Atomic registration and retry recovery — 2026-09-13
+
+Target: checkout based on `864b1c8134b43c77e668e605c64b5f68a215ff75`, plus
+the changes recorded here. Three request-level regressions failed twice before
+the fix: concurrent sign-ups returned `200`/`500` instead of `200`/`409`,
+session-commit failure left an account behind, and hashing held a checked-out
+database connection.
+
+Registration now ends its cheap existing-email lookup transaction before
+hashing. A SQLite/PostgreSQL insert handles only conflicts on the unique email
+index and returns the newly inserted user without committing. The account and
+initial session share one commit, and the response does not require a separate
+post-commit account lookup. Existing accounts are neither overwritten nor
+automatically authenticated by a duplicate registration.
+
+Verification:
+
+- Full Windows suite: **524 passed, one POSIX-only skip in 144.08 seconds**
+  (525 cases). Ruff and compilation passed.
+- Disposable migrated PostgreSQL 16: **108 passed in 175.61 seconds**,
+  including all nine registration cases. This is a subset rerun on a second
+  database type, not 108 additional distinct product tests.
+- Nine request-level regressions cover simultaneous mixed-case claims,
+  account/session rollback and retry, pool checkout lifetime, active/disabled
+  duplicate fast paths, unrelated user constraints, session-token collisions,
+  uncommitted visibility, and uncertain-commit recovery through login.
+- Rebuilt unsigned Windows executable SHA-256:
+  `107a5a85c71a6384ec62e372f2410cdbbbd66ff779054be5bbd149b65d606eea`.
+  A trigger on its disposable SQLite database rejected the initial session
+  insert; the API returned a sanitized error with no account left behind.
+  Removing the test trigger allowed successful registration, authenticated
+  profile access, and a `409` duplicate response. Existing API/worker, login,
+  storage, CSV, assisted-job, account-boundary, and static-asset checks passed.
+- The real packaged producer-to-local-review-HAI check passed against disposable
+  PostgreSQL: 101 paginated records, updates/tombstones, persistent disable,
+  restart, zero-replay resume, revocation, and reference-only privacy. HAI
+  remains local uncommitted/unpublished/uninstalled review work.
+- Doctor passed all six checks with explicit test settings against the
+  packaged database. Documentation-link checks passed. Owned test processes
+  and the disposable PostgreSQL container were stopped afterward.
+
+An acknowledgement lost after the database commits can still yield an error
+response while retaining the account and session. The test deliberately keeps
+that committed state and verifies recovery through sign-in; no compensating
+account deletion or automatic bearer-token replay is attempted. See
+[registration transactions and recovery](AUTH_SECURITY_POSTURE.md#registration-transactions-and-recovery).
+No migration was added; head remains `20260913_0016`. Password parameters are
+unchanged, and no production throughput or latency claim is made. Production
+deployment, public ngrok acceptance, installed HAI integration, and human
+launch signoff remain outside this evidence.
+
 ## Login account state and connection lifetime — 2026-09-13
 
 Target: checkout based on `df30ab4fcf6c5844504500c939588914ac3acf70`, plus

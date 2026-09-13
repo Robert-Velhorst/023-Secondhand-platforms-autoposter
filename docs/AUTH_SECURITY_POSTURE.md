@@ -13,6 +13,28 @@ The current deployment mode is bearer-token authentication only.
 
 Because browsers do not automatically attach bearer tokens from application state the way they attach cookies, API authentication is not currently exposed to normal cookie-based CSRF. The app still restricts CORS in production and sends security headers, but there is no CSRF token middleware because there are no authenticated cookie sessions to protect.
 
+## Registration transactions and recovery
+
+Registration creates the account and its first bearer session in one database
+transaction. A rejected insert or failed pre-commit session write leaves neither
+behind. The response profile is captured before commit, avoiding a separate
+post-commit account lookup.
+
+A cheap existing-email check rejects known duplicates without hashing. That
+read transaction ends before Argon2 hashing starts. The final insert uses the
+unique email index to arbitrate races: concurrent sign-ups for the same
+lowercased email produce one account/session and a `409` conflict for the loser,
+without overwriting the winning account. Only an email conflict is handled as
+that `409`; unrelated constraint or database failures remain sanitized errors.
+
+**An error response is not proof that a commit failed.** A database can commit
+successfully before its acknowledgement or the HTTP response is lost. In that
+case, this app preserves the committed account and session rather than deleting
+them as compensation. Retrying registration may return `409`; select **Sign in**
+and use the credentials submitted during sign-up. The original bearer token is
+not replayed. These controls do not add registration idempotency keys, email
+verification, or password recovery; independent edge limits remain necessary.
+
 ## Account state at login
 
 Login rejects disabled accounts with the same `401` message as incorrect

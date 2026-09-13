@@ -44,6 +44,18 @@ mode retains its previous Uvicorn graceful-drain policy.
 
 ## Verified Portable Build
 
+The latest 2026-09-13 atomic-registration build has SHA-256
+`107a5a85c71a6384ec62e372f2410cdbbbd66ff779054be5bbd149b65d606eea`.
+Its real API passed a forced initial-session failure with no account left
+behind, successful retry, authenticated profile access, and duplicate-email
+conflict. Existing API/worker, migration, login, storage, CSV, assisted-job,
+account-boundary, static-delivery, and producer-to-local-review-HAI checks
+also passed. See the [registration verification record](FINAL_VERIFICATION_REPORT.md#atomic-registration-and-retry-recovery--2026-09-13)
+and [uncertain-commit recovery guidance](AUTH_SECURITY_POSTURE.md#registration-transactions-and-recovery).
+Schema head remains `20260913_0016`; no new migration was added. This unsigned
+local review executable is not a production deployment, public ngrok
+acceptance, or installed HAI release. Earlier hashes below are historical.
+
 The latest 2026-09-13 login-account-state build has SHA-256
 `cbc609cb5c95ac34d8465801cd55dc40b6989b5b164483dd42ea69bebb7f45e9`.
 Its real API rejected a disabled synthetic account without issuing a session,
