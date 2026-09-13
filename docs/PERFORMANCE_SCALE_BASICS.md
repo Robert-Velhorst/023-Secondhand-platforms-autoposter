@@ -78,6 +78,15 @@ The index migration is idempotent because the initial Alembic revision creates c
 
 ## Operational Limits
 
+The process-local API limiter caps identity and expiry-index state at 10,000
+entries, reclaims expired entries on subsequent requests, and does not allocate
+an expiry record for every request. Counters stop growing at the configured
+quota. `tests/test_api_rate_limit_resources.py` checks expiry reclamation,
+10,000-identity overflow, 50,000 repeated requests, and 1,600 calls across 16
+threads with exactly 37 admissions at a quota of 37. These are deterministic
+resource/correctness checks, not production throughput measurements. See
+[capacity tradeoffs](RATE_LIMITS.md#general-api-request-limit).
+
 - Keep API list limits capped at 100 unless a specific route has a measured need for larger batches.
 - Keep worker batches controlled by `JOB_WORKER_BATCH_SIZE`.
 - Prefer background job processing in production-style deployments.

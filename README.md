@@ -573,11 +573,11 @@ The S3 client uses [boto3's credential resolution](https://docs.aws.amazon.com/b
 | `SESSION_EXPIRE_HOURS` | `168` | Bearer-session lifetime |
 | `LOGIN_RATE_LIMIT_ATTEMPTS` | `5` | Failed attempts per email/IP window |
 | `LOGIN_RATE_LIMIT_WINDOW_SECONDS` | `300` | Login throttle window |
-| `API_RATE_LIMIT_REQUESTS` | `300` | Requests per bearer token or client IP per process/window |
+| `API_RATE_LIMIT_REQUESTS` | `300` | Requests per supplied Authorization header (or observed client IP if absent), per process/window |
 | `API_RATE_LIMIT_WINDOW_SECONDS` | `60` | API throttle window |
 | `AUDIT_RETENTION_DAYS` | `365` | Sanitised audit-event retention; `0` disables automatic age-based purging |
 
-The built-in API limiter is process-local. A multi-process or internet-facing deployment still needs independently verified edge/proxy/CDN/WAF rate limiting.
+The built-in API limiter is process-local and capped at 10,000 hashed identities, with monotonic expiry and atomic counter updates. It rejects new identities with a retryable 429 when full instead of growing indefinitely or resetting active quotas. Header rotation can still evade a per-identity quota or fill the cap: the supplied Authorization header is not authenticated at this middleware stage. A multi-process or internet-facing deployment still needs independently verified edge/proxy/CDN/WAF rate limiting. See [rate-limit behavior and tradeoffs](docs/RATE_LIMITS.md#general-api-request-limit).
 
 ### Worker and platform processing
 
@@ -841,6 +841,8 @@ The gate runs:
 2. Python bytecode compilation;
 3. the complete pytest suite;
 4. `python -m app.doctor --json`.
+
+The latest API rate-limit resource checkpoint passed **485 tests with one POSIX-only skip in 128.22 seconds on Windows on 2026-09-13** (486 cases), plus Ruff and compilation. Ten new cases cover memory bounds, expiry, capacity behavior, concurrent admission, and real HTTP errors. See the [current verification record](docs/FINAL_VERIFICATION_REPORT.md#bounded-api-rate-limit-state--2026-09-13); these checks do not prove production load capacity or edge enforcement.
 
 The newer upload/CSV responsiveness checkpoint passed **475 tests with one POSIX-only skip in 117.81 seconds on Windows on 2026-09-13** (476 cases), plus Ruff and compilation. Nine new cases cover event-loop isolation, async image helpers, exact CSV size boundaries, and encoding/parser errors without partial imports. See the [current verification record](docs/FINAL_VERIFICATION_REPORT.md#upload-and-csv-event-loop-isolation--2026-09-13). The earlier checkpoints below retain their original evidence; none is production acceptance or a saturated-load guarantee.
 

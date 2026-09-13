@@ -9,6 +9,12 @@ exact CSV byte limits, UTF-8 errors, parser errors with no partial import, and
 async image-helper offloading. These checks do not establish saturated-pool
 capacity, production latency, or edge multipart request-body limits.
 
+`tests/test_api_rate_limit_resources.py` covers bounded API identity/expiry
+state, expiry reclamation, exact boundaries, different window lengths,
+monotonic-clock use, rounded retry delays, concurrent admission, and real HTTP
+capacity errors with health/static availability. This is process-local
+regression evidence, not distributed enforcement or target edge configuration.
+
 ## Verification Gate
 
 Run the full local gate before pushing:

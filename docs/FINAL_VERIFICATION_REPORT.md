@@ -1,5 +1,53 @@
 # Final Verification Report
 
+## Bounded API rate-limit state — 2026-09-13
+
+Target: checkout based on `a8deb59beed064fe8b8186ada9f5fb07947ff4a7`, plus
+the changes recorded here. Three failing regressions reproduced expired
+identities surviving unrelated requests, unbounded new-identity admission,
+and rejection at the exact fixed-window expiry.
+
+The API limiter now uses monotonic expiry, a 10,000-identity cap, and an expiry
+heap with exactly one entry per bucket. A short lock makes expiry/admission/
+counter updates atomic across request threads. Full capacity returns a
+retryable 429 for new identities; it does not evict active quotas or prevent
+existing identities from using their remaining allowance. Health and static
+routes keep their existing exemptions. The database login throttle and schema
+were not changed.
+
+Verification:
+
+- Full Windows suite: **485 passed, one POSIX-only skip in 128.22 seconds**
+  (486 cases). Ruff, compilation, and documentation-link checks passed.
+- Focused rate-limit, middleware, and authentication suites: **28 passed**.
+  Ten new cases cover expiry reclamation, capacity, exact boundaries, expiry
+  ordering, rounded retry delays, no wall-clock dependence, and bounded index
+  state under 50,000 repeated requests. A 16-thread/1,600-call test admits
+  exactly 37 calls at quota 37. Real HTTP checks verify capacity errors,
+  recovery, and health/static availability.
+- Rebuilt Windows executable SHA-256:
+  `b8c886d480a2d1a15e425d2129bb076818343ae37511e9fd119afdcf0ded9d59`.
+  The actual API accepted 300 requests on a fresh synthetic identity, rejected
+  the next with HTTP 429/Retry-After, and still served health and static content.
+  Existing API/worker workflows, CSV rejection, image-write compensation, and
+  locked-file cleanup retry passed. The packaged test verifies the configured
+  request quota; the 10,000-identity capacity check is a separate source test.
+  Doctor returned `ok` on the isolated packaged SQLite fixture at schema head
+  `20260913_0015`, using explicit synthetic development settings. Owned test
+  processes and the disposable PostgreSQL container were stopped afterward.
+- Real packaged producer-to-local-review-HAI integration passed on disposable
+  PostgreSQL: 101 records, updates/deletion, durable restart/disable, explicit
+  zero-replay resume, revocation, and reference-only privacy. HAI remains local,
+  uncommitted, unpublished, and uninstalled.
+
+This is local resource/correctness evidence, not a production load benchmark.
+Identity churn can still fill the bounded table and temporarily reject new
+legitimate clients. Supplied Authorization headers are not authenticated at the
+limiter stage; per-identity quotas are not an anti-rotation guarantee. Process
+restarts reset state, and multiple API processes do not share it. Independent
+edge rate limits, proxy trust configuration, production deployment, public
+ngrok acceptance, installed HAI, and human signoff remain unverified here.
+
 ## Upload and CSV event-loop isolation — 2026-09-13
 
 Target: checkout based on `fe1e15936ab5603b2670623a7ffe34a1e128a1f2`, plus

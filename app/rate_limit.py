@@ -1,6 +1,10 @@
 import hashlib
+import heapq
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from threading import Lock
+from time import monotonic
 
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
@@ -16,14 +20,19 @@ class LoginBucket:
     window_started_at: datetime
 
 
-@dataclass
+@dataclass(slots=True)
 class ApiBucket:
     requests: int
-    window_started_at: datetime
+    expires_at: float
 
 
 login_buckets: dict[str, LoginBucket] = {}
 api_buckets: dict[str, ApiBucket] = {}
+MAX_API_BUCKETS = 10_000
+# Exactly one expiry entry per bucket, not one per request. Do not evict active
+# quotas to admit new identities: that would let identity churn reset limits.
+_api_expirations: list[tuple[float, str]] = []
+_api_lock = Lock()
 
 
 def _identifier_hash(identifier: str) -> str:
@@ -104,15 +113,21 @@ def record_successful_login(db: Session, identifier: str) -> None:
 
 
 def check_api_rate_limit(identifier: str, limit: int, window_seconds: int) -> int | None:
-    now = datetime.now(UTC)
-    window = timedelta(seconds=window_seconds)
     bucket_key = _identifier_hash(identifier)
-    bucket = api_buckets.get(bucket_key)
-    if not bucket or now - bucket.window_started_at > window:
-        api_buckets[bucket_key] = ApiBucket(requests=1, window_started_at=now)
+    with _api_lock:
+        now = monotonic()
+        while _api_expirations and _api_expirations[0][0] <= now:
+            _, expired_key = heapq.heappop(_api_expirations)
+            api_buckets.pop(expired_key, None)
+        bucket = api_buckets.get(bucket_key)
+        if bucket is None:
+            if len(api_buckets) >= MAX_API_BUCKETS:
+                return max(1, math.ceil(_api_expirations[0][0] - now))
+            expires_at = now + window_seconds
+            api_buckets[bucket_key] = ApiBucket(requests=1, expires_at=expires_at)
+            heapq.heappush(_api_expirations, (expires_at, bucket_key))
+            return None
+        if bucket.requests >= limit:
+            return max(1, math.ceil(bucket.expires_at - now))
+        bucket.requests += 1
         return None
-    if bucket.requests >= limit:
-        retry_after = window_seconds - int((now - bucket.window_started_at).total_seconds())
-        return max(1, retry_after)
-    bucket.requests += 1
-    return None

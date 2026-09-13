@@ -1,8 +1,9 @@
-from app.rate_limit import api_buckets, check_api_rate_limit
+from app.rate_limit import _api_expirations, api_buckets, check_api_rate_limit
 
 
 def setup_function():
     api_buckets.clear()
+    _api_expirations.clear()
 
 
 def test_api_rate_limit_tracks_hashed_identifier_windows():

@@ -44,6 +44,16 @@ mode retains its previous Uvicorn graceful-drain policy.
 
 ## Verified Portable Build
 
+The latest 2026-09-13 bounded API-limiter build has SHA-256
+`b8c886d480a2d1a15e425d2129bb076818343ae37511e9fd119afdcf0ded9d59`.
+Its actual API accepted the configured 300 requests for a new synthetic
+identity, then returned HTTP 429 with Retry-After while health/static remained
+available. API/worker, CSV, image cleanup, and real producer-to-local-review-HAI
+checks also passed. See the [bounded-limiter verification](FINAL_VERIFICATION_REPORT.md#bounded-api-rate-limit-state--2026-09-13)
+for test scope and capacity tradeoffs. This is an unsigned local review build,
+not production deployment, edge enforcement, live ngrok acceptance, or an
+installed HAI release. The following hashes describe earlier builds.
+
 The newer 2026-09-13 upload/CSV responsiveness build has SHA-256
 `862ff9dd4ada2cccb7ac1a03653566f7468de185209c8a5c2b2e14abe75dd461`.
 Its actual API/worker passed existing workflows, image-write compensation,
