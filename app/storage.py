@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from fastapi import HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from app.config import Settings, get_settings
 
@@ -166,15 +167,23 @@ async def validate_and_store_image(
     settings: Settings | None = None,
 ) -> StoredFile:
     validated = await read_validated_image(file, settings)
-    return store_validated_image(validated, listing_id, settings)
+    return await run_in_threadpool(store_validated_image, validated, listing_id, settings)
 
 
 async def read_validated_image(
     file: UploadFile,
     settings: Settings | None = None,
 ) -> ValidatedUpload:
+    return await run_in_threadpool(read_validated_image_sync, file, settings)
+
+
+def read_validated_image_sync(
+    file: UploadFile,
+    settings: Settings | None = None,
+) -> ValidatedUpload:
+    """Read and hash a bounded upload; call from a request worker, not the event loop."""
     settings = settings or get_settings()
-    content = await file.read(settings.max_upload_bytes + 1)
+    content = file.file.read(settings.max_upload_bytes + 1)
     if not content:
         raise HTTPException(status_code=422, detail="Uploaded image is empty")
     if len(content) > settings.max_upload_bytes:

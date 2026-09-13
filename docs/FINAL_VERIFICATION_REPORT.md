@@ -1,5 +1,53 @@
 # Final Verification Report
 
+## Upload and CSV event-loop isolation — 2026-09-13
+
+Target: checkout based on `fe1e15936ab5603b2670623a7ffe34a1e128a1f2`, plus
+the changes recorded here. A real-ASGI two-request probe reproduced health
+requests being blocked by synchronous image storage and CSV processing inside
+async routes. Separate failing cases reproduced HTTP 500 for oversized CSV,
+invalid UTF-8, and a field exceeding the CSV parser limit.
+
+The routes now use FastAPI's shared, capacity-limited request worker pool for
+their synchronous file, hashing, database, and storage work. Async storage
+helpers explicitly offload synchronous calls. CSV input is read with an extra
+byte to detect overflow, requires UTF-8 with optional BOM, and maps parser
+errors to HTTP 422. Strict parsing prevents accepting malformed quoted input.
+Failed imports retain transaction rollback behavior rather than saving partial
+listings. Authentication, ownership, image-write compensation, and the database
+schema are unchanged.
+
+Verification:
+
+- Full Windows suite: **475 passed, one POSIX-only skip in 117.81 seconds**
+  (476 cases). Ruff, compilation, and documentation-link checks passed.
+- Focused responsiveness, portability, and image-write suites: **36 passed**.
+  Both paused-work probes now complete health before release; thread checks
+  verify work is outside the loop. Exact 2,000,000-byte acceptance and one-byte
+  overflow rejection are covered, alongside invalid encoding/parser errors and
+  async helper behavior.
+- Disposable migrated PostgreSQL 16: **74 passed in 83.01 seconds**. These
+  job-safety/cleanup/write-recovery checks rerun a subset, not additional cases.
+- Rebuilt Windows executable SHA-256:
+  `862ff9dd4ada2cccb7ac1a03653566f7468de185209c8a5c2b2e14abe75dd461`.
+  The real packaged API and separate worker passed existing workflows, image
+  failure compensation, locked-file cleanup retry, and CSV size/encoding
+  rejection with unchanged listing counts. Schema head remains `20260913_0015`.
+  Doctor returned `ok` on this isolated SQLite fixture with explicit synthetic
+  development settings. Owned test processes and the disposable PostgreSQL
+  container were stopped after verification; no production data was accessed.
+- Real packaged producer-to-HAI review-consumer integration passed again on
+  disposable PostgreSQL: 101 records, updates, deletion, durable restart/disable,
+  explicit zero-replay resume, token revocation, and reference-only privacy.
+  The HAI changes remain separate local, uncommitted, unpublished, and uninstalled.
+
+This establishes local request isolation, not production load capacity. Pool
+saturation, slow database connections, and edge request-body limits still need
+target measurement/configuration. The CSV cap is checked after multipart
+parsing, so it is not a bound on the network body or parser temporary-disk use.
+Production deployment, public ngrok acceptance, installed HAI integration, and
+human accessibility/walkthrough/signoff remain open.
+
 ## Image-write compensation and duplication integrity — 2026-09-13
 
 Target: checkout based on `e1bab5052dfd3194f78ec564c0c2a2ec6cb232a0`, plus

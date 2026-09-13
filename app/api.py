@@ -70,13 +70,14 @@ from app.services.suggestions import get_suggestion_provider
 from app.storage import (
     ValidatedUpload,
     local_storage_path,
-    read_validated_image,
+    read_validated_image_sync,
     safe_filename,
     store_validated_image,
     stored_file_bytes,
 )
 
 router = APIRouter(prefix="/api")
+MAX_LISTING_CSV_BYTES = 2_000_000
 SENSITIVE_CONNECTION_KEYS = ("password", "secret", "token", "api_key", "apikey", "access_key", "private_key")
 LISTING_CSV_FIELDS = [
     "title",
@@ -280,14 +281,14 @@ def duplicate_listing(
 
 
 @router.post("/listings/{listing_id}/images", response_model=ListingOut, tags=["Images"])
-async def upload_image(
+def upload_image(
     listing_id: int,
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     listing = _load_listing(db, user.id, listing_id)
-    validated = await read_validated_image(file)
+    validated = read_validated_image_sync(file)
     duplicate = (
         db.query(ListingImage)
         .filter(
@@ -1155,30 +1156,39 @@ def export_listings_csv(user: User = Depends(get_current_user), db: Session = De
 
 
 @router.post("/import/listings.csv", response_model=DataImportResult, tags=["Data portability"])
-async def import_listings_csv(
+def import_listings_csv(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    content = await file.read(2_000_000)
+    content = file.file.read(MAX_LISTING_CSV_BYTES + 1)
     if not content:
         raise HTTPException(status_code=422, detail="CSV file is empty")
-    text = content.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text))
-    if not reader.fieldnames:
-        raise HTTPException(status_code=422, detail="CSV file must include a header row")
-    missing_fields = set(LISTING_CSV_FIELDS) - set(reader.fieldnames)
-    if missing_fields:
-        raise HTTPException(status_code=422, detail=f"CSV file is missing fields: {', '.join(sorted(missing_fields))}")
-
+    if len(content) > MAX_LISTING_CSV_BYTES:
+        raise HTTPException(status_code=413, detail=f"CSV exceeds {MAX_LISTING_CSV_BYTES:,} byte limit")
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=422, detail="CSV file must use UTF-8 encoding") from exc
+    reader = csv.DictReader(io.StringIO(text), strict=True)
     result = DataImportResult()
-    for row_number, row in enumerate(reader, start=2):
-        try:
-            listing_payload = _listing_from_csv_row(row)
-        except (ValidationError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail=f"CSV row {row_number}: {exc}") from exc
-        db.add(Listing(owner_id=user.id, **listing_payload.model_dump()))
-        result.listings_created += 1
+    try:
+        if not reader.fieldnames:
+            raise HTTPException(status_code=422, detail="CSV file must include a header row")
+        missing_fields = set(LISTING_CSV_FIELDS) - set(reader.fieldnames)
+        if missing_fields:
+            raise HTTPException(
+                status_code=422, detail=f"CSV file is missing fields: {', '.join(sorted(missing_fields))}",
+            )
+        for row_number, row in enumerate(reader, start=2):
+            try:
+                listing_payload = _listing_from_csv_row(row)
+            except (ValidationError, ValueError) as exc:
+                raise HTTPException(status_code=422, detail=f"CSV row {row_number}: {exc}") from exc
+            db.add(Listing(owner_id=user.id, **listing_payload.model_dump()))
+            result.listings_created += 1
+    except csv.Error as exc:
+        raise HTTPException(status_code=422, detail="CSV is malformed or contains an oversized field") from exc
     record_audit_event(db, user, "listings_csv_imported", {"listings_created": result.listings_created})
     db.commit()
     return result

@@ -59,8 +59,6 @@ def test_duplicate_refuses_silent_loss_of_missing_source_image():
 
 @pytest.mark.parametrize("operation", ["upload", "duplicate"])
 def test_failed_image_commit_cleans_written_objects_without_losing_source(monkeypatch, operation):
-    import asyncio
-
     headers = auth_headers(f"write-failure-{operation}")
     owner_id, listing_id, image_id, source_path = create_account_deletion_image(headers)
     before = set(get_settings().upload_path.rglob("*.*"))
@@ -77,7 +75,7 @@ def test_failed_image_commit_cleans_written_objects_without_losing_source(monkey
                     duplicate_listing(listing_id, user, db)
                 else:
                     file = UploadFile(io.BytesIO(PNG_BYTES + b"second"), filename="new.png")
-                    asyncio.run(upload_image(listing_id, file, user, db))
+                    upload_image(listing_id, file, user, db)
         db.rollback()
     assert source_path.read_bytes() == PNG_BYTES
     assert set(get_settings().upload_path.rglob("*.*")) == before, "Failed writes must not leak image objects"
@@ -143,8 +141,6 @@ def test_partial_storage_write_is_tracked_before_provider_raises(monkeypatch, op
 
 @pytest.mark.parametrize("operation", ["upload", "duplicate"])
 def test_uncertain_commit_preserves_newly_committed_image(monkeypatch, operation):
-    import asyncio
-
     headers = auth_headers(f"uncertain-{operation}")
     owner_id, listing_id, _, source_path = create_account_deletion_image(headers)
     with SessionLocal() as db:
@@ -158,8 +154,8 @@ def test_uncertain_commit_preserves_newly_committed_image(monkeypatch, operation
         monkeypatch.setattr(db, "commit", commit_then_fail)
         with pytest.raises(OperationalError, match="lost acknowledgment"):
             if operation == "upload":
-                asyncio.run(upload_image(listing_id, UploadFile(io.BytesIO(PNG_BYTES + b"new"), filename="new.png"),
-                                         user, db))
+                upload_image(listing_id, UploadFile(io.BytesIO(PNG_BYTES + b"new"), filename="new.png"),
+                             user, db)
             else:
                 duplicate_listing(listing_id, user, db)
     with SessionLocal() as db:

@@ -44,6 +44,17 @@ mode retains its previous Uvicorn graceful-drain policy.
 
 ## Verified Portable Build
 
+The newer 2026-09-13 upload/CSV responsiveness build has SHA-256
+`862ff9dd4ada2cccb7ac1a03653566f7468de185209c8a5c2b2e14abe75dd461`.
+Its actual API/worker passed existing workflows, image-write compensation,
+locked-file cleanup retry, and CSV size/encoding rejection without partial
+imports. The real producer-to-local-review-HAI test also passed on disposable
+PostgreSQL. Source regressions prove health can finish while storage/CSV work
+is paused; this is not a saturated-load benchmark. See the
+[request-isolation verification](FINAL_VERIFICATION_REPORT.md#upload-and-csv-event-loop-isolation--2026-09-13).
+This remains an unsigned local review build, not a published release or live
+ngrok/production/installed-HAI acceptance. Hashes below describe earlier builds.
+
 The latest 2026-09-13 image-write recovery build has SHA-256
 `4b5a7bf4c7ca1fe9a40af9b24e724659fd64e1bedbdfc07d3882f9929e7977f0`.
 The real executable passed cleanup after a rejected database image insert,

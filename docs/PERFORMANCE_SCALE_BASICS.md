@@ -39,6 +39,30 @@ These medians are from three runs **with `tracemalloc` enabled**; tracing adds o
 
 Compatibility was also verified on a disposable PostgreSQL 16.15 container limited to one CPU and 256 MiB RAM: Alembic migrated an empty database to `20260809_0013`, then all six read-path resource/behavior tests passed against that server with transaction-isolated fixtures. This includes the `json_array_length` filter supported by [PostgreSQL](https://www.postgresql.org/docs/current/functions-json.html) and [SQLite](https://www.sqlite.org/json1.html). This local database drill does not prove the supplied staging/production environment is configured or ready.
 
+## Upload and CSV request isolation — 2026-09-13
+
+Image upload and CSV import now run as synchronous FastAPI routes in the
+framework's shared, capacity-limited AnyIO worker pool. Reading spooled files,
+validating/hashing image bytes, synchronous database calls, and local/S3 writes
+no longer run directly on the API event loop. The async image helper functions
+also explicitly offload their synchronous work. No private, unbounded executor
+or additional service was added.
+
+`tests/test_request_responsiveness.py` sends two requests through the real ASGI
+application on the same event loop. It deliberately blocks image storage or
+CSV row processing in one request and requires health to complete **before**
+releasing that work. Both cases failed before the change and passed afterward;
+thread-identity assertions also confirm offloading. This is concurrency
+isolation evidence, not a throughput benchmark or production latency guarantee.
+Exhausting the shared worker pool or database pool can still delay other
+requests; representative load testing and edge admission limits remain needed.
+
+CSV reads are bounded to 2,000,001 bytes to detect overflow instead of silently
+truncating a file. This is an application-level file check **after multipart
+parsing**: it does not bound incoming request bytes or temporary-disk usage at
+the proxy/server boundary. Keep edge request-body limits in place. Imports
+remain one transaction; parse/validation failure saves no partial listing set.
+
 ## Database Indexes
 
 The schema now includes indexes for common read and maintenance paths:

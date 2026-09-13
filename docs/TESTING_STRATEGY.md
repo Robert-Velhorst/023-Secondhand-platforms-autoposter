@@ -2,6 +2,13 @@
 
 This strategy defines the current test layers, the verification gate, and the gaps that remain before release.
 
+Request responsiveness is covered by `tests/test_request_responsiveness.py`:
+real ASGI requests must serve health while upload storage or CSV parsing is
+paused, and the work must run outside the event-loop thread. Other cases cover
+exact CSV byte limits, UTF-8 errors, parser errors with no partial import, and
+async image-helper offloading. These checks do not establish saturated-pool
+capacity, production latency, or edge multipart request-body limits.
+
 ## Verification Gate
 
 Run the full local gate before pushing:
