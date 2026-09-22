@@ -5,7 +5,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_session, get_current_user
+from app.dependencies import get_authenticated_session, get_current_user
 from app.models import (
     CategoryMapping,
     HaiConnectorToken,
@@ -103,7 +103,7 @@ def login(payload: AuthLogin, request: Request, db: Session = Depends(get_db)) -
 
 
 @router.post("/auth/logout", status_code=204, tags=["Auth"])
-def logout(session: UserSession = Depends(get_current_session), db: Session = Depends(get_db)):
+def logout(session: UserSession = Depends(get_authenticated_session), db: Session = Depends(get_db)):
     if session.token_hash != "dev-auto-login":
         revoke_session(db, session)
     return None

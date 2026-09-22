@@ -44,7 +44,27 @@ mode retains its previous Uvicorn graceful-drain policy.
 
 ## Verified Portable Build
 
-The latest 2026-09-13 browser-auth recovery build has SHA-256
+The latest 2026-09-22 disabled-account sign-out build has SHA-256
+`416c4a504ca8278b24cb6255e338e0d6cd3544fbfd36a6c5ee8b08dba8612553`.
+The previous executable reproduced HTTP 403 when a disabled account attempted
+sign-out. The rebuilt executable passed the real Chromium flow at desktop
+1366×900 and mobile 390×844: sign in, disable the synthetic account, verify data
+access is denied, sign out with HTTP 204, clear the browser credential, reactivate
+the account, and verify its old token still receives HTTP 401. Page identity,
+meaningful content, absence of overlays, console health, screenshots, and
+horizontal-overflow checks passed. No frontend code change was needed; the
+backend now permits valid-session revocation without granting account access.
+See [deactivated-account sign-out](AUTH_SECURITY_POSTURE.md#signing-out-after-account-deactivation).
+The broader packaged API/worker, storage cleanup, CSV/image, account-isolation,
+registration/login, static delivery, and six existing browser-auth checks also
+passed. The local HAI review consumer passed against a fresh disposable
+PostgreSQL database, including its held-lock timeout and persisted disable/restart
+checks. Schema head remains `20260913_0016`; this change adds no migration.
+Owned processes and test containers were stopped afterward. The earlier
+intermittent HAI failure remains unexplained; this passing run is not a diagnosis.
+This is an unsigned local review build, not deployment or live-ngrok acceptance.
+
+The earlier 2026-09-13 browser-auth recovery build has SHA-256
 `d5bedcb438ec7909c70fd223098f2373f278c391cb4d700a4afdd7a2f58bde73`.
 Six Chromium flows passed against its actual loopback API at desktop
 1366×900 and mobile 390×844: temporary session failure/retry, single-flight

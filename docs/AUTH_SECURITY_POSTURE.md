@@ -43,6 +43,20 @@ open tab or add cookie authentication. Browser storage remains exposed to
 same-origin JavaScript, so CSP, XSS prevention, trusted-device use, and explicit
 server-side revocation remain important.
 
+### Signing out after account deactivation
+
+A disabled account cannot read account/listing/dashboard data, but a valid,
+unexpired bearer session can still call `POST /api/auth/logout`. Revocation
+requires session authentication, not permission to access account data. It
+does not reactivate the account or revoke another user's session. Reactivating
+the account later does not revive that logged-out token.
+
+Expired, already-revoked, missing, and invalid credentials still receive `401`;
+cookies alone do not authenticate. A failed database write is not acknowledged
+as a successful sign-out, and the browser retains its credential for retry.
+This does not introduce an account-management UI, revoke every session on
+deactivation, or erase private content already rendered in another tab.
+
 ## Registration transactions and recovery
 
 Registration creates the account and its first bearer session in one database

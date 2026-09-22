@@ -17,6 +17,15 @@ regression evidence, not distributed enforcement or target edge configuration.
 
 ## Verification Gate
 
+`tests/test_logout_account_state.py` exercises the actual HTTP dependency and
+revocation transaction on isolated SQLite and migrated PostgreSQL: disabled
+accounts remain denied data access but can revoke their own valid session,
+reactivation does not revive a revoked token, other sessions remain unchanged,
+invalid/expired/revoked/cookie-only credentials are rejected, and failed writes
+remain retryable. The ten cases are included in the PostgreSQL CI subset.
+Separate Chromium checks cover real desktop/mobile sign-in, deactivation,
+sign-out, browser token removal, and old-token rejection after reactivation.
+
 Browser authentication has eleven deterministic JavaScript state tests in
 `tests/frontend_auth.test.cjs`. They execute the shipped handlers with a
 minimal DOM, covering request ownership, validity, transient versus invalid
