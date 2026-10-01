@@ -1,5 +1,38 @@
 # Final Verification Report
 
+## OAuth file atomicity and commit recovery — 2026-10-01
+
+Application source target: `agent/production-launch-hardening` at
+`23f3786135e720ae52078b0b4f195d43c89a75c4`.
+
+- The full Windows 11/Python 3.14 gate passed **550 tests, 1 skipped** (551
+  collected) in 179.59 seconds; Ruff and compilation passed. Doctor warnings
+  were limited to the default development secret and the unchanged local
+  SQLite database at `20260809_0013` behind code head `20261001_0017`.
+- GitHub [Verify](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/36876012481)
+  passed on the same commit: **549 passed, 2 skipped** (1 warning) on
+  Linux/Python 3.12. Its migrated-PostgreSQL job passed, including token-secret
+  cleanup tests. The [Supply Chain audit](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/36876012502)
+  also passed.
+- Windows packaging rebuilt successfully using the pinned build requirements.
+  SHA-256: `48b667b72844c2d0c68cba80c52341ec5723d5b46d9e83fee9875303c7262eb3`;
+  the sidecar matched. Three standalone packaging tests passed. A fresh-data
+  execution of that artifact returned API health `ok`, worker health `ok`, and
+  HTTP 200 for the dashboard; the SQLite DB reached `20261001_0017`. The exact
+  launcher process and its worker exited after shutdown.
+- The fix serializes concurrent token-file writes within the process, uses a
+  unique temporary file per write, and removes it if atomic replacement fails.
+  OAuth callback recovery now deletes a new token file only after a failed
+  account commit and a fresh database query proves no account references it;
+  if commit outcome is uncertain, it preserves the token. Focused tests cover
+  concurrent writes, failed replacement cleanup, definite rollback, and
+  uncertain commit acknowledgement. The focused OAuth/cleanup suite passed
+  **13/13**; no real eBay credentials or API calls were used.
+- This source/CI evidence does not establish target deployment, production
+  database migration, backup recovery, edge rate limits, a real-user
+  walkthrough, manual accessibility QA, official marketplace publishing, or
+  final acceptance. The open PR remains `DIRTY` due to its README conflict.
+
 ## Exact-head Linux and PostgreSQL CI — 2026-10-01
 
 Application source target: `agent/production-launch-hardening` at

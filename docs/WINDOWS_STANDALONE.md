@@ -3,7 +3,7 @@
 ## Build
 
 Install Python 3.13 for packaging; the script creates its own build environment.
-For source-mode execution, follow the [README setup](../README.md#local-development-setup).
+For source-mode execution, follow the [README setup](../Readme.md#local-development-setup).
 From PowerShell:
 
 ```powershell
@@ -44,7 +44,20 @@ mode retains its previous Uvicorn graceful-drain policy.
 
 ## Verified Portable Build
 
-The latest 2026-09-22 disabled-account sign-out build has SHA-256
+### Current package check — 2026-10-01
+
+The latest local Windows 11 build was produced from source commit `23f3786`
+using the hash-locked build requirements. SHA-256:
+`48b667b72844c2d0c68cba80c52341ec5723d5b46d9e83fee9875303c7262eb3`; the
+checksum sidecar matched. Three standalone packaging tests passed. A fresh
+packaged launch returned API health `ok`, worker health `ok`, dashboard HTTP
+200, and Alembic head `20261001_0017`. The app process and worker were stopped
+afterward. This is a local package/runtime check, not production deployment or
+live-ngrok acceptance.
+
+### Historical sign-out checkpoint — 2026-09-22
+
+The 2026-09-22 disabled-account sign-out build had SHA-256
 `416c4a504ca8278b24cb6255e338e0d6cd3544fbfd36a6c5ee8b08dba8612553`.
 The previous executable reproduced HTTP 403 when a disabled account attempted
 sign-out. The rebuilt executable passed the real Chromium flow at desktop
@@ -243,5 +256,5 @@ Do not enable pooling to work around `ERR_NGROK_334`; resolve the endpoint
 conflict through an authorised operator. A reserved address is not private
 access, and a temporary tunnel is not production hosting. Sleeping, shutting
 down, or disconnecting the Windows host makes the app unavailable. See the
-[README ngrok section](../README.md#access-through-ngrok) for the complete
+[README ngrok section](../Readme.md#access-through-ngrok) for the complete
 operational boundary.

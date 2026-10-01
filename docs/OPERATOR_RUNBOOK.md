@@ -1,6 +1,6 @@
 # Operator Runbook
 
-This runbook covers deployment and operation of the assisted-posting app. It is not production approval: resolve the [implementation gaps and launch requirements](../README.md#current-launch-blockers) and record target-environment evidence before launch.
+This runbook covers deployment and operation of the assisted-posting app. It is not production approval: resolve the [implementation gaps and launch requirements](../Readme.md#current-launch-blockers) and record target-environment evidence before launch.
 
 ## Pre-Deploy Checks
 
