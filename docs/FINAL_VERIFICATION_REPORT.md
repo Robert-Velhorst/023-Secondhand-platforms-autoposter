@@ -1,5 +1,53 @@
 # Final Verification Report
 
+## Autoposter hardening and HAI integration — 2026-10-01
+
+Application source target: `agent/production-launch-hardening` at
+`028a49ac5f4b4eebdded70abc3024374de78058d`, before this evidence entry and
+README case-normalization update. HAI source target: the local review checkout
+based on `91c8620c557229f1da4ed15fcbb7088c6a6947a7`; that checkout already
+contained unpublished local connector changes and was not modified by this
+verification. All integration records were synthetic and used disposable
+services.
+
+- `python scripts/verify.py` on Windows 11/Python 3.14: **541 passed, 1
+  skipped** (542 collected, 289.34 seconds); Ruff and compilation passed.
+  The doctor step emitted expected local-development warnings: the configured
+  SQLite database was at `20260809_0013`, code head was `20260913_0016`, and
+  development used the default `SECRET_KEY`. The existing database was not
+  migrated or changed.
+- Runtime and Windows build dependency audits passed locally. The hash-locked
+  build requirements installed successfully in a dry-run. A Windows standalone
+  executable was rebuilt (SHA-256
+  `abfdd00166eafc74e59f95738b9f9bf77c6b8c875bc78e9f152dfa163b84ecae`) and its
+  checksum sidecar matched. A fresh isolated data-directory smoke returned
+  HTTP 200 for API health, worker status, and dashboard, with migration head
+  `20260913_0016`; the test process tree was stopped afterward.
+- The HAI checkout passed `go test -mod=readonly -count=1 ./...`,
+  `go vet -mod=readonly ./...`, and `go build -mod=readonly ./...`. Its Angular
+  tests passed **390/390** in headless Chrome; the production build succeeded
+  with existing component Sass budget warnings. The test runtime was Node
+  25.2.1, while CI uses Node 22, so this is not an exact CI-runtime match.
+- An opt-in local end-to-end run used the packaged Autoposter executable and a
+  disposable PostgreSQL 17 container. It verified 101 synthetic records,
+  pagination/checkpoints, update and deletion tombstone handling, restart and
+  persisted disable/re-enable, token revocation, private-notes exclusion, and
+  read-only operation boundaries. Both producer and consumer integration
+  suites passed. No installed HAI target or production service was contacted.
+- A 1,000-listing synthetic analytics benchmark measured median latency under
+  tracing at 536.68 ms before and 348.72 ms after (about 35% lower); peak
+  allocations were nearly unchanged. This is a local SQLite microbenchmark,
+  not a PostgreSQL throughput or production latency guarantee.
+- GitHub PR #2 was pushed at `028a49a`, but no workflow runs for that head were
+  visible at this check. The PR remained draft and conflicting because both
+  branches changed the README. See the latest PR and exact-head checks before
+  relying on remote CI evidence.
+- `python scripts/release_gate.py --json` remains blocked with 77 missing
+  evidence fields. Target deployment/PostgreSQL migration, production secrets
+  and CORS, worker proof, backup restore, edge rate limits, real-user walkthrough,
+  manual accessibility QA, and final acceptance remain unverified. Marketplace
+  submission is still assisted/manual.
+
 ## Atomic registration and retry recovery — 2026-09-13
 
 Target: checkout based on `864b1c8134b43c77e668e605c64b5f68a215ff75`, plus

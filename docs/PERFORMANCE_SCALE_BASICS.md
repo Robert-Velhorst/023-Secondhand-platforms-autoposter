@@ -107,8 +107,9 @@ analytics at **536.68 ms before** and **348.72 ms after** (about 35% lower
 median). Peak Python allocation changed from 1,619,055 to 1,616,525 bytes, and
 the same 1,000 listing ORM objects are still loaded. The optimization saves
 recommendation-generation CPU; it does not eliminate the listing scan or make a
-production latency promise. Full measurements are in
-[`.ecc/benchmarks/analytics-summary.json`](../.ecc/benchmarks/analytics-summary.json).
+production latency promise. The fixture is reproducible with the command in
+the preceding benchmark section; the measured before/after sample details are
+summarized here rather than linked to a local-only scratch artifact.
 
 ## Remaining Scale Work
 
