@@ -201,6 +201,38 @@ def test_server_failure_stops_real_child_before_releasing_owned_resources(tmp_pa
             child.wait(timeout=10)
 
 
+def test_keyboard_interrupt_stops_worker_and_exits_launcher_cleanly(tmp_path, monkeypatch):
+    import uvicorn
+
+    monkeypatch.setenv("AUTOPOSTER_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(launcher, "run_migrations", lambda: None)
+    monkeypatch.setattr(launcher, "_worker_command", lambda: [sys.executable, "-c", "import time; time.sleep(60)"])
+    real_popen = subprocess.Popen
+    children = []
+
+    def track_child(*args, **kwargs):
+        child = real_popen(*args, **kwargs)
+        children.append(child)
+        return child
+
+    def interrupted(_server, sockets):
+        assert sockets
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(subprocess, "Popen", track_child)
+    monkeypatch.setattr(uvicorn.Server, "run", interrupted)
+    try:
+        assert launcher.serve("127.0.0.1", 0, False) == 0
+        assert children and children[0].poll() is not None
+        with launcher.owned_data_directory(tmp_path):
+            pass
+    finally:
+        for child in children:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=10)
+
+
 def _wait_for_file(path):
     deadline = time.monotonic() + 15
     while not path.exists() and time.monotonic() < deadline:

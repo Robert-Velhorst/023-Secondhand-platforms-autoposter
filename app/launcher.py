@@ -273,7 +273,12 @@ def serve(host: str, port: int, open_browser: bool, *, ngrok_path: str | None = 
                 except KeyboardInterrupt:
                     pass
             else:
-                _run_api(listener)
+                try:
+                    _run_api(listener)
+                except KeyboardInterrupt:
+                    # Ctrl+C is the normal standalone shutdown path; let the
+                    # lifecycle stack stop the worker and release owned resources.
+                    pass
     return 0
 
 
