@@ -153,7 +153,7 @@ Docker Compose:
 docker compose up --build
 ```
 
-Production Compose runs migrations as a one-shot service before API and worker startup. For a new deployment, prepare `.env.production` from `.env.production.example` outside version control and replace every placeholder first. Do not overwrite an existing configured file. For an upgrade, stop all older API and worker processes and back up the target database, uploads, and token-secret volume before starting the new stack; follow the claim-fencing procedure above.
+Production Compose runs migrations as a one-shot service before API startup, then waits for API database readiness before starting the worker. The worker health check requires a fresh worker heartbeat; an intentionally paused queue is still considered healthy while the worker remains alive. For a new deployment, prepare `.env.production` from `.env.production.example` outside version control and replace every placeholder first. Do not overwrite an existing configured file. For an upgrade, stop all older API and worker processes and back up the target database, uploads, and token-secret volume before starting the new stack; follow the claim-fencing procedure above.
 
 After configuration and backup, launch from PowerShell:
 
@@ -165,7 +165,7 @@ docker compose --env-file .env.production -f docker-compose.production.yml up --
 
 On Linux/macOS, set both `UPLOAD_VOLUME=/path/to/persistent/autoposter-uploads` and `TOKEN_SECRET_VOLUME=/path/to/private/autoposter-secrets` in the Compose environment instead of the PowerShell assignments. `--env-file` supplies Compose interpolation values; the services' `env_file` loads application settings. Keep the published API port behind a reviewed HTTPS proxy/firewall. Compose does not provide TLS, edge rate limiting, backup scheduling, or a managed database.
 
-Do not add a default database password or a bundled database service to this production file. `DATABASE_URL` must be supplied by the deployment secret manager. Confirm `GET /api/worker-status` reports `status: ok` after the worker has completed at least one poll cycle.
+Do not add a default database password or a bundled database service to this production file. `DATABASE_URL` must be supplied by the deployment secret manager. Confirm `GET /api/worker-status` reports `status: ok` after the worker has completed at least one poll cycle. Docker health is checked separately for the API's database readiness and the worker's heartbeat; a paused worker endpoint returns HTTP 503 by design, while the Compose health check accepts the explicit `paused` status if a live heartbeat is present.
 
 ## Health Checks
 

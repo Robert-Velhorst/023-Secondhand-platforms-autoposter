@@ -41,4 +41,27 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      autoposter:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import json
+          import sys
+          import urllib.error
+          import urllib.request
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          try:
+              response = opener.open("http://autoposter:8000/api/worker-status", timeout=5)
+          except urllib.error.HTTPError as error:
+              response = error
+          result = json.load(response)
+          sys.exit(0 if result.get("status") in {"ok", "paused"} and result.get("active_workers", 0) > 0 else 1)
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
