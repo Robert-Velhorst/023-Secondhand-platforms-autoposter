@@ -1,5 +1,28 @@
 # Final Verification Report
 
+## Exact-head Linux and PostgreSQL CI — 2026-10-01
+
+Application source target: `agent/production-launch-hardening` at
+`91be44c3ad343c14822706448e14b777d56483c9`.
+
+- GitHub [Verify workflow](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/36874188486)
+  passed on Linux/Python 3.12: **545 passed, 2 skipped** (1 warning) in
+  66.90 seconds, including Ruff, compilation, the full suite, and doctor check.
+- Its isolated PostgreSQL 16 worker job passed **121 tests** (1 warning) in
+  62.77 seconds. The test command includes `tests/test_token_secret_cleanup.py`
+  against migrated PostgreSQL.
+- The [Supply Chain workflow](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/36874188517)
+  passed its dependency audit on the same commit.
+- An earlier run on `3c7702a` failed because a test assumed `README.md` casing;
+  this was fixed and the succeeding exact-head workflow above validates the
+  portability fix. The open PR remains `DIRTY` due to the README/base-branch
+  conflict; these passing checks do not resolve that conflict or authorize a
+  merge.
+- CI is code verification only. It does not prove deployment, target-database
+  migration, live worker operation, backup recovery, edge rate limits, real
+  user walkthrough, manual accessibility QA, marketplace API publishing, or
+  final acceptance.
+
 ## OAuth token erasure outbox — 2026-10-01
 
 Application source target: `agent/production-launch-hardening` at
