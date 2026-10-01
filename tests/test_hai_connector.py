@@ -146,6 +146,55 @@ def test_hai_records_expose_monotonic_decimal_change_ids_for_replay_ordering():
     assert all(identifier > 0 for identifier in identifiers)
 
 
+def test_hai_incremental_feed_does_not_select_private_listing_or_file_fields():
+    from sqlalchemy import event
+
+    from app.database import engine
+
+    owner = _register("hai-minimal-query")
+    _, connector = _create_hai_token(owner)
+    listing = client.post(
+        "/api/listings", headers=owner,
+        json={"title": "Public item", "internal_notes": "private"},
+    ).json()
+    assert client.post(
+        f"/api/listings/{listing['id']}/images", headers=owner,
+        files={"file": ("private.png", PNG_BYTES, "image/png")},
+    ).status_code == 200
+    assert client.post(
+        f"/api/listings/{listing['id']}/platforms", headers=owner,
+        json={"platform": "marktplaats", "selected": True, "overrides": {}},
+    ).status_code == 200
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement.lower())
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        response = client.get("/api/hai/records", headers=connector)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    listing_queries = [statement for statement in statements if "from listings" in statement]
+    image_queries = [statement for statement in statements if "from listing_images" in statement]
+    mapping_queries = [statement for statement in statements if "from platform_listing_mappings" in statement]
+    assert listing_queries
+    assert image_queries
+    assert mapping_queries
+    assert all(
+        "listings.internal_notes" not in statement and "listings.notes" not in statement
+        for statement in listing_queries
+    )
+    assert all(
+        "listing_images.storage_path" not in statement and "listing_images.filename" not in statement
+        for statement in image_queries
+    )
+    assert all("platform_listing_mappings.validation_errors" not in statement for statement in mapping_queries)
+
+
 @pytest.mark.parametrize("cursor", [
     base64.urlsafe_b64encode(b"9223372036854775808").decode().rstrip("="),
     base64.urlsafe_b64encode(b"9" * 80).decode().rstrip("="),

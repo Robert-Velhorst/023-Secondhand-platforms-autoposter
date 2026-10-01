@@ -262,7 +262,25 @@ def hai_records(
         listings = {
             listing.id: listing
             for listing in db.query(Listing)
-            .options(selectinload(Listing.images), selectinload(Listing.platform_mappings))
+            .options(
+                load_only(
+                    Listing.title,
+                    Listing.description,
+                    Listing.price_cents,
+                    Listing.currency,
+                    Listing.condition,
+                    Listing.category,
+                    Listing.location,
+                    Listing.tags,
+                    Listing.status,
+                    Listing.revision,
+                ),
+                selectinload(Listing.images).load_only(ListingImage.id),
+                selectinload(Listing.platform_mappings).load_only(
+                    PlatformListingMapping.platform,
+                    PlatformListingMapping.status,
+                ),
+            )
             .filter(Listing.owner_id == user.id, Listing.id.in_(listing_ids))
             .all()
         }
