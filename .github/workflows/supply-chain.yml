@@ -2,7 +2,7 @@ name: Supply Chain
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "agent/production-launch-hardening"]
   pull_request:
     branches: ["main"]
   schedule:
