@@ -22,6 +22,7 @@ def test_production_environment_template_uses_safe_required_values():
         "JOB_PROCESS_INLINE=false",
         "DATABASE_URL=postgresql+psycopg://",
         "WORKER_HEARTBEAT_TIMEOUT_SECONDS=30",
+        "UPLOAD_VOLUME=D:/PersistentData/autoposter-uploads",
         "TOKEN_SECRET_DIR=/app/data/secrets",
     ]
     for value in required:
