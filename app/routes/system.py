@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, Response
-from sqlalchemy import func
+from sqlalchemy import func, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from app.adapters import list_platforms
@@ -29,7 +30,12 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/health", tags=["Health"])
-def health() -> dict:
+def health(response: Response, db: Session = Depends(get_db)) -> dict:
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        response.status_code = 503
+        return {"status": "unavailable", "version": __version__, "time": datetime.now(UTC).isoformat()}
     return {"status": "ok", "version": __version__, "time": datetime.now(UTC).isoformat()}
 
 

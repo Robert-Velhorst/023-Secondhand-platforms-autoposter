@@ -7,6 +7,8 @@ def test_production_compose_requires_migrations_before_services_start():
     assert 'command: ["alembic", "upgrade", "head"]' in content
     assert "condition: service_completed_successfully" in content
     assert "worker:" in content
+    assert "/api/health" in content
+    assert "healthcheck:" in content
     assert "UPLOAD_VOLUME" in content
     assert "TOKEN_SECRET_VOLUME" in content
     assert "postgres:" not in content
