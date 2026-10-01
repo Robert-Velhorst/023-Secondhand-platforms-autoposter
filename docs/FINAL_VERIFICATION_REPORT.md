@@ -1,5 +1,35 @@
 # Final Verification Report
 
+## OAuth token erasure outbox — 2026-10-01
+
+Application source target: `agent/production-launch-hardening` at
+`2d1e1e6be0920cb28040aa40360cfbdab97f6ec9`. This is a follow-up to the
+historical baseline below; the evidence is local and does not imply a production
+deployment or operator approval.
+
+- `python scripts/verify.py` on Windows 11/Python 3.14: **546 passed, 1
+  skipped** (547 collected, 227.98 seconds); Ruff and bytecode compilation
+  passed. The doctor reported the unchanged development SQLite database at
+  `20260809_0013` while the code head was `20261001_0017`, and the expected
+  default development secret warning. No local database migration was run.
+- After rebuilding the Windows standalone executable, its checksum sidecar
+  matched SHA-256
+  `eda6487be3aa3b55a68a425afdd290a6644b8673b03ca2f768579d6191b89629`;
+  `tests/test_windows_standalone.py` passed **3/3** against that artifact.
+- Production Compose interpolation and syntax passed validation with the
+  example environment and temporary upload/token-volume paths; no real
+  `.env.production`, deployment, or target credentials were created or used.
+- The fix adds a durable token-file deletion outbox, retry/backoff and claim
+  fencing, account/user deletion and OAuth reauthorization cleanup, OAuth-state
+  invalidation, and persistent token-secret volume configuration for API and
+  worker processes. New tests cover cleanup failures/retries, shared-secret
+  references, account/user deletion, and invalidated OAuth states.
+- No current-head GitHub workflow run was available at this local check. Target
+  PostgreSQL migration, deployment, live worker, backup/restore, proxy rate
+  limits, user walkthrough, manual accessibility QA, and final acceptance
+  remain external evidence requirements. Marketplace posting remains
+  assisted/manual.
+
 ## Autoposter hardening and HAI integration — 2026-10-01
 
 Application source target: `agent/production-launch-hardening` at

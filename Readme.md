@@ -8,7 +8,7 @@ Secondhand Platforms Autoposter is a self-hosted listing workspace for preparing
 
 ### Which version does this describe?
 
-This README describes the **`agent/production-launch-hardening` review branch**, tracked in [draft pull request #2](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/pull/2), not an approved production release. The application hardening in this guide is at [`028a49a`](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/commit/028a49ac5f4b4eebdded70abc3024374de78058d); at the **2026-10-01** repository check, `main` was at [`2677933`](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/commit/2677933ed17e66fa024c6ee764852ff0991c6610). The older 190-test report referred to an earlier baseline, not this review branch. The current local verification and its limits are recorded below and in the [final verification report](docs/FINAL_VERIFICATION_REPORT.md#autoposter-hardening-and-hai-integration--2026-10-01).
+This README describes the **`agent/production-launch-hardening` review branch**, tracked in [draft pull request #2](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/pull/2), not an approved production release. The latest application hardening is at [`2d1e1e6`](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/commit/2d1e1e6be0920cb28040aa40360cfbdab97f6ec9); at the **2026-10-01** repository check, `main` was at [`2677933`](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/commit/2677933ed17e66fa024c6ee764852ff0991c6610). The older 190-test report referred to an earlier baseline, not this review branch. The current local verification and its limits are recorded below and in the [final verification report](docs/FINAL_VERIFICATION_REPORT.md#oauth-token-erasure-outbox--2026-10-01).
 
 The repository's current GitHub owner is **Robert-Velhorst**. The original `Noodzakelijk-Online/023-Secondhand-platforms-autoposter` link resolves to this repository. Proposed changes, older PR descriptions, and generated executables are not interchangeable with the source revision you checked out. Rebuild after updating source; an older executable does not gain new launcher controls merely because its PowerShell wrapper changed.
 
@@ -561,9 +561,9 @@ Start from `.env.example` for development or `.env.production.example` for deplo
 | `S3_REGION` | empty | Optional S3 region |
 | `S3_ENDPOINT_URL` | empty | Optional S3-compatible provider endpoint |
 | `S3_KEY_PREFIX` | `uploads` | Bucket key prefix |
-| `TOKEN_SECRET_DIR` | `./data/secrets` | Local secret-reference storage used by the eBay OAuth foundation |
+| `TOKEN_SECRET_DIR` | `./data/secrets` | Private directory for eBay OAuth token files; production must mount persistent storage here |
 
-The S3 client uses [boto3's credential resolution](https://docs.aws.amazon.com/boto3/latest/guide/credentials.html#configuring-credentials) rather than custom `S3_ACCESS_KEY` settings. Supply an approved runtime identity or securely injected provider credentials to every process that needs storage. Do not put real keys in this README or a committed `.env`. If the optional OAuth token foundation is used, its secret-reference directory also needs durable, access-controlled storage and backup; the supplied production Compose file mounts uploads, not that secrets directory.
+The S3 client uses [boto3's credential resolution](https://docs.aws.amazon.com/boto3/latest/guide/credentials.html#configuring-credentials) rather than custom `S3_ACCESS_KEY` settings. Supply an approved runtime identity or securely injected provider credentials to every process that needs storage. Do not put real keys in this README or a committed `.env`. Production Compose requires `TOKEN_SECRET_VOLUME`, mounted at `TOKEN_SECRET_DIR` in both API and worker processes. Restrict host permissions, use encrypted durable storage appropriate to the deployment, include it in backups, and never share it with untrusted containers. OAuth token erasures use a durable database outbox and are retried by the worker after account or user deletion.
 
 ### Authentication, sessions, and limits
 
@@ -622,6 +622,7 @@ These variables enable only the consent/token foundation. They do not change the
 | `AUTOPOSTER_DATA_DIR` | Windows launcher | Overrides `%LOCALAPPDATA%\SecondhandAutoposter` |
 | `APP_PORT` | Production Compose | Host port mapped to container port 8000 |
 | `UPLOAD_VOLUME` | Production Compose | Required persistent host path/managed volume mounted at `/app/data/uploads` |
+| `TOKEN_SECRET_VOLUME` | Production Compose | Required private persistent path/managed volume mounted at `/app/data/secrets` for OAuth token files |
 
 Historical marketplace URL, LastPass, and Selenium variables are preserved in [the separate legacy example](legacy/selenium/.env.example), not the root `.env.example`. They are not supported `Settings` fields. Remove them from older web-app `.env` files if startup reports `extra_forbidden`; the application intentionally rejects unknown settings rather than hiding configuration mistakes. This separation does not enable or validate the quarantined scripts.
 
@@ -721,7 +722,7 @@ Recovery checks the selected job version again before returning it to the queue,
 
 Each claim also carries a random identifier through execution. A delayed worker cannot start a replacement claim or save a late success, error, or quota response after its claim has been replaced. The job result, platform mapping, and attempt/log writes share one guarded transaction. Adapter calls receive detached listing/image/account inputs after the read connection has been released; package preparation does not hold a database transaction open. These safeguards protect local database state, not provider-side effects: lease renewal and exactly-once external publication are not implemented.
 
-Upgrading across Alembic revision `20260905_0014` requires stopping all old API and worker processes first, including inline processing. Current head `20260913_0016` also includes durable storage cleanup and atomic login reservation fencing. Back up the database and uploads, apply migrations, and restart every process with the new code. Do not mix old and new processes: old code does not enforce these protections. See the [claim-fencing upgrade procedure](docs/OPERATOR_RUNBOOK.md#claim-fencing-upgrade), [storage-cleanup upgrade](docs/OPERATOR_RUNBOOK.md#storage-cleanup-upgrade-and-operation), and [login-admission upgrade](docs/OPERATOR_RUNBOOK.md#login-admission-upgrade).
+Upgrading across Alembic revision `20260905_0014` requires stopping all old API and worker processes first, including inline processing. Current head `20261001_0017` also includes durable image cleanup, atomic login reservation fencing, and retryable OAuth token-file erasure. Back up the database, uploads, and private token-secret directory together; apply migrations; and restart every process with the new code. Do not mix old and new processes: old code does not enforce these protections. See the [claim-fencing upgrade procedure](docs/OPERATOR_RUNBOOK.md#claim-fencing-upgrade), [storage-cleanup upgrade](docs/OPERATOR_RUNBOOK.md#storage-cleanup-upgrade-and-operation), [login-admission upgrade](docs/OPERATOR_RUNBOOK.md#login-admission-upgrade), and [OAuth secret cleanup](docs/OPERATOR_RUNBOOK.md#oauth-token-secret-cleanup).
 
 Inline requests must claim due queued work; they do not execute a job already claimed by a worker or bypass its scheduled backoff. Retrying an already queued/running job leaves it unchanged. Retrying terminal work uses a conditional version check and, when `JOB_PROCESS_INLINE=false`, leaves execution to the separate worker. A fresh claim clears the previous attempt's start/finish timestamps so it is not immediately recovered as stale.
 
@@ -752,11 +753,12 @@ Production Compose deliberately does **not** bundle a database. Supply a managed
 1. For a new deployment only, copy `.env.production.example` to `.env.production` outside version control. Preserve an existing configured file.
 2. Replace every placeholder, particularly `SECRET_KEY`, `DATABASE_URL`, `PUBLIC_BASE_URL`, and `CORS_ORIGINS`.
 3. Choose private S3-compatible storage or a persistent local upload volume.
-4. Back up the target database and uploads before migration.
+4. Back up the target database, uploads, and private token-secret volume before migration.
 5. Start the migration-gated stack.
 
 ```powershell
 $env:UPLOAD_VOLUME = "D:\PersistentData\autoposter-uploads"
+$env:TOKEN_SECRET_VOLUME = "D:\PersistentData\autoposter-secrets"
 docker compose --env-file .env.production -f docker-compose.production.yml up --build -d
 ```
 
@@ -786,7 +788,7 @@ A complete operator backup includes:
 
 - the PostgreSQL database or standalone SQLite database;
 - the local upload directory or the complete private S3 bucket/prefix;
-- the access-controlled `TOKEN_SECRET_DIR` when the optional OAuth token foundation is used, and the standalone installation's local secret file;
+- the access-controlled `TOKEN_SECRET_DIR` whenever the OAuth token foundation is used, and the standalone installation's local secret file;
 - the deployed Git commit and Alembic revision;
 - environment/secret references **and an approved way to recover the corresponding secret values**, such as the secret manager's protected recovery procedure; references alone cannot restore a lost secret. Keep plaintext secrets out of ordinary logs and evidence records.
 
@@ -842,9 +844,9 @@ The gate runs:
 3. the complete pytest suite;
 4. `python -m app.doctor --json`.
 
-The most recent full local gate on **2026-10-01** passed **541 tests with one POSIX-only skip** (542 collected) in 289.34 seconds on Windows 11/Python 3.14; Ruff and compilation also passed. The doctor portion emitted warnings because the configured development SQLite database was at migration `20260809_0013` while code head is `20260913_0016`, and development uses the default secret. That database was not migrated or otherwise changed. This result is not production deployment, manual accessibility QA, or human acceptance.
+The most recent full local gate on **2026-10-01**, at code head `20261001_0017`, passed **546 tests with one POSIX-only skip** (547 collected) in 227.98 seconds on Windows 11/Python 3.14; Ruff and compilation also passed. The doctor portion emitted warnings because the configured development SQLite database was at migration `20260809_0013` while code head is `20261001_0017`, and development uses the default secret. That database was not migrated or otherwise changed. This result is not production deployment, manual accessibility QA, or human acceptance.
 
-The Windows standalone executable was rebuilt and its checksum sidecar matched; an isolated fresh-data run returned healthy API, worker, and dashboard responses at Alembic head `20260913_0016`. A separate local HAI connector review checkout passed all Go tests, `go vet`, build, and 390 Angular tests. An opt-in integration test exercised 101 synthetic listing records through the packaged Autoposter against disposable PostgreSQL, including pagination, updates, tombstones, restart/disable persistence, revocation, and exclusion of private notes. These were local disposable checks; the HAI changes remain unpublished and uninstalled, and no target system or production database was used. See the [dated evidence record](docs/FINAL_VERIFICATION_REPORT.md#autoposter-hardening-and-hai-integration--2026-10-01).
+The Windows standalone executable was rebuilt (SHA-256 `eda6487be3aa3b55a68a425afdd290a6644b8673b03ca2f768579d6191b89629`); its checksum sidecar matched, and all **3** standalone smoke tests passed against the rebuilt artifact. The earlier isolated fresh-data runtime smoke at `20260913_0016` is historical and does not validate the new migration head. A separate local HAI connector review checkout passed all Go tests, `go vet`, build, and 390 Angular tests. An opt-in integration test exercised 101 synthetic listing records through the packaged Autoposter against disposable PostgreSQL, including pagination, updates, tombstones, restart/disable persistence, revocation, and exclusion of private notes. These were local disposable checks; the HAI changes remain unpublished and uninstalled, and no target system or production database was used. See the [dated evidence record](docs/FINAL_VERIFICATION_REPORT.md#oauth-token-erasure-outbox--2026-10-01).
 
 The 2026-09-22 disabled-account sign-out checkpoint passed **535 tests with one POSIX-only skip in 88.21 seconds on Windows** (536 cases), plus Ruff and compilation. All ten new request/transaction cases also passed on migrated PostgreSQL. A disabled account remains denied application data but can revoke its valid bearer session; later reactivation does not revive that token. Desktop/mobile Chromium checks exercised this flow, and the six existing browser-auth scenarios passed again. See [deactivated-account sign-out](docs/AUTH_SECURITY_POSTURE.md#signing-out-after-account-deactivation). This historical result is local verification, not production deployment, manual accessibility QA, or human acceptance.
 
