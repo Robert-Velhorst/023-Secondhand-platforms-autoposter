@@ -21,7 +21,12 @@ def test_goal_prompt_required_artifacts_exist():
 
 
 def test_release_tooling_and_honest_provider_contract_are_documented():
-    readme = Path("README.md").read_text(encoding="utf-8")
+    readme_path = next(
+        (path for path in (Path("README.md"), Path("Readme.md")) if path.is_file()),
+        None,
+    )
+    assert readme_path is not None, "repository README is missing"
+    readme = readme_path.read_text(encoding="utf-8")
     runbook = Path("docs/OPERATOR_RUNBOOK.md").read_text(encoding="utf-8")
     security = Path("docs/SECURITY.md").read_text(encoding="utf-8")
 
