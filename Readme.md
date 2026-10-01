@@ -1,331 +1,188 @@
 # Secondhand Platforms Autoposter
 
-A full-stack listing manager for preparing one reusable secondhand product listing and publishing or preparing it across multiple secondhand platforms from one dashboard.
+A self-hosted workspace for preparing and managing secondhand-product listings across multiple marketplaces. Enter an item once, add photos, improve the listing, prepare platform-specific versions, and track the steps needed to publish it.
 
-The current production-safe implementation uses assisted-posting adapters for Marktplaats, Koopplein, Nextdoor, eBay, and Tweedehands. It validates listings, stores platform-specific overrides, queues publishing jobs, records logs and attempts, and produces a prepared posting package for the account owner to complete on each platform. It does not bypass login checks, CAPTCHAs, paid placement flows, rate limits, or platform security systems.
+> **Project status: review/demo software, not approved for production launch.** Local features and automated checks do not prove a production deployment is secure, backed up, accessible, accepted by real users, or ready for customer data.
 
-## Stack
+> **Marketplace posting is assisted/manual.** The app prepares copy-ready listing information and opens a marketplace workflow. You sign in to that marketplace, complete its verification and policy steps, review fees and options, and press its final submit button yourself. The app does not currently provide proven automatic marketplace publishing.
 
-- FastAPI backend
-- SQLAlchemy models
-- SQLite by default
-- Static HTML/CSS/JavaScript dashboard
-- Pytest API tests
-- Docker Compose for local deployment
+## For sellers and reviewers
 
-Legacy Selenium scripts remain in the repository as reference/manual tooling, but they are not part of the default web app startup path.
+You do not need to know how to program to use the browser interface once an operator has installed or deployed the app. You do need an operator to run the service; this repository does not provide an always-on hosted account or a signed installer.
 
-Install `requirements-legacy.txt` only if you need to run the old Selenium scripts in a compatible Python environment.
+A typical workflow is:
 
-See `docs/ARCHITECTURE.md` for the current backend route/module layout.
+1. Register an Autoposter account and sign in. This is separate from your marketplace accounts.
+2. Create a listing with the item's facts, price, condition, category, location, and description.
+3. Upload product images and save the listing.
+4. Use the local Quality assistant and choose which suggestions to apply.
+5. Select one or more marketplaces, review their field requirements, then validate.
+6. Queue an assisted package and open the Queue. A `needs_user_action` status means the app prepared information; marketplace work remains.
+7. Copy or review the information in the marketplace's own form and submit only when you are satisfied.
+8. After actual publication, record the marketplace URL in the app. Do not mark a job complete just to clear the queue.
 
-## Local setup
+The Autoposter account does not create, verify, or manage your marketplace account. Use non-sensitive sample information for demos.
 
-```bash
+## What the app includes
+
+- A browser dashboard served by a FastAPI application.
+- Accounts and bearer-token sign-in; owner-scoped listing and image access.
+- Reusable listings, revisions, images, category mappings, templates, and per-marketplace overrides.
+- Listing validation and a deterministic, local quality assistant.
+- Persistent assisted-posting jobs, attempt history, logs, retries, and a separate background worker.
+- Dashboard analytics based on the signed-in owner's app data.
+- JSON/CSV data portability and authenticated API endpoints.
+- SQLite for local development and PostgreSQL support for deployments.
+- Alembic database migrations, Docker Compose, local/S3-compatible image-storage support, diagnostics, and operational documentation.
+- English and Dutch interface/localization support.
+
+### Marketplace support
+
+The registered adapters cover Marktplaats, Koopplein, Nextdoor, eBay, and Tweedehands. They are assisted workflows: final marketplace submission remains under your control. The presence of a platform in the interface is not evidence of a partnership, provider approval, or an enabled official publishing API. Legacy Selenium scripts are historical/manual reference material, not the supported app publishing path.
+
+The app does not bypass CAPTCHA, two-factor authentication, login checks, anti-bot protections, rate limits, payment prompts, or marketplace policy screens. It does not store raw marketplace passwords or claim success just because a package was prepared.
+
+## For developers
+
+### Technology
+
+- Python, FastAPI, Pydantic, SQLAlchemy, and Alembic
+- Static HTML, CSS, and JavaScript under `public/`
+- SQLite for local use; PostgreSQL supported through SQLAlchemy
+- A web/API process and a separate worker process
+- Local filesystem or optional S3-compatible image storage
+- Pytest and Ruff
+- Docker Compose for local development
+
+See [Architecture](docs/ARCHITECTURE.md), [API reference](docs/API_REFERENCE.md), and [Platform completion contracts](docs/PLATFORM_COMPLETION_CONTRACTS.md) for the authoritative design and behavior details.
+
+### Local development setup
+
+Requirements: a supported Python version compatible with the pinned dependencies. From PowerShell at the repository root:
+
+```powershell
 python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-copy .env.example .env
-uvicorn app.main:app --reload
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+python scripts/verify.py
+python -m uvicorn app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000`.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Register through the interface; there is no shared default username or password. Stop the development server with Ctrl+C.
 
-On Linux/macOS, activate with `source .venv/bin/activate` and copy the env file with `cp .env.example .env`.
+On macOS/Linux, create and activate the virtual environment with `python -m venv .venv` and `source .venv/bin/activate`, install requirements, copy `.env.example` to `.env`, then run the same Python commands.
 
-## Docker
+Inspect `.env.example` before starting. Keep local credentials out of Git. Development convenience settings must not be carried into a production deployment.
 
-```bash
-copy .env.example .env
+### Docker Compose
+
+For local use, prepare `.env` from `.env.example`, then run:
+
+```powershell
+Copy-Item .env.example .env
 docker compose up --build
 ```
 
-The app is available at `http://127.0.0.1:8000`. SQLite data and uploads are stored in `./data`.
+The Compose file starts the application and a separate worker and persists local data through mounted storage. The optional `postgres` Compose profile is for local development/testing only. Its example credentials are not suitable for a public or production environment.
 
-The Compose stack also starts a worker service that runs queued publishing jobs:
+### Database and migrations
 
-```bash
-python -m app.worker
-```
-
-For local development, `JOB_PROCESS_INLINE=true` keeps publish jobs immediately processed in the API request. For production-style operation, set `JOB_PROCESS_INLINE=false` and run the worker process.
-
-## Environment variables
-
-- `SECRET_KEY`: set to a long random value in production.
-- `DATABASE_URL`: SQLAlchemy database URL. Default: `sqlite:///./data/autoposter.db`.
-- `UPLOAD_DIR`: image upload directory. Default: `./data/uploads`.
-- `STORAGE_BACKEND`: storage adapter. Supported values: `local`, `s3`.
-- `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT_URL`, `S3_KEY_PREFIX`: optional S3-compatible object storage settings used when `STORAGE_BACKEND=s3`.
-- `MAX_UPLOAD_SIZE_MB`: maximum image upload size.
-- `ALLOWED_IMAGE_TYPES`: comma-separated accepted image MIME types.
-- `CORS_ORIGINS`: comma-separated allowed origins or `*` for local development.
-- `DEV_AUTO_LOGIN`: creates a reserved local demo session only when `APP_ENV=development`.
-- `AUTH_TRANSPORT`: supported value is `bearer`; cookie sessions are not enabled.
-- `LOGIN_RATE_LIMIT_ATTEMPTS`: failed login attempts allowed per email/IP window.
-- `LOGIN_RATE_LIMIT_WINDOW_SECONDS`: failed login throttle window.
-- `API_RATE_LIMIT_REQUESTS`: API requests allowed per bearer token or client IP window.
-- `API_RATE_LIMIT_WINDOW_SECONDS`: API throttle window.
-- `AUTO_CREATE_TABLES`: local development helper. Must be `false` in production.
-- `JOB_PROCESS_INLINE`: processes queued jobs in the request for local simplicity.
-- `JOB_WORKER_POLL_SECONDS`: worker polling interval.
-- `JOB_WORKER_BATCH_SIZE`: maximum queued jobs processed per worker pass.
-- `JOB_STALE_RUNNING_SECONDS`: age after which a stuck running job is returned to the queue.
-- `PLATFORM_RATE_LIMIT_SECONDS`: cooldown per platform between job attempts.
-- `PLATFORM_RATE_LIMIT_OVERRIDES`: optional comma-separated per-platform cooldowns such as `marktplaats=120,ebay=300`.
-- `SESSION_EXPIRE_HOURS`: bearer session lifetime.
-- `AUDIT_RETENTION_DAYS`: age after which sanitized audit events can be purged by `python -m app.audit_retention`; `0` disables purging.
-- `DEFAULT_LOCALE`: default UI/API locale contract. Default: `en`.
-- `SUPPORTED_LOCALES`: comma-separated supported locale codes. Default: `en,nl`.
-- `EBAY_OAUTH_CLIENT_ID`: optional eBay developer App ID for the official API consent foundation.
-- `EBAY_OAUTH_REDIRECT_URI`: optional eBay OAuth redirect URI/RuName callback configured in the eBay developer application.
-- `EBAY_OAUTH_ENVIRONMENT`: `sandbox` by default; `production` requires client ID and redirect URI.
-- `EBAY_OAUTH_SCOPES`: space-separated eBay OAuth scopes requested during consent.
-- `EBAY_OAUTH_STATE_TTL_SECONDS`: lifetime for one-use OAuth state values.
-- `EBAY_TOKEN_SECRET_REF_PREFIX`: secret-manager reference prefix used after consent; raw tokens are not stored in app tables.
-- `PUBLIC_BASE_URL`: public URL used for future generated links and diagnostics.
-- `LOG_LEVEL`: desired logging verbosity for deployment.
-- `LOG_FORMAT`: `text` for local logs or `json` for production log aggregation.
-
-Legacy Selenium variables are documented in `.env.example` and should only be filled locally.
-
-## Database
-
-In development, tables can be created automatically when `AUTO_CREATE_TABLES=true`.
-
-For production, set `AUTO_CREATE_TABLES=false` and run Alembic migrations explicitly:
+SQLite is suitable for local single-operator development. PostgreSQL is supported for deployment. Set `DATABASE_URL` to the intended database and use Alembic migrations; do not rely on automatic table creation in production:
 
 ```bash
-alembic upgrade head
+python -m alembic upgrade head
+python -m alembic current
 ```
 
-The schema includes:
+Back up the database and uploads together using the operator's documented procedure before a migration or upgrade. A user-facing JSON export is not a complete database or image backup.
 
-- users and user sessions
-- listings/products
-- listing images
-- platform accounts
-- platform listing mappings
-- category mappings
-- publishing jobs
-- publishing job logs
-- listing drafts
-- description templates
-- publication attempts
-
-SQLite is the default for quick local development. PostgreSQL is supported through SQLAlchemy by setting `DATABASE_URL`, for example:
-
-```bash
-DATABASE_URL=postgresql+psycopg://autoposter:autoposter@postgres:5432/autoposter
-docker compose --profile postgres up --build
-```
-
-## Verification
-
-Run the local verification gate before pushing changes:
+### Useful commands and endpoints
 
 ```bash
 python scripts/verify.py
-```
-
-The script runs Ruff lint, Python compile checks, the full pytest suite, and the doctor command.
-
-You can also run the test suite directly:
-
-```bash
-pytest
-```
-
-The test suite uses an isolated temporary SQLite database and validates the core create-listing-to-publish-job flow, adapter validation, auth, and image upload.
-
-GitHub Actions runs the same verification gate on pushes and pull requests to `main`.
-
-## Diagnostics
-
-Run the doctor command to verify local configuration, database connectivity, migration state, upload storage, platform adapters, and legacy-script isolation:
-
-```bash
 python -m app.doctor
 python -m app.doctor --json
+python -m alembic current
+python scripts/release_gate.py --json
 ```
 
-The API also exposes `GET /api/diagnostics`, which includes the same doctor summary plus basic record counts.
+- `GET /api/health` — liveness check.
+- `GET /api/worker-status` — worker heartbeat and pause-state readiness.
+- `GET /api/platforms` — platform capability descriptions.
+- `GET /api/diagnostics` — authenticated diagnostics.
+- `/docs` — interactive OpenAPI documentation while the server is running.
 
-## Image storage
+The verification script runs automated checks; consult its output for the current test count. Tests use isolated test data. A passing local suite is not a production deployment, security assessment, accessibility sign-off, or marketplace-publishing proof. The release gate is expected to remain blocked until required external evidence is supplied.
 
-Image uploads are validated before storage:
+## Configuration and security
 
-- filenames are sanitized
-- upload size is bounded by `MAX_UPLOAD_SIZE_MB`
-- MIME type and file signature are checked
-- SHA-256 checksum is stored
-- duplicate images on the same listing are ignored
-- local storage is isolated under `UPLOAD_DIR/{listing_id}/`
-- S3-compatible storage can be enabled with `STORAGE_BACKEND=s3`
+The main settings are documented in `.env.example` and the operator documentation. Important values include:
 
-Only JPEG, PNG, GIF, and WebP are enabled by default.
+- `APP_ENV`: runtime profile.
+- `SECRET_KEY`: a strong, unique secret for the environment; never commit it.
+- `DATABASE_URL`: database connection URL.
+- `UPLOAD_DIR`, `STORAGE_BACKEND`, and optional S3 settings: image-storage configuration.
+- `CORS_ORIGINS`: explicitly allowed browser origins; avoid wildcard origins in production.
+- `AUTH_TRANSPORT`: bearer authentication is supported; do not put tokens in URLs.
+- `AUTO_CREATE_TABLES`: local development convenience only; disable for production.
+- `JOB_PROCESS_INLINE`: local convenience versus a separately supervised worker.
+- `MAX_UPLOAD_SIZE_MB` and `ALLOWED_IMAGE_TYPES`: upload constraints.
+- Worker, session-expiry, audit-retention, logging, locale, and rate-limit settings.
 
-See `docs/IMAGE_STORAGE.md` for the storage backend and image policy details.
+Use HTTPS, a production secret manager, restrictive CORS, a protected PostgreSQL service, persistent and backed-up image storage, and edge/proxy rate limits before exposing an installation. Review [Security and privacy](docs/SECURITY.md), [Authentication security posture](docs/AUTH_SECURITY_POSTURE.md), [Rate limits](docs/RATE_LIMITS.md), and the [Operator runbook](docs/OPERATOR_RUNBOOK.md). CORS is not authentication or access control. The registration endpoint must also be considered when an installation is internet-accessible.
 
-## Platform support
+## Data and privacy
 
-| Platform | Mode | Notes |
-| --- | --- | --- |
-| Marktplaats | Assisted | Prepares mapped fields. User completes login, verification, category/payment choices, and final submission. |
-| Koopplein | Assisted | Prepares fields and tracks status. User confirms final post manually. |
-| Nextdoor | Assisted | Keeps neighborhood/account confirmations user-controlled. |
-| eBay | Assisted by default | OAuth/token foundations exist for future official API work, but credential-dependent publishing is not enabled. |
-| Tweedehands | Assisted | Legacy import/posting scripts are separate and must be run only in compliant user-controlled sessions. |
+The application scopes ordinary reads and writes to the authenticated owner. This does not prevent a host, database, storage, or backup administrator from accessing data. The app is not end-to-end encrypted. The local quality assistant does not require an external AI service.
 
-See `docs/PLATFORM_COMPLETION_CONTRACTS.md` for the tested per-platform completion contract.
+JSON/CSV portability exports are not full disaster-recovery backups. Images and database state require operator-managed backup and restore procedures. Account deletion affects data in the app; it cannot retract marketplace posts, previously exported/shared copies, or operator backups. Review the [backup and restore guide](docs/BACKUP_RESTORE.md) before using real customer data.
 
-## Adding a platform adapter
+## Production readiness
 
-1. Add a class implementing `PlatformAdapter` in `app/adapters/`.
-2. Implement `validate_listing`, `map_listing_to_platform_fields`, `publish_listing`, `get_required_fields`, `get_supported_categories`, and honest `PlatformCapabilities` metadata.
-3. Register it in `app/adapters/registry.py`.
-4. Add adapter tests that prove assisted adapters do not fake external success; use fake local API responses only for future official API test suites.
-5. Document the automation mode and compliance limits here.
+Do not treat this repository as launch-ready merely because it starts or tests pass. Before serving real users, the responsible owner must review the code and current platform terms, provide deployment access/details, configure and verify production secrets/CORS/storage, migrate the target PostgreSQL database, confirm API and worker health, test backup restoration, verify edge rate limits, complete a real non-technical user walkthrough and manual accessibility checks, and record final acceptance and accepted risks.
 
-`GET /api/platforms` exposes each adapter's capabilities, including prepared fields, supported category mapping, official API status, account requirements, manual steps, blocked actions, and whether final marketplace submission remains user-controlled.
+Marketplace posting must be presented as assisted/manual unless an official provider API integration is implemented, approved, and proven end to end. A local or containerized smoke test cannot supply deployment, provider, accessibility, backup, legal/compliance, or customer acceptance evidence.
 
-## API highlights
+Run `python scripts/release_gate.py --json` for the machine-readable blockers. See [Release readiness](docs/RELEASE_READINESS.md), [Release evidence record](docs/RELEASE_EVIDENCE_RECORD.md), [Non-technical user walkthrough record](docs/NON_TECHNICAL_USER_WALKTHROUGH_RECORD.md), and [Final acceptance record](docs/FINAL_ACCEPTANCE_RECORD.md).
 
-For a seller-facing workflow guide, see `docs/USER_GUIDE.md`. For endpoint-level details, see `docs/API_REFERENCE.md`.
+## Repository map
 
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `DELETE /api/auth/me`
-- `GET /api/analytics`
-- `GET /api/localization`
-- `GET /api/listings`
-- `POST /api/listings`
-- `PATCH /api/listings/{id}`
-- `POST /api/listings/{id}/images`
-- `GET /api/listings/{id}/validate`
-- `GET /api/listings/{id}/quality`
-- `POST /api/listings/{id}/publish`
-- `GET /api/jobs`
-- `POST /api/jobs/{id}/retry`
-- `GET /api/platforms`
-- `GET /api/diagnostics`
-- `POST /api/accounts`
-- `POST /api/templates`
-- `GET /api/category-mappings`
-- `POST /api/category-mappings`
-- `GET /api/export`
-- `POST /api/import`
-
-Interactive API docs are available at `http://127.0.0.1:8000/docs`.
-
-Listings include revision tracking. Editing a listing increments its `revision`, and publishing job idempotency includes user, listing, revision, platform, action type, account, and operation mode. Re-queuing the same listing revision returns the existing job; editing the listing allows a fresh platform package/job.
-
-The listing editor also exposes an explicit regenerate package action. It creates a new listing revision before queueing, so the user can intentionally produce a fresh assisted package without implying automatic marketplace submission.
-
-Category mappings let a user translate a master listing category into a platform-specific category. Validation and publishing jobs apply these mappings unless a platform-specific override already supplies a category. Listings also support bounded `category_attributes` for item-specific details such as vehicle mileage, furniture style, clothing size, or electronics accessories.
-
-The listing editor includes a local quality assistant. It scores buyer-readiness, flags missing or weak fields, and offers deterministic title, description, and tag suggestions from the listing data already entered. It does not call an external AI service or invent product facts.
-
-The dashboard includes local-first Insights from `GET /api/analytics`: inventory value, average price, listing quality, platform coverage, and job outcomes. These are derived from the authenticated user's local records and do not use an external analytics provider.
-
-List endpoints support bounded pagination with `limit` and `offset`. Core list endpoints also expose focused filtering/sorting parameters, such as `/api/listings?search=chair&status=draft&sort=-updated_at`. The Listings screen uses those query parameters for search, status filtering, sorting, and previous/next paging.
-
-Data portability is available through Settings and the API. `GET /api/export` returns a JSON bundle with listings, platform override drafts, templates, category mappings, and sanitized platform account metadata. `POST /api/import` recreates that business data for the authenticated user. `DELETE /api/auth/me` removes the authenticated user's account, sessions, owned listings, jobs, templates, mappings, platform accounts, and uploaded image files. Password hashes, sessions, job history, platform secret references, and image binaries are not included in the JSON export.
-
-Export, import, and account deletion write sanitized local audit events with aggregate counts only. Account deletion keeps a hashed-email audit record after the user row is removed.
-
-API errors use a consistent envelope:
-
-```json
-{
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "The request contains invalid fields.",
-    "details": {},
-    "field_errors": {},
-    "retryable": false,
-    "request_id": "..."
-  }
-}
+```text
+app/                 API, domain models, adapters, services, and worker
+public/              Browser interface assets
+migrations/          Alembic migration history
+tests/               Automated tests
+scripts/             Verification, diagnostics, and release-gate scripts
+docs/                Product, architecture, operations, security, and acceptance docs
+legacy/              Quarantined historical/manual scripts
+docker-compose.yml   Local application, worker, and optional PostgreSQL
+requirements.txt     Python dependencies
 ```
 
-Every response includes `X-Request-ID`; callers may provide their own `X-Request-ID` header for traceability.
+## Contributing
 
-## Worker
+1. Read the product and architecture documentation before changing behavior.
+2. Work on a feature branch.
+3. Preserve owner isolation, assisted/manual marketplace boundaries, and honest job states.
+4. Add migrations for schema changes and tests for success, error, authorization, idempotency, and recovery paths.
+5. Run `python scripts/verify.py` and relevant focused checks.
+6. Update the authoritative documentation and release evidence. Never replace missing external proof with assumptions.
 
-Publishing jobs are persisted in the database. The worker command processes due queued jobs and can run independently from the web process:
+Do not switch an assisted adapter to automatic publishing without provider approval, real API credentials, sandbox/live verification, rate and retry handling, idempotency, ambiguous-outcome recovery, and platform compliance review.
 
-```bash
-python -m app.worker
-```
+## Documentation
 
-Jobs with `next_retry_at` in the future remain queued until their retry time. This keeps assisted posting preparation and future official API publishing out of fragile blocking requests.
+- [User guide](docs/USER_GUIDE.md)
+- [Product definition](docs/PRODUCT_DEFINITION.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [API reference](docs/API_REFERENCE.md)
+- [Platform completion contracts](docs/PLATFORM_COMPLETION_CONTRACTS.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Operator runbook](docs/OPERATOR_RUNBOOK.md)
+- [Backup and restore](docs/BACKUP_RESTORE.md)
+- [Release readiness](docs/RELEASE_READINESS.md)
+- [Security and privacy](docs/SECURITY.md)
+- [Testing strategy](docs/TESTING_STRATEGY.md)
 
-## Security and compliance
-
-- No raw platform passwords are stored by the web app.
-- New user passwords are hashed with Argon2.
-- Older PBKDF2 hashes are still accepted and upgraded on successful login.
-- Bearer sessions can be revoked with `POST /api/auth/logout`.
-- Authentication is bearer-only: send tokens in the `Authorization` header. The app does not set session cookies.
-- Failed login attempts are rate-limited per email/IP window.
-- External calls are isolated behind adapter interfaces.
-- The default integrations are assisted-only where official automation credentials are absent.
-- Jobs are idempotent per listing/platform and include platform cooldowns.
-- Use official APIs when converting an assisted adapter into a fully automated adapter.
-- Do not bypass CAPTCHAs, anti-bot protections, login protections, payment prompts, or platform rate limits.
-
-## Project phase documentation
-
-- Product definition: `docs/PRODUCT_DEFINITION.md`
-- Repository provenance: `docs/REPOSITORY_PROVENANCE.md`
-- Platform reality review: `docs/PLATFORM_REALITY_REVIEW.md`
-- Legacy script quarantine: `docs/LEGACY_SCRIPT_QUARANTINE.md`
-- Rate limits: `docs/RATE_LIMITS.md`
-- API usage audit: `docs/API_USAGE_AUDIT.md`
-- UI action audit: `docs/UI_ACTION_AUDIT.md`
-- Technical debt register: `docs/TECHNICAL_DEBT_REGISTER.md`
-- Testing strategy: `docs/TESTING_STRATEGY.md`
-- Browser and accessibility QA: `docs/BROWSER_ACCESSIBILITY_QA.md`
-- Automated accessibility audit: `docs/ACCESSIBILITY_AUDIT.md`
-- Operator runbook: `docs/OPERATOR_RUNBOOK.md`
-- Product analytics local-first: `docs/PRODUCT_ANALYTICS_LOCAL_FIRST.md`
-- SaaS readiness without billing: `docs/SAAS_READINESS.md`
-- Requirements traceability: `docs/REQUIREMENTS_TRACEABILITY.md`
-- Task graph and execution: `docs/TASK_GRAPH_AND_EXECUTION.md`
-- Progressive stabilization gates: `docs/PROGRESSIVE_STABILIZATION_GATES.md`
-- False completion prevention: `docs/FALSE_COMPLETION_PREVENTION.md`
-- Autonomy-first design: `docs/AUTONOMY_FIRST_DESIGN.md`
-- Workspaces optional review: `docs/WORKSPACES_OPTIONAL_REVIEW.md`
-- Internationalization: `docs/INTERNATIONALIZATION.md`
-- Product value review: `docs/PRODUCT_VALUE_REVIEW.md`
-- Product realism review: `docs/PRODUCT_REALISM_REVIEW.md`
-- Non-technical user simulation: `docs/NON_TECHNICAL_USER_SIMULATION.md`
-- Fresh-clone dry run: `docs/FRESH_CLONE_DRY_RUN.md`
-- Final no-excuses search: `docs/FINAL_NO_EXCUSES_SEARCH.md`
-- Backup and restore: `docs/BACKUP_RESTORE.md`
-- Official API credential checklist: `docs/OFFICIAL_API_CREDENTIAL_CHECKLIST.md`
-- Auth deployment posture: `docs/AUTH_SECURITY_POSTURE.md`
-- Performance and scale basics: `docs/PERFORMANCE_SCALE_BASICS.md`
-- Release readiness: `docs/RELEASE_READINESS.md`
-- Supply chain and dependencies: `docs/SUPPLY_CHAIN.md`
-- State machines: `docs/STATE_MACHINES.md`
-- Domain model: `docs/DOMAIN_MODEL.md`
-- Acceptance tests: `docs/ACCEPTANCE_TESTS.md`
-- Feature flags: `docs/FEATURE_FLAGS.md`
-- Demo mode: `docs/DEMO_MODE.md`
-- Fake provider lab: `docs/FAKE_PROVIDER_LAB.md`
-- No mocks in production audit: `docs/NO_MOCKS_PRODUCTION_AUDIT.md`
-- Privacy audit events: `docs/PRIVACY_AUDIT_EVENTS.md`
-- Completion matrix: `docs/COMPLETION_MATRIX.md`
-
-## Production notes
-
-- Set a strong `SECRET_KEY`.
-- Use a managed database by changing `DATABASE_URL`.
-- Place uploads on persistent storage.
-- Put the app behind HTTPS.
-- Restrict `CORS_ORIGINS`.
-- Run Alembic migrations before production startup.
-- Configure platform OAuth/API credentials only through environment variables or a proper secret manager.
-- Keep the security headers middleware enabled. HTTPS deployments also receive HSTS.
+No repository-level LICENSE file is present. Until the owner adds a licence, do not assume third parties have permission to redistribute or commercially reuse the code. Marketplace names and provider services retain their own terms and requirements; this repository does not grant authorization to automate them.
