@@ -1,5 +1,9 @@
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
 
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine
@@ -14,6 +18,39 @@ from tests.test_data_portability import auth_headers
 def setup_function():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+
+
+def test_file_token_secret_store_concurrent_writes_are_atomic_and_leave_no_temp_files(tmp_path):
+    secret_ref = "secret://ebay/shared-reference"
+
+    def write(version: int) -> None:
+        FileTokenSecretStore(tmp_path).write_json(
+            secret_ref, {"access_token": f"access-{version}", "version": version}
+        )
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        list(pool.map(write, range(48)))
+
+    stored = FileTokenSecretStore(tmp_path).read_json(secret_ref)
+    assert stored["version"] in range(48)
+    assert stored["access_token"] == f"access-{stored['version']}"
+    assert not [path for path in tmp_path.iterdir() if path.suffix == ".tmp"]
+
+
+def test_file_token_secret_store_removes_temporary_file_when_atomic_replace_fails(tmp_path, monkeypatch):
+    store = FileTokenSecretStore(tmp_path)
+    original_replace = Path.replace
+
+    def fail_replace(path: Path, target: Path):
+        if path.suffix == ".tmp":
+            raise OSError("simulated replace failure")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises(OSError, match="simulated replace failure"):
+        store.write_json("secret://ebay/replace-failure", {"access_token": "do-not-leak"})
+
+    assert not list(tmp_path.iterdir())
 
 
 def create_oauth_account(prefix: str, *, secret_ref: str | None = None):

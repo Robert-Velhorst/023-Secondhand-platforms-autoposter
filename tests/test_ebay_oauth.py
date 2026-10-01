@@ -1,6 +1,7 @@
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+import pytest
 
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine
@@ -43,6 +44,24 @@ class MemoryTokenSecretStore:
 
     def delete_json(self, secret_ref):
         self.payloads.pop(secret_ref, None)
+
+
+def start_configured_ebay_oauth(monkeypatch):
+    configure_ebay_oauth(monkeypatch)
+    monkeypatch.setenv("EBAY_OAUTH_CLIENT_SECRET", "sandbox-client-secret")
+    get_settings.cache_clear()
+    headers = auth_headers()
+    start_response = client.post("/api/accounts/ebay/oauth/start", headers=headers)
+    assert start_response.status_code == 200, start_response.text
+    state = parse_qs(urlparse(start_response.json()["authorization_url"]).query)["state"][0]
+    return headers, state
+
+
+def successful_token_exchange(url, data, auth, headers, timeout):
+    return httpx.Response(
+        200,
+        json={"access_token": "access-token-secret", "refresh_token": "refresh-token-secret"},
+    )
 
 
 def test_ebay_oauth_start_fails_closed_without_config():
@@ -180,6 +199,59 @@ def test_ebay_oauth_callback_can_exchange_and_store_tokens_without_exposing_them
     assert "sandbox-client-secret" not in serialized_response
     assert account.secret_ref not in serialized_response
     assert response.json()[0]["status"] == "connected"
+
+
+def test_ebay_oauth_callback_removes_new_token_when_account_commit_fails(monkeypatch):
+    _, state = start_configured_ebay_oauth(monkeypatch)
+    store = MemoryTokenSecretStore()
+    with SessionLocal() as db:
+        def fail_commit():
+            raise RuntimeError("simulated commit failure")
+
+        monkeypatch.setattr(db, "commit", fail_commit)
+        with pytest.raises(RuntimeError, match="simulated commit failure"):
+            consume_ebay_authorization_callback(
+                db,
+                state,
+                "authorization-code-from-ebay",
+                get_settings(),
+                http_post=successful_token_exchange,
+                secret_store=store,
+            )
+        assert store.payloads == {}
+
+    with SessionLocal() as db:
+        assert db.query(PlatformAccount).count() == 0
+        oauth_state = db.query(PlatformOAuthState).one()
+        assert oauth_state.consumed_at is None
+
+
+def test_ebay_oauth_callback_preserves_token_when_commit_outcome_is_uncertain(monkeypatch):
+    _, state = start_configured_ebay_oauth(monkeypatch)
+    store = MemoryTokenSecretStore()
+    with SessionLocal() as db:
+        original_commit = db.commit
+
+        def commit_then_raise():
+            original_commit()
+            raise RuntimeError("simulated lost commit acknowledgement")
+
+        monkeypatch.setattr(db, "commit", commit_then_raise)
+        with pytest.raises(RuntimeError, match="lost commit acknowledgement"):
+            consume_ebay_authorization_callback(
+                db,
+                state,
+                "authorization-code-from-ebay",
+                get_settings(),
+                http_post=successful_token_exchange,
+                secret_store=store,
+            )
+        assert len(store.payloads) == 1
+
+    with SessionLocal() as db:
+        account = db.query(PlatformAccount).one()
+        assert account.secret_ref in store.payloads
+        assert account.status == "connected"
 
 
 def test_ebay_token_refresh_and_inventory_probe_use_secret_store(monkeypatch):

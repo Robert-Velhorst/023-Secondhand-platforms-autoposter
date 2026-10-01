@@ -1,10 +1,14 @@
 import json
 import os
+import secrets
 from hashlib import sha256
 from pathlib import Path
+from threading import Lock
 from typing import Any, Protocol
 
 from app.config import Settings
+
+_TOKEN_SECRET_WRITE_LOCK = Lock()
 
 
 class TokenSecretStore(Protocol):
@@ -34,13 +38,16 @@ class FileTokenSecretStore:
             except OSError:
                 pass
         target = self._target(secret_ref)
-        temporary = target.with_suffix(".tmp")
-        temporary.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
-        try:
-            os.chmod(temporary, 0o600)
-        except OSError:
-            pass
-        temporary.replace(target)
+        temporary = target.with_name(f".{target.name}.{secrets.token_hex(8)}.tmp")
+        with _TOKEN_SECRET_WRITE_LOCK:
+            try:
+                with temporary.open("x", encoding="utf-8") as secret_file:
+                    if os.name != "nt":
+                        os.chmod(temporary, 0o600)
+                    secret_file.write(json.dumps(payload, sort_keys=True))
+                temporary.replace(target)
+            finally:
+                temporary.unlink(missing_ok=True)
 
     def delete_json(self, secret_ref: str) -> None:
         self._target(secret_ref).unlink(missing_ok=True)
