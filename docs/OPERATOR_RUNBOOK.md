@@ -9,6 +9,8 @@ This runbook covers deployment and operation of the assisted-posting app. It is 
    - strong `SECRET_KEY`
    - production `DATABASE_URL`
    - persistent `UPLOAD_DIR`
+   - `TOKEN_SECRET_DIR` at a private persistent path when OAuth token exchange is enabled
+   - private persistent `TOKEN_SECRET_DIR` when OAuth token exchange is enabled
    - restrictive `CORS_ORIGINS`
    - `AUTH_TRANSPORT=bearer`
    - `AUTO_CREATE_TABLES=false`
@@ -36,7 +38,7 @@ Revision `20260905_0014` adds nullable `publishing_jobs.claim_token`. This is an
 
 1. Pause job processing and stop **all** old API/worker processes, including standalone executables and API processes that can execute jobs inline. Wait for in-flight work to finish where possible; reconcile any uncertain external outcome before retrying it.
 2. Back up the target database and verify the recovery procedure. The automated disposable migration tests are not a backup for your target data.
-3. Install the new release, run `alembic upgrade head`, and check `python -m app.doctor --json` reports current head `20260913_0016` (including claim fencing, the cleanup outbox, and login reservation fencing).
+3. Install the new release, run `alembic upgrade head`, and check `python -m app.doctor --json` reports current head `20261001_0017` (including claim fencing, image cleanup, login reservation fencing, and token-secret cleanup).
 4. Start the API and worker from the same release, verify health, and resume processing. Check an assisted job reaches `needs_user_action` and its history is retained.
 
 Do not perform a mixed-version rolling deployment: old workers ignore claim identifiers and can still overwrite newer results. Claim fencing prevents stale **local writes**; it cannot cancel an already-started external request, renew a lease, or guarantee exactly-once marketplace publication. Current adapters prepare assisted packages only.
@@ -94,7 +96,7 @@ lock duration or zero-downtime safety on a large table.
 Stop all API and worker processes, back up the database, apply
 `alembic upgrade head`, then restart both from the same release. Do not mix old
 and new login handlers: older code does not reserve/fence attempts. Confirm
-doctor reports `20260913_0016`, a controlled login succeeds, the configured
+doctor reports `20261001_0017`, a controlled login succeeds, the configured
 quota returns 429/Retry-After, and the worker reclaims expired test records.
 Use a synthetic account/identity; do not lock out a real user's account for QA.
 
@@ -112,6 +114,24 @@ a fresh backup before considering downgrade. Do not manually erase active
 throttle records to force it through. Storage-outbox drain requirements also
 apply when downgrading to earlier revisions. Reverting code removes the new
 concurrent-login protections. See [rate-limit semantics](RATE_LIMITS.md#atomic-login-admission).
+
+## OAuth token-secret cleanup
+
+Revision `20261001_0017` adds the durable `token_secret_deletions` outbox.
+Marketplace-account deletion and user-data deletion enqueue token-file erasure
+in the same database transaction as removal of the owning account. The worker
+deletes those files with bounded retries; `python -m app.reconcile` reports
+pending or failed erasures as `pending_token_secret_cleanup`. Do not clear
+outbox rows manually. The migration downgrade refuses while cleanup work is
+pending.
+
+OAuth consent references are unique per state so a later reconnection cannot
+reuse a queued deletion target. Deleting an eBay account also invalidates its
+unconsumed OAuth states. Production Compose mounts `TOKEN_SECRET_VOLUME` at
+`TOKEN_SECRET_DIR` in both API and worker containers. Keep the volume private,
+durable, access-controlled, and included in backups; the database stores only
+references and cannot reconstruct lost refresh tokens. Stop all API and worker
+processes before restoring the database and secret volume as a consistent pair.
 
 ## Start Services
 
@@ -133,16 +153,17 @@ Docker Compose:
 docker compose up --build
 ```
 
-Production Compose runs migrations as a one-shot service before API and worker startup. For a new deployment, prepare `.env.production` from `.env.production.example` outside version control and replace every placeholder first. Do not overwrite an existing configured file. For an upgrade, stop all older API and worker processes and back up the target database/uploads before starting the new stack; follow the claim-fencing procedure above.
+Production Compose runs migrations as a one-shot service before API and worker startup. For a new deployment, prepare `.env.production` from `.env.production.example` outside version control and replace every placeholder first. Do not overwrite an existing configured file. For an upgrade, stop all older API and worker processes and back up the target database, uploads, and token-secret volume before starting the new stack; follow the claim-fencing procedure above.
 
 After configuration and backup, launch from PowerShell:
 
 ```powershell
 $env:UPLOAD_VOLUME = "C:\path\to\persistent\autoposter-uploads"
+$env:TOKEN_SECRET_VOLUME = "C:\path\to\private\autoposter-secrets"
 docker compose --env-file .env.production -f docker-compose.production.yml up --build -d
 ```
 
-On Linux/macOS, use `export UPLOAD_VOLUME=/path/to/persistent/autoposter-uploads` instead of the PowerShell assignment. `--env-file` supplies Compose interpolation values; the services' `env_file` loads application settings. Keep the published API port behind a reviewed HTTPS proxy/firewall. Compose does not provide TLS, edge rate limiting, backup scheduling, or a managed database.
+On Linux/macOS, set both `UPLOAD_VOLUME=/path/to/persistent/autoposter-uploads` and `TOKEN_SECRET_VOLUME=/path/to/private/autoposter-secrets` in the Compose environment instead of the PowerShell assignments. `--env-file` supplies Compose interpolation values; the services' `env_file` loads application settings. Keep the published API port behind a reviewed HTTPS proxy/firewall. Compose does not provide TLS, edge rate limiting, backup scheduling, or a managed database.
 
 Do not add a default database password or a bundled database service to this production file. `DATABASE_URL` must be supplied by the deployment secret manager. Confirm `GET /api/worker-status` reports `status: ok` after the worker has completed at least one poll cycle.
 

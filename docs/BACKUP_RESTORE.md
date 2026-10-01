@@ -6,8 +6,9 @@ This runbook defines the minimum backup set and restore procedure for production
 
 Back up these items together:
 
-- production database, including pending `storage_deletions` cleanup intent
+- production database, including pending `storage_deletions` and `token_secret_deletions` cleanup intent
 - upload directory configured by `UPLOAD_DIR`
+- private `TOKEN_SECRET_DIR` when OAuth token exchange is enabled; token files cannot be recreated from database references alone
 - deployed git commit SHA
 - environment/secret references, excluding raw secret values from ordinary backup logs
 - Alembic revision at backup time
@@ -28,21 +29,23 @@ Before `alembic upgrade head` in production:
 1. Stop both API and worker processes, including standalone executables. Pausing publishing jobs does not pause file cleanup or API writes.
 2. Take a database backup.
 3. Snapshot/copy uploads or export the configured S3-compatible image bucket/prefix.
-4. Record current git SHA and Alembic revision.
-5. Run the migration.
-6. Run `python -m app.doctor --json`.
-7. Start the API and worker only after diagnostics are acceptable.
+4. Back up the private token-secret directory, if present, using an access-controlled encrypted backup procedure.
+5. Record current git SHA and Alembic revision.
+6. Run the migration.
+7. Run `python -m app.doctor --json`.
+8. Start the API and worker only after diagnostics are acceptable.
 
 ## Restore Order
 
 1. Stop worker and web processes.
 2. Restore database.
 3. Restore uploads to the configured `UPLOAD_DIR`, or restore the configured S3-compatible bucket/prefix.
-4. Deploy the matching git commit, or a commit known to support the restored schema.
-5. Run `alembic upgrade head`.
-6. Run `python -m app.doctor --json`.
-7. Review `python -m app.reconcile`, including pending storage cleanup, against the matching restored image snapshot and configured root/bucket/prefix. Resolve any mismatch before permitting cleanup.
-8. Start web and worker processes. Both can perform cleanup: API deletions have a local post-commit fast path, and the worker resumes durable pending requests.
+4. Restore the private token-secret directory and its access controls if OAuth tokens are used.
+5. Deploy the matching git commit, or a commit known to support the restored schema.
+6. Run `alembic upgrade head`.
+7. Run `python -m app.doctor --json`.
+8. Review `python -m app.reconcile`, including pending image and token-secret cleanup, against the matching restored snapshots and configured roots. Resolve any mismatch before permitting cleanup.
+9. Start web and worker processes. The worker resumes durable pending image and token-secret erasures.
 
 ## Reconciliation Checks
 

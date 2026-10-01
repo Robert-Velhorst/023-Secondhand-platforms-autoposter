@@ -172,6 +172,21 @@ class StorageDeletion(Base):
     last_error_type: Mapped[str] = mapped_column(String(80), default="")
 
 
+class TokenSecretDeletion(Base):
+    """Durable cleanup intent for OAuth token files after account changes."""
+
+    __tablename__ = "token_secret_deletions"
+    __table_args__ = (Index("ix_token_secret_deletions_due", "next_attempt_at", "id"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    secret_ref: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    claim_token: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_error_type: Mapped[str] = mapped_column(String(80), default="")
+
+
 class ListingImage(Base, TimestampMixin):
     __tablename__ = "listing_images"
     __table_args__ = (Index("ix_listing_images_listing_position", "listing_id", "position"),)

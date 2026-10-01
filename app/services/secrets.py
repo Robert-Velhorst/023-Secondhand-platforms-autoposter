@@ -14,6 +14,9 @@ class TokenSecretStore(Protocol):
     def write_json(self, secret_ref: str, payload: dict[str, Any]) -> None:
         raise NotImplementedError
 
+    def delete_json(self, secret_ref: str) -> None:
+        raise NotImplementedError
+
 
 class FileTokenSecretStore:
     def __init__(self, root: Path):
@@ -24,7 +27,12 @@ class FileTokenSecretStore:
         return json.loads(target.read_text(encoding="utf-8"))
 
     def write_json(self, secret_ref: str, payload: dict[str, Any]) -> None:
-        self.root.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if os.name != "nt":
+            try:
+                os.chmod(self.root, 0o700)
+            except OSError:
+                pass
         target = self._target(secret_ref)
         temporary = target.with_suffix(".tmp")
         temporary.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
@@ -33,6 +41,9 @@ class FileTokenSecretStore:
         except OSError:
             pass
         temporary.replace(target)
+
+    def delete_json(self, secret_ref: str) -> None:
+        self._target(secret_ref).unlink(missing_ok=True)
 
     def _target(self, secret_ref: str) -> Path:
         return self.root / f"{sha256(secret_ref.encode()).hexdigest()}.json"

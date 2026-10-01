@@ -8,7 +8,14 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings, validate_startup_safety
 from app.database import SessionLocal
-from app.models import Listing, ListingImage, PlatformListingMapping, PublishingJob, StorageDeletion
+from app.models import (
+    Listing,
+    ListingImage,
+    PlatformListingMapping,
+    PublishingJob,
+    StorageDeletion,
+    TokenSecretDeletion,
+)
 
 
 def reconcile_database(db: Session, *, repair_safe: bool = False) -> dict:
@@ -22,6 +29,21 @@ def reconcile_database(db: Session, *, repair_safe: bool = False) -> dict:
         issues.append({
             "code": "pending_storage_cleanup", "count": pending_cleanup,
             "failed_attempts_pending": failed_cleanup, "safe_to_auto_repair": False,
+        })
+
+    pending_token_cleanup = db.query(func.count(TokenSecretDeletion.id)).scalar() or 0
+    failed_token_cleanup = (
+        db.query(func.count(TokenSecretDeletion.id))
+        .filter(TokenSecretDeletion.last_error_type != "")
+        .scalar()
+        or 0
+    )
+    if pending_token_cleanup:
+        issues.append({
+            "code": "pending_token_secret_cleanup",
+            "count": pending_token_cleanup,
+            "failed_attempts_pending": failed_token_cleanup,
+            "safe_to_auto_repair": False,
         })
 
     orphan_images = (

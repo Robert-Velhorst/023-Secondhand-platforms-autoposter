@@ -28,6 +28,7 @@ from app.schemas import AuthLogin, AuthRegister, AuthToken, UserOut
 from app.security import create_session, hash_password, password_needs_rehash, revoke_session, verify_password
 from app.services.audit import record_audit_event
 from app.services.storage_cleanup import cleanup_after_commit, queue_storage_deletions
+from app.services.token_secret_cleanup import cleanup_token_secrets_after_commit, queue_token_secret_deletions
 
 router = APIRouter(prefix="/api")
 
@@ -133,6 +134,11 @@ def delete_user_data(db: Session, user: User) -> None:
             .filter(ListingImage.listing_id.in_(listing_ids))
             .all()
         ]
+    token_secret_refs = [
+        secret_ref for (secret_ref,) in db.query(PlatformAccount.secret_ref)
+        .filter(PlatformAccount.owner_id == user_id, PlatformAccount.secret_ref.is_not(None))
+        .all()
+    ]
     record_audit_event(
         db,
         user,
@@ -166,6 +172,8 @@ def delete_user_data(db: Session, user: User) -> None:
     db.query(HaiListingChange).filter(HaiListingChange.owner_id == user_id).delete(synchronize_session=False)
     db.query(UserSession).filter(UserSession.user_id == user_id).delete(synchronize_session=False)
     cleanup_ids = queue_storage_deletions(db, image_paths)
+    token_cleanup_ids = queue_token_secret_deletions(db, token_secret_refs)
     db.query(User).filter(User.id == user_id).delete(synchronize_session=False)
     db.commit()
     cleanup_after_commit(cleanup_ids)
+    cleanup_token_secrets_after_commit(token_cleanup_ids)

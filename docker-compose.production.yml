@@ -14,6 +14,7 @@ services:
       - "${APP_PORT:-8000}:8000"
     volumes:
       - "${UPLOAD_VOLUME:?Set UPLOAD_VOLUME to a persistent host path or managed volume}:/app/data/uploads"
+      - "${TOKEN_SECRET_VOLUME:?Set TOKEN_SECRET_VOLUME to a private persistent path}:/app/data/secrets"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -26,6 +27,7 @@ services:
     command: ["python", "-m", "app.worker"]
     volumes:
       - "${UPLOAD_VOLUME:?Set UPLOAD_VOLUME to a persistent host path or managed volume}:/app/data/uploads"
+      - "${TOKEN_SECRET_VOLUME:?Set TOKEN_SECRET_VOLUME to a private persistent path}:/app/data/secrets"
     depends_on:
       migrate:
         condition: service_completed_successfully

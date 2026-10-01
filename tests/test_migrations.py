@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 
+import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
@@ -118,6 +119,14 @@ def test_alembic_migration_runs_from_empty_database(tmp_path):
     assert "hai_connector_tokens" in tables
     assert "hai_listing_changes" in tables
     assert "storage_deletions" in tables
+    assert "token_secret_deletions" in tables
+    token_cleanup_columns = {column["name"] for column in inspect(engine).get_columns("token_secret_deletions")}
+    assert token_cleanup_columns == {
+        "id", "secret_ref", "created_at", "next_attempt_at", "attempts", "claim_token", "last_error_type"
+    }
+    assert "ix_token_secret_deletions_due" in {
+        index["name"] for index in inspect(engine).get_indexes("token_secret_deletions")
+    }
     cleanup_columns = {column["name"] for column in inspect(engine).get_columns("storage_deletions")}
     assert cleanup_columns == {"id", "storage_path", "created_at", "next_attempt_at", "attempts", "claim_token",
                                "last_error_type"}
@@ -166,3 +175,27 @@ def test_model_schema_renders_for_postgresql_dialect():
     assert "JSON" in sql
     assert "CREATE INDEX ix_publishing_jobs_due_queue" in sql
     assert "ON DELETE CASCADE" in sql
+
+
+def test_token_secret_cleanup_migration_refuses_to_drop_pending_erasure(tmp_path):
+    engine = create_engine(f"sqlite:///{(tmp_path / 'token-cleanup-downgrade.db').as_posix()}")
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", str(engine.url))
+    try:
+        command.upgrade(config, "head")
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO token_secret_deletions "
+                    "(id, secret_ref, created_at, next_attempt_at, attempts, claim_token, last_error_type) "
+                    "VALUES (:id, :secret_ref, :now, :now, 0, NULL, '')"
+                ),
+                {"id": "0" * 32, "secret_ref": "secret://token", "now": "2026-10-01 00:00:00"},
+            )
+        with pytest.raises(RuntimeError, match="Drain token_secret_deletions"):
+            command.downgrade(config, "20260913_0016")
+        assert "token_secret_deletions" in inspect(engine).get_table_names()
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT count(*) FROM token_secret_deletions")).scalar_one() == 1
+    finally:
+        engine.dispose()

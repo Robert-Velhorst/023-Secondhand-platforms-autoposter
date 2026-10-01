@@ -41,6 +41,9 @@ class MemoryTokenSecretStore:
     def write_json(self, secret_ref, payload):
         self.payloads[secret_ref] = payload
 
+    def delete_json(self, secret_ref):
+        self.payloads.pop(secret_ref, None)
+
 
 def test_ebay_oauth_start_fails_closed_without_config():
     headers = auth_headers()
@@ -104,7 +107,7 @@ def test_ebay_oauth_callback_consumes_state_without_storing_tokens(monkeypatch):
         oauth_state = db.query(PlatformOAuthState).one()
         assert oauth_state.consumed_at is not None
         stored_account = db.query(PlatformAccount).one()
-        assert stored_account.secret_ref == "vault://platform-tokens/ebay/user-1"
+        assert stored_account.secret_ref.startswith("vault://platform-tokens/ebay/user-1/consent-")
         assert "authorization-code-from-ebay" not in str(stored_account.connection_data)
     finally:
         db.close()
@@ -156,14 +159,14 @@ def test_ebay_oauth_callback_can_exchange_and_store_tokens_without_exposing_them
         )
 
         assert account.status == "connected"
-        assert account.secret_ref == "vault://platform-tokens/ebay/user-1"
+        assert account.secret_ref.startswith("vault://platform-tokens/ebay/user-1/consent-")
         assert store.payloads[account.secret_ref]["access_token"] == "access-token-secret"
         serialized = str(account.connection_data)
         assert "access-token-secret" not in serialized
         assert "refresh-token-secret" not in serialized
         assert "sandbox-client-secret" not in serialized
         assert "authorization-code-from-ebay" not in serialized
-        assert "vault://platform-tokens/ebay/user-1" not in serialized
+        assert account.secret_ref not in serialized
         assert account.connection_data["oauth"]["token_exchange"] == "stored"
         assert account.connection_data["oauth"]["access_token_expires_in"] == 7200
     finally:
@@ -175,7 +178,7 @@ def test_ebay_oauth_callback_can_exchange_and_store_tokens_without_exposing_them
     assert "access-token-secret" not in serialized_response
     assert "refresh-token-secret" not in serialized_response
     assert "sandbox-client-secret" not in serialized_response
-    assert "vault://platform-tokens/ebay/user-1" not in serialized_response
+    assert account.secret_ref not in serialized_response
     assert response.json()[0]["status"] == "connected"
 
 
@@ -185,7 +188,7 @@ def test_ebay_token_refresh_and_inventory_probe_use_secret_store(monkeypatch):
     get_settings.cache_clear()
     store = MemoryTokenSecretStore()
     store.write_json(
-        "vault://platform-tokens/ebay/user-1",
+        "vault://platform-tokens/ebay/user-1/consent-test",
         {
             "access_token": "old-access-token",
             "refresh_token": "refresh-token-secret",
@@ -205,15 +208,15 @@ def test_ebay_token_refresh_and_inventory_probe_use_secret_store(monkeypatch):
         return httpx.Response(200, json={"access_token": "new-access-token", "expires_in": 7200})
 
     refresh_summary = refresh_ebay_access_token(
-        "vault://platform-tokens/ebay/user-1",
+        "vault://platform-tokens/ebay/user-1/consent-test",
         settings=get_settings(),
         http_post=fake_post,
         secret_store=store,
     )
 
     assert refresh_summary["token_refresh"] == "stored"
-    assert store.payloads["vault://platform-tokens/ebay/user-1"]["access_token"] == "new-access-token"
-    assert store.payloads["vault://platform-tokens/ebay/user-1"]["refresh_token"] == "refresh-token-secret"
+    assert store.payloads["vault://platform-tokens/ebay/user-1/consent-test"]["access_token"] == "new-access-token"
+    assert store.payloads["vault://platform-tokens/ebay/user-1/consent-test"]["refresh_token"] == "refresh-token-secret"
 
     def fake_get(url, headers, params, timeout):
         assert url == "https://api.sandbox.ebay.com/sell/inventory/v1/inventory_item"
@@ -223,7 +226,7 @@ def test_ebay_token_refresh_and_inventory_probe_use_secret_store(monkeypatch):
         return httpx.Response(200, json={"inventoryItems": []})
 
     probe = verify_ebay_inventory_api_access(
-        "vault://platform-tokens/ebay/user-1",
+        "vault://platform-tokens/ebay/user-1/consent-test",
         settings=get_settings(),
         http_get=fake_get,
         secret_store=store,

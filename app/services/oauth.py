@@ -12,6 +12,7 @@ from app.config import Settings
 from app.models import PlatformAccount, PlatformOAuthState, User
 from app.security import hash_token
 from app.services.secrets import TokenSecretStore, get_token_secret_store
+from app.services.token_secret_cleanup import cleanup_token_secrets_after_commit, queue_token_secret_deletions
 
 HttpPost = Callable[..., httpx.Response]
 HttpGet = Callable[..., httpx.Response]
@@ -67,6 +68,7 @@ def consume_ebay_authorization_callback(
             PlatformOAuthState.platform == "ebay",
             PlatformOAuthState.state_hash == hash_token(state),
         )
+        .with_for_update()
         .one_or_none()
     )
     if not oauth_state:
@@ -81,7 +83,9 @@ def consume_ebay_authorization_callback(
         raise HTTPException(status_code=400, detail="eBay OAuth state has expired")
 
     oauth_state.consumed_at = datetime.now(UTC)
-    secret_ref = f"{settings.ebay_token_secret_ref_prefix}/user-{oauth_state.user_id}"
+    secret_ref = (
+        f"{settings.ebay_token_secret_ref_prefix}/user-{oauth_state.user_id}/consent-{oauth_state.state_hash}"
+    )
     account = (
         db.query(PlatformAccount)
         .filter(
@@ -110,6 +114,7 @@ def consume_ebay_authorization_callback(
             secret_store=secret_store,
         )
         connection_data["oauth"].update(token_summary)
+    old_secret_ref = account.secret_ref if account else None
     if account:
         account.mode = "official_api"
         account.status = _oauth_account_status(connection_data)
@@ -126,8 +131,12 @@ def consume_ebay_authorization_callback(
             secret_ref=secret_ref,
         )
         db.add(account)
+    cleanup_ids = queue_token_secret_deletions(
+        db, [old_secret_ref] if old_secret_ref and old_secret_ref != secret_ref else []
+    )
     db.commit()
     db.refresh(account)
+    cleanup_token_secrets_after_commit(cleanup_ids)
     return account
 
 

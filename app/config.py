@@ -248,6 +248,8 @@ def validate_startup_safety(settings: Settings) -> None:
     )
     if not settings.public_base_url.startswith("https://") and not local_standalone_url:
         problems.append("PUBLIC_BASE_URL must use https in production")
+    if not settings.token_secret_dir.strip():
+        problems.append("TOKEN_SECRET_DIR must be set to a private persistent directory")
 
     if problems:
         detail = "; ".join(problems)

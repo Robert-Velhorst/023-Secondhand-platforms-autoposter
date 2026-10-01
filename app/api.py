@@ -23,6 +23,7 @@ from app.models import (
     ListingTemplate,
     PlatformAccount,
     PlatformListingMapping,
+    PlatformOAuthState,
     PublishingJob,
     User,
 )
@@ -68,6 +69,7 @@ from app.services.jobs import (
 from app.services.oauth import consume_ebay_authorization_callback, create_ebay_authorization_url
 from app.services.storage_cleanup import cleanup_after_commit, queue_storage_deletions
 from app.services.suggestions import get_suggestion_provider
+from app.services.token_secret_cleanup import cleanup_token_secrets_after_commit, queue_token_secret_deletions
 from app.storage import (
     ValidatedUpload,
     local_storage_path,
@@ -683,8 +685,14 @@ def delete_account(account_id: int, user: User = Depends(get_current_user), db: 
     )
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
+    cleanup_ids = queue_token_secret_deletions(db, [account.secret_ref] if account.secret_ref else [])
+    db.query(PlatformOAuthState).filter(
+        PlatformOAuthState.user_id == user.id,
+        PlatformOAuthState.platform == account.platform,
+    ).delete(synchronize_session=False)
     db.delete(account)
     db.commit()
+    cleanup_token_secrets_after_commit(cleanup_ids)
 
 
 @router.post("/accounts/ebay/oauth/start", response_model=OAuthStartResponse, tags=["Accounts"])

@@ -174,3 +174,20 @@ def test_api_rate_limit_config_must_be_positive():
     message = str(exc.value)
     assert "API_RATE_LIMIT_REQUESTS must be positive" in message
     assert "API_RATE_LIMIT_WINDOW_SECONDS must be positive" in message
+
+
+def test_production_requires_oauth_secret_directory():
+    settings = Settings(
+        app_env="production",
+        secret_key="a" * 48,
+        database_url="postgresql+psycopg://app:secret@db.example.invalid/autoposter",
+        public_base_url="https://app.example.invalid",
+        cors_origins="https://app.example.invalid",
+        dev_auto_login=False,
+        auto_create_tables=False,
+        job_process_inline=False,
+        token_secret_dir=" ",
+    )
+
+    with pytest.raises(RuntimeError, match="TOKEN_SECRET_DIR must be set"):
+        validate_startup_safety(settings)

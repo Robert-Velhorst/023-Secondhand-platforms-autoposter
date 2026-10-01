@@ -8,6 +8,7 @@ def test_production_compose_requires_migrations_before_services_start():
     assert "condition: service_completed_successfully" in content
     assert "worker:" in content
     assert "UPLOAD_VOLUME" in content
+    assert "TOKEN_SECRET_VOLUME" in content
     assert "postgres:" not in content
 
 
@@ -21,6 +22,7 @@ def test_production_environment_template_uses_safe_required_values():
         "JOB_PROCESS_INLINE=false",
         "DATABASE_URL=postgresql+psycopg://",
         "WORKER_HEARTBEAT_TIMEOUT_SECONDS=30",
+        "TOKEN_SECRET_DIR=/app/data/secrets",
     ]
     for value in required:
         assert value in content
