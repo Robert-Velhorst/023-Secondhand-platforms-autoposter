@@ -1,6 +1,8 @@
 import uuid
 
 from app.database import Base, engine
+from app.models import Listing
+from app.services.quality import analyze_listing_quality
 from tests.test_api import PNG_BYTES, client
 
 
@@ -20,6 +22,21 @@ def auth_headers(prefix: str = "quality"):
     )
     assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['token']}"}
+
+
+def test_summary_quality_analysis_preserves_aggregate_fields_without_suggestions():
+    listing = Listing(
+        title="Sony mirrorless camera body", description="Used and tested camera in working condition.",
+        price_cents=42500, condition="used", category="Electronics", location="Arnhem",
+        brand="Sony", model="A7", pickup_allowed=True, tags=[],
+    )
+
+    full = analyze_listing_quality(listing)
+    summary = analyze_listing_quality(listing, include_suggestions=False)
+
+    assert summary == {key: full[key] for key in ("score", "grade", "issues")}
+    assert "suggestions" not in summary
+    assert "checklist" not in summary
 
 
 def test_quality_assistant_flags_incomplete_listing_and_suggests_copy():

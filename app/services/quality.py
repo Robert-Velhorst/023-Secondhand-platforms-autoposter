@@ -96,9 +96,9 @@ CATEGORY_RULES: tuple[dict[str, Any], ...] = (
 )
 
 
-def analyze_listing_quality(listing: Listing) -> dict[str, Any]:
+def analyze_listing_quality(listing: Listing, *, include_suggestions: bool = True) -> dict[str, Any]:
+    """Analyze a listing; callers that only aggregate quality can skip copy suggestions."""
     issues: list[QualityIssue] = []
-    suggestions: list[dict[str, Any]] = []
 
     title = (listing.title or "").strip()
     description = (listing.description or "").strip()
@@ -190,6 +190,16 @@ def analyze_listing_quality(listing: Listing) -> dict[str, Any]:
     category_issues, category_checklist = category_specific_checks(listing, description)
     issues.extend(category_issues)
 
+    score = quality_score(issues)
+    grade = grade_for_score(score)
+    if not include_suggestions:
+        return {
+            "score": score,
+            "grade": grade,
+            "issues": [item.__dict__ for item in issues],
+        }
+
+    suggestions: list[dict[str, Any]] = []
     suggested_title = build_title(listing)
     if suggested_title and suggested_title.casefold() != title.casefold():
         suggestions.append(
@@ -220,10 +230,9 @@ def analyze_listing_quality(listing: Listing) -> dict[str, Any]:
             }
         )
 
-    score = quality_score(issues)
     return {
         "score": score,
-        "grade": grade_for_score(score),
+        "grade": grade,
         "summary": summary_for_score(score, issues),
         "issues": [item.__dict__ for item in issues],
         "suggestions": suggestions,

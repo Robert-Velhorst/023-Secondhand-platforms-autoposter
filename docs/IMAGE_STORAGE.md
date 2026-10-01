@@ -7,6 +7,7 @@ Uploaded listing images are validated before storage and are represented in the 
 - Supported image types are controlled by `ALLOWED_IMAGE_TYPES`.
 - The service verifies both declared MIME type and file signature.
 - `MAX_UPLOAD_SIZE_MB` bounds upload size before storage.
+- `MAX_USER_STORAGE_MB` defaults to 1024 MiB and caps the sum of an account's stored image bytes. Both new uploads and image copies created by listing duplication count against the quota; deleting a listing/image frees quota after its database row is removed. PostgreSQL serializes writes to the same owner's quota using a row lock. This per-account control is not a global storage budget and does not prevent account farming.
 - Filenames are sanitized and stored objects receive UUID-suffixed names.
 - SHA-256 checksums are stored and used to avoid duplicate images on the same listing.
 - Image content is returned only from the owner-authenticated content endpoint; raw storage paths are not exposed in normal listing responses.

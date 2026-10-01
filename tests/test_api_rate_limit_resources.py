@@ -115,9 +115,13 @@ def test_concurrent_admission_never_exceeds_the_limit(clock):
 
 
 def test_capacity_returns_real_http_429_but_leaves_health_and_static_available(clock, monkeypatch):
+    from app import middleware
+    from app.config import Settings
     from tests.test_api import client
 
-    monkeypatch.setattr(rate_limit, "MAX_API_BUCKETS", 2)
+    monkeypatch.setattr(middleware, "get_settings", lambda: Settings(api_rate_limit_requests=2))
+    monkeypatch.setattr(rate_limit, "api_buckets", {})
+    monkeypatch.setattr(rate_limit, "_api_expirations", [])
     for token in ("first", "second"):
         assert client.get("/api/platforms", headers={"Authorization": f"Bearer {token}"}).status_code == 200
     response = client.get("/api/platforms", headers={"Authorization": "Bearer overflow"})
@@ -125,6 +129,7 @@ def test_capacity_returns_real_http_429_but_leaves_health_and_static_available(c
     assert response.headers["Retry-After"] == "60"
     assert response.json()["error"]["code"] == "RATE_LIMITED"
     assert response.json()["error"]["retryable"] is True
+    assert len(rate_limit.api_buckets) == 1
     assert client.get("/api/health").status_code == 200
     assert client.get("/").status_code == 200
     clock[0] += 60

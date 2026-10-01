@@ -21,7 +21,10 @@ if (-not (Test-Path -LiteralPath $requestedPython)) {
 }
 $pythonPath = (Resolve-Path -LiteralPath $requestedPython).Path
 
-& $pythonPath -m pip install -r (Join-Path $root "requirements-build.txt")
+& $pythonPath -m pip install --require-hashes -r (Join-Path $root "requirements-build.lock.txt")
+if ($LASTEXITCODE -ne 0) {
+    throw "Windows build dependency installation failed integrity verification."
+}
 & $pythonPath -m PyInstaller --noconfirm --clean (Join-Path $root "packaging\autoposter.spec")
 if ($LASTEXITCODE -ne 0) {
     throw "Windows executable build failed."

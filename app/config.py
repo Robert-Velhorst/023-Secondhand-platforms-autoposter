@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     s3_endpoint_url: str = ""
     s3_key_prefix: str = "uploads"
     max_upload_size_mb: int = 10
+    max_user_storage_mb: int = 1024
     allowed_image_types: str = "image/jpeg,image/png,image/gif,image/webp"
     cors_origins: str = "*"
     log_level: str = "INFO"
@@ -167,6 +168,8 @@ def validate_startup_safety(settings: Settings) -> None:
         problems.append("LOG_FORMAT must be text or json")
     if settings.max_upload_size_mb <= 0:
         problems.append("MAX_UPLOAD_SIZE_MB must be positive")
+    if settings.max_user_storage_mb <= 0:
+        problems.append("MAX_USER_STORAGE_MB must be positive")
     if settings.db_pool_size <= 0:
         problems.append("DB_POOL_SIZE must be positive")
     if settings.db_max_overflow < 0:

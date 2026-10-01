@@ -192,6 +192,37 @@ def test_image_content_is_owner_scoped_and_duplicates_use_independent_files():
     assert original_content.content == PNG_BYTES
 
 
+def test_storage_quota_applies_to_upload_and_listing_image_copies(monkeypatch):
+    from app import api
+    from app.config import Settings
+
+    headers = auth_headers()
+    listing_id = create_listing(headers)
+    monkeypatch.setattr(api, "get_settings", lambda: Settings(max_user_storage_mb=0))
+    upload_response = client.post(
+        f"/api/listings/{listing_id}/images",
+        headers=headers,
+        files={"file": ("too-large-for-account.png", PNG_BYTES, "image/png")},
+    )
+    assert upload_response.status_code == 413
+    assert upload_response.json()["error"]["code"] == "PAYLOAD_TOO_LARGE"
+    assert client.get("/api/listings", headers=headers).json()[0]["images"] == []
+
+    # Existing images may predate a newly lowered operator quota; duplication
+    # still checks the exact bytes before writing any copies.
+    monkeypatch.undo()
+    upload_response = client.post(
+        f"/api/listings/{listing_id}/images",
+        headers=headers,
+        files={"file": ("source.png", PNG_BYTES, "image/png")},
+    )
+    assert upload_response.status_code == 200, upload_response.text
+    monkeypatch.setattr(api, "get_settings", lambda: Settings(max_user_storage_mb=0))
+    duplicate_response = client.post(f"/api/listings/{listing_id}/duplicate", headers=headers)
+    assert duplicate_response.status_code == 413
+    assert len(client.get("/api/listings", headers=headers).json()) == 1
+
+
 def test_s3_storage_writes_metadata_and_deletes_objects(monkeypatch):
     calls = []
 

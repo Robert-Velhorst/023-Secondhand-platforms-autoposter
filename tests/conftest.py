@@ -31,6 +31,17 @@ os.environ.update({
 get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def isolate_process_local_api_rate_limits():
+    """An API process is shared across the suite; each test gets a fresh window."""
+    from app.rate_limit import _api_expirations, _api_lock, api_buckets
+
+    with _api_lock:
+        api_buckets.clear()
+        _api_expirations.clear()
+    yield
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--job-postgres-url",

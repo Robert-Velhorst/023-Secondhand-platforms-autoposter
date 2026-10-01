@@ -38,7 +38,7 @@ def build_user_analytics(db: Session, owner_id: int) -> dict[str, Any]:
     issue_counter: Counter[str] = Counter()
     listing_count = price_count = price_sum = image_sum = missing_images = quality_sum = 0
     for listing in listings:
-        result = analyze_listing_quality(listing)
+        result = analyze_listing_quality(listing, include_suggestions=False)
         issue_counter.update(issue["field"] for issue in result["issues"])
         listing_statuses[listing.status] += 1
         grade_counts[result["grade"]] += 1

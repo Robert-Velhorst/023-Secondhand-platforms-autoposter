@@ -8,11 +8,13 @@ The app includes a conservative per-platform cooldown for publishing jobs. This 
 to 60. This is a fixed-window, in-memory limit **per API process**, separate
 from database-backed login-attempt throttling and publishing cooldowns.
 
-- The key is a SHA-256 hash of the supplied Authorization header, or the client
-  host observed by the app if that header is absent. This runs before route
-  authentication: a supplied header is **not proof of a valid token or user**.
-  Identity/header rotation can evade a per-identity quota. Proxy client-address
-  handling and independent edge abuse controls must be reviewed for deployment.
+- The key is a SHA-256 hash of the client host observed by the app. Authorization
+  values are deliberately ignored because this runs before authentication and
+  arbitrary headers must not create unlimited buckets. Requests from users behind
+  the same observed address share a quota. Configure the reverse proxy to pass
+  the intended client address and ensure the application cannot be reached around
+  that proxy; do not trust caller-supplied forwarding headers without a verified
+  trusted-proxy configuration. Independent edge abuse controls remain required.
 - The limiter counts admitted API requests, including requests later rejected
   by authentication or validation. `/api/health` and non-API routes, including
   static assets, are excluded; this is not protection for every HTTP route.

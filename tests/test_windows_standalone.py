@@ -33,6 +33,7 @@ def test_packaging_contains_launcher_and_migrations():
     launcher = (root / "app" / "launcher.py").read_text(encoding="utf-8")
     spec = (root / "packaging" / "autoposter.spec").read_text(encoding="utf-8")
     build = (root / "scripts" / "build-windows.ps1").read_text(encoding="utf-8")
+    lockfile = (root / "requirements-build.lock.txt").read_text(encoding="utf-8")
 
     assert "run_migrations()" in launcher
     assert "--worker-child" in launcher
@@ -40,6 +41,9 @@ def test_packaging_contains_launcher_and_migrations():
     assert "SecondhandAutoposter" in spec
     assert "console=True" in spec
     assert "Get-FileHash" in build
+    assert "--require-hashes" in build
+    assert "requirements-build.lock.txt" in build
+    assert "--hash=sha256:" in lockfile
 
 
 def test_sites_hosting_is_not_misrepresented_for_fastapi_runtime():

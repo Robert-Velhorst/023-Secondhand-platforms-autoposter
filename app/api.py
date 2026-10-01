@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import ValidationError
+from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.adapters import get_adapter, list_platforms
@@ -79,6 +80,10 @@ from app.storage import (
 router = APIRouter(prefix="/api")
 MAX_LISTING_CSV_BYTES = 2_000_000
 SENSITIVE_CONNECTION_KEYS = ("password", "secret", "token", "api_key", "apikey", "access_key", "private_key")
+CSV_TEXT_FIELDS = {
+    "title", "description", "currency", "condition", "category", "location", "brand", "model",
+    "color", "material", "notes", "internal_notes", "tags", "status",
+}
 LISTING_CSV_FIELDS = [
     "title",
     "description",
@@ -218,6 +223,16 @@ def duplicate_listing(
     db: Session = Depends(get_db),
 ):
     source = _load_listing(db, user.id, listing_id)
+    source_images: list[tuple[ListingImage, bytes]] = []
+    for image in source.images:
+        content = stored_file_bytes(image.storage_path)
+        if content is None:
+            raise HTTPException(
+                status_code=409,
+                detail="A source image is unavailable. Restore or remove the missing image before duplicating.",
+            )
+        source_images.append((image, content))
+    _enforce_owner_storage_quota(db, user.id, sum(len(content) for _, content in source_images))
     clone = Listing(
         owner_id=user.id,
         title=f"{source.title[:155].rstrip()} copy".strip(),
@@ -246,13 +261,7 @@ def duplicate_listing(
     with image_write_scope(db) as track_image:
         db.add(clone)
         db.flush()
-        for image in source.images:
-            content = stored_file_bytes(image.storage_path)
-            if content is None:
-                raise HTTPException(
-                    status_code=409,
-                    detail="A source image is unavailable. Restore or remove the missing image before duplicating.",
-                )
+        for image, content in source_images:
             stored_file = store_validated_image(
                 ValidatedUpload(
                     original_filename=image.filename,
@@ -299,6 +308,7 @@ def upload_image(
     )
     if duplicate:
         return _load_listing(db, user.id, listing.id)
+    _enforce_owner_storage_quota(db, user.id, validated.file_size)
     with image_write_scope(db) as track_image:
         stored_file = store_validated_image(validated, listing.id, on_planned=track_image)
         position = len(listing.images)
@@ -947,7 +957,7 @@ def _export_listing(listing: Listing) -> dict:
 
 
 def _listing_csv_row(listing: Listing) -> dict[str, str]:
-    return {
+    row = {
         "title": listing.title or "",
         "description": listing.description or "",
         "price_cents": str(listing.price_cents or 0),
@@ -971,6 +981,36 @@ def _listing_csv_row(listing: Listing) -> dict[str, str]:
         "delivery_options_json": json.dumps(listing.delivery_options or {}, sort_keys=True),
         "dimensions_json": json.dumps(listing.dimensions or {}, sort_keys=True),
     }
+    return {key: _safe_csv_text(value) if key in CSV_TEXT_FIELDS else value for key, value in row.items()}
+
+
+def _safe_csv_text(value: str) -> str:
+    # Spreadsheet applications may evaluate formulas after ignoring leading
+    # whitespace/control characters. Prefix only dangerous text fields; numeric
+    # columns retain their normal negative-number representation.
+    candidate = value.lstrip("\ufeff\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r\x1c\x1d\x1e\x1f ")
+    if candidate.startswith(("=", "+", "-", "@")):
+        return "'" + value
+    return value
+
+
+def _enforce_owner_storage_quota(db: Session, owner_id: int, additional_bytes: int) -> None:
+    settings = get_settings()
+    # Locking the owner row serializes quota checks across PostgreSQL API workers.
+    # SQLite does not implement row locks; its local single-process deployment is
+    # still bounded by the same check, while production PostgreSQL is race-safe.
+    db.query(User.id).filter(User.id == owner_id).with_for_update().one()
+    current_bytes = (
+        db.query(func.coalesce(func.sum(ListingImage.file_size), 0))
+        .join(Listing, Listing.id == ListingImage.listing_id)
+        .filter(Listing.owner_id == owner_id)
+        .scalar()
+    )
+    if int(current_bytes or 0) + additional_bytes > settings.max_user_storage_mb * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Account image storage quota of {settings.max_user_storage_mb} MiB would be exceeded.",
+        )
 
 
 def _format_csv_bool(value: bool) -> str:

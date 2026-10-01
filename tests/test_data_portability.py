@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import uuid
@@ -5,10 +6,12 @@ import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import httpx
 import pytest
 from sqlalchemy.exc import OperationalError
 
 from app.database import Base, SessionLocal, engine
+from app.main import app
 from app.models import (
     AuditEvent,
     CategoryMapping,
@@ -307,6 +310,64 @@ def test_listing_csv_export_and_import_round_trip():
         assert "listings_csv_imported" in actions
     finally:
         db.close()
+
+
+def test_listing_csv_export_neutralizes_spreadsheet_formulas():
+    headers = auth_headers("csv-formula")
+    created = client.post(
+        "/api/listings",
+        headers=headers,
+        json={"title": "  =HYPERLINK(\"https://example.invalid\")", "price_cents": 125,
+              "category": "@SUM(1,2)", "location": "\t+cmd"},
+    )
+    assert created.status_code == 200, created.text
+    response = client.get("/api/export/listings.csv", headers=headers)
+    assert response.status_code == 200
+    assert "'  =HYPERLINK" in response.text
+    assert "'@SUM" in response.text
+    assert "'\t+cmd" in response.text
+    # Numeric values remain numeric rather than being escaped as text.
+    assert ",125," in response.text
+
+
+def test_json_import_rejects_excessive_record_count_without_creating_data():
+    headers = auth_headers("json-import-count")
+    response = client.post("/api/import", headers=headers, json={"listings": [{}] * 1001})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert client.get("/api/listings", headers=headers).json() == []
+
+
+def test_json_import_rejects_oversized_request_body():
+    from app.middleware import IMPORT_BODY_LIMIT_BYTES
+
+    headers = auth_headers("json-import-size")
+    response = client.post(
+        "/api/import", headers={**headers, "Content-Type": "application/json"},
+        content=b" " * (IMPORT_BODY_LIMIT_BYTES + 1),
+    )
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "PAYLOAD_TOO_LARGE"
+    assert client.get("/api/listings", headers=headers).json() == []
+
+
+def test_json_import_streaming_limit_cannot_be_bypassed_without_content_length():
+    from app.middleware import IMPORT_BODY_LIMIT_BYTES
+
+    headers = {**auth_headers("json-import-stream"), "Content-Type": "application/json"}
+
+    async def run_request():
+        async def body_chunks():
+            yield b" " * (IMPORT_BODY_LIMIT_BYTES // 2)
+            yield b" " * (IMPORT_BODY_LIMIT_BYTES // 2 + 1)
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http:
+            return await http.post("/api/import", headers=headers, content=body_chunks())
+
+    response = asyncio.run(run_request())
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "PAYLOAD_TOO_LARGE"
 
 
 def test_image_zip_export_contains_manifest_and_owned_images():

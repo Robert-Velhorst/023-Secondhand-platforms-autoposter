@@ -486,19 +486,19 @@ class DataExportBundle(BaseModel):
 
 class ImportPlatformMapping(BaseModel):
     platform: str
-    overrides: dict[str, Any] = Field(default_factory=dict)
+    overrides: dict[str, Any] = Field(default_factory=dict, max_length=100)
 
 
 class ImportListing(ListingCreate):
-    platform_mappings: list[ImportPlatformMapping] = Field(default_factory=list)
+    platform_mappings: list[ImportPlatformMapping] = Field(default_factory=list, max_length=50)
 
 
 class DataImportBundle(BaseModel):
     version: str | None = None
-    listings: list[ImportListing] = Field(default_factory=list)
-    platform_accounts: list[PlatformAccountCreate] = Field(default_factory=list)
-    templates: list[TemplateCreate] = Field(default_factory=list)
-    category_mappings: list[CategoryMappingCreate] = Field(default_factory=list)
+    listings: list[ImportListing] = Field(default_factory=list, max_length=1000)
+    platform_accounts: list[PlatformAccountCreate] = Field(default_factory=list, max_length=100)
+    templates: list[TemplateCreate] = Field(default_factory=list, max_length=500)
+    category_mappings: list[CategoryMappingCreate] = Field(default_factory=list, max_length=1000)
 
 
 class DataImportResult(BaseModel):

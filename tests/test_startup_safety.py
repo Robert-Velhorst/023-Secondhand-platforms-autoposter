@@ -56,6 +56,7 @@ def test_invalid_runtime_configuration_values_are_rejected():
         storage_backend="ftp",
         log_format="xml",
         max_upload_size_mb=0,
+        max_user_storage_mb=0,
         login_rate_limit_attempts=0,
         login_rate_limit_window_seconds=0,
         api_rate_limit_requests=0,
@@ -75,6 +76,7 @@ def test_invalid_runtime_configuration_values_are_rejected():
     assert "STORAGE_BACKEND must be local or s3" in message
     assert "LOG_FORMAT must be text or json" in message
     assert "MAX_UPLOAD_SIZE_MB must be positive" in message
+    assert "MAX_USER_STORAGE_MB must be positive" in message
     assert "LOGIN_RATE_LIMIT_ATTEMPTS must be positive" in message
     assert "LOGIN_RATE_LIMIT_WINDOW_SECONDS must be positive" in message
     assert "API_RATE_LIMIT_REQUESTS must be positive" in message

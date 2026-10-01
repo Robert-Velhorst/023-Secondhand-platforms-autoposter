@@ -93,6 +93,23 @@ resource/correctness checks, not production throughput measurements. See
 - Do not add marketplace polling loops without platform-specific cooldowns and quota handling.
 - Do not include image binaries in normal JSON exports.
 
+## Analytics Aggregate Optimization — 2026-10-01
+
+The analytics endpoint needs only each listing's quality score, grade, and
+issues. It now skips generating title/description/tag suggestions and checklist
+copy for every listing in the aggregate path; the interactive per-listing
+quality response still returns those fields. A regression test compares the
+aggregate fields against the full analysis.
+
+On the documented 1,000-listing / 5,000-job / 10,000-stale-worker in-memory
+SQLite fixture, five traced samples on this Windows 11/Python 3.14 host measured
+analytics at **536.68 ms before** and **348.72 ms after** (about 35% lower
+median). Peak Python allocation changed from 1,619,055 to 1,616,525 bytes, and
+the same 1,000 listing ORM objects are still loaded. The optimization saves
+recommendation-generation CPU; it does not eliminate the listing scan or make a
+production latency promise. Full measurements are in
+[`.ecc/benchmarks/analytics-summary.json`](../.ecc/benchmarks/analytics-summary.json).
+
 ## Remaining Scale Work
 
 - Capture PostgreSQL migration and representative query evidence on the supplied target before production launch.
