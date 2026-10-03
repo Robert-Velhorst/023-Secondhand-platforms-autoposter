@@ -44,6 +44,12 @@ def test_hai_manifest_is_honest_and_read_only():
     assert payload["capabilities"]["tombstones"] is True
     assert payload["capabilities"]["write_back"] is False
     assert payload["capabilities"]["credentials_exported"] is False
+    assert payload["limits"] == {
+        "max_page_records": 50,
+        "max_page_bytes": 5 * 1024 * 1024,
+        "max_record_content_bytes": 200_000,
+        "max_record_metadata_bytes": 16_000,
+    }
 
 
 def test_hai_token_is_scoped_incremental_and_revocable():
@@ -121,6 +127,64 @@ def test_hai_cursor_rejects_invalid_values():
 
     invalid_padding = client.get("/api/hai/records?cursor=A", headers=hai_headers)
     assert invalid_padding.status_code == 422
+
+
+def test_hai_incremental_feed_rejects_oversized_record_without_returning_a_cursor():
+    from datetime import UTC, datetime
+
+    from app.database import SessionLocal
+    from app.models import HaiListingChange, Listing
+
+    owner = _register("hai-record-too-large")
+    owner_id = client.get("/api/auth/me", headers=owner).json()["id"]
+    _, connector = _create_hai_token(owner)
+    with SessionLocal() as db:
+        listing = Listing(owner_id=owner_id, title="Large", description="x" * 200_001)
+        db.add(listing)
+        db.flush()
+        db.add(HaiListingChange(
+            owner_id=owner_id,
+            listing_id=listing.id,
+            action="upsert",
+            changed_at=datetime.now(UTC),
+        ))
+        db.commit()
+
+    response = client.get("/api/hai/records", headers=connector)
+
+    assert response.status_code == 413
+    assert "200,000-byte content limit" in response.json()["error"]["message"]
+
+
+def test_hai_incremental_feed_caps_page_size_and_serialized_bytes():
+    from datetime import UTC, datetime
+
+    from app.database import SessionLocal
+    from app.models import HaiListingChange, Listing
+    from app.routes.hai import HAI_RECORDS_MAX_ITEMS
+
+    owner = _register("hai-record-page-bound")
+    owner_id = client.get("/api/auth/me", headers=owner).json()["id"]
+    _, connector = _create_hai_token(owner)
+    with SessionLocal() as db:
+        for index in range(30):
+            listing = Listing(owner_id=owner_id, title=f"Large {index}", description='"' * 90_000)
+            db.add(listing)
+            db.flush()
+            db.add(HaiListingChange(
+                owner_id=owner_id,
+                listing_id=listing.id,
+                action="upsert",
+                changed_at=datetime.now(UTC),
+            ))
+        db.commit()
+
+    too_many = client.get("/api/hai/records", headers=connector, params={"limit": HAI_RECORDS_MAX_ITEMS + 1})
+    assert too_many.status_code == 422
+
+    oversized_page = client.get("/api/hai/records", headers=connector, params={"limit": 30})
+    assert oversized_page.status_code == 413
+    assert "exceeds 5 MiB" in oversized_page.json()["error"]["message"]
 
 
 def test_hai_records_expose_monotonic_decimal_change_ids_for_replay_ordering():

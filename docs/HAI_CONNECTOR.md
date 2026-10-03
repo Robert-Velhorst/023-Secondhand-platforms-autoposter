@@ -12,7 +12,7 @@ The app exposes an owner-scoped, read-only incremental API and a separate **HAI-
 
 `GET /api/hai/export` returns `application/json`, an attachment filename, and `Cache-Control: no-store`. Unauthenticated requests and `hai:read` tokens receive 401. All current owner listings, including archived ones, are included; the endpoint does not stop at the regular API's first page. It reads batches of 100, counts images in the database, loads only export fields/platform metadata, and caps the serialized file at 5 MiB. This is a current-record export, not a transactionally frozen point-in-time backup while concurrent edits occur.
 
-Content is limited to 200,000 UTF-8 bytes and Go-encoded metadata to 16,000 bytes per item to match the inspected HAI parser. A size overflow produces HTTP 413 and no partial download. In both the manual export and incremental API, a misconfigured source base containing URL credentials, a query/fragment, or secret-looking parameters is omitted from source links. Oversized stored listing fields can still require database work and transient memory before rejection; this is not an unlimited-scale export service.
+Content is limited to 200,000 UTF-8 bytes and Go-encoded metadata to 16,000 bytes per item to match the inspected HAI parser. The incremental API additionally limits each page to 50 records and 5 MiB of serialized JSON; these limits are published in the connector manifest. A size overflow produces HTTP 413 with no partial page or download, so the consumer must retain its prior cursor and request a smaller page or resolve the oversized record. In both the manual export and incremental API, a misconfigured source base containing URL credentials, a query/fragment, or secret-looking parameters is omitted from source links. Oversized stored listing fields can still require bounded database work and transient memory before rejection; this is not an unlimited-scale export service.
 
 ## Current HAI Compatibility Gap
 
@@ -54,7 +54,7 @@ Cursors are opaque: pass the returned value unchanged. Invalid encoding, signed 
 Example request, using a placeholder token:
 
 ```bash
-curl -H "Authorization: Bearer hai_REPLACE_ME" "https://autoposter.example/api/hai/records?limit=100"
+curl -H "Authorization: Bearer hai_REPLACE_ME" "https://autoposter.example/api/hai/records?limit=50"
 ```
 
 For local Windows use, the source URL is `http://127.0.0.1:8000` from that Windows host. Inside another machine or container, `127.0.0.1` refers to that machine/container, not the Autoposter host. A reviewed network route is required. Managed ngrok lifecycle controls have local verification, but a public tunnel still needs explicit approval and target access-policy acceptance; see the [ngrok guide](WINDOWS_STANDALONE.md#ngrok).

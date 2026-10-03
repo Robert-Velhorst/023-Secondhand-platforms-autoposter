@@ -412,7 +412,7 @@ Example with a placeholder token:
 
 ```bash
 curl -H "Authorization: Bearer hai_REPLACE_ME" \
-  "https://autoposter.example/api/hai/records?limit=100"
+  "https://autoposter.example/api/hai/records?limit=50"
 ```
 
 The feed uses opaque cursors, returns listing upserts, and emits deletion tombstones. Each incremental record has a decimal-string `change_id` so a consumer can reject older/equal replays without relying on timestamps. Both feed formats omit unsafe configured source links. The feed excludes internal notes, credentials, secret references, and image binaries. Connector tokens have only `hai:read`, expire, can be revoked, and cannot edit, delete, publish, or mark a marketplace job complete.

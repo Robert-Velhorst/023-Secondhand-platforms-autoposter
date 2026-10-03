@@ -21,8 +21,11 @@ from app.services.audit import record_audit_event
 router = APIRouter(tags=["HAI connector"])
 
 HAI_EXPORT_MAX_BYTES = 5 * 1024 * 1024
+HAI_RECORDS_MAX_ITEMS = 50
+HAI_RECORDS_MAX_BYTES = 5 * 1024 * 1024
 HAI_CONTENT_MAX_BYTES = 200_000
 HAI_METADATA_MAX_BYTES = 16_000
+HAI_RECORDS_JSON_PREFIX = b'{"connector":"secondhand-platforms-autoposter","read_only":true,"records":['
 
 
 def _utc(value: datetime) -> datetime:
@@ -96,6 +99,12 @@ def hai_manifest() -> dict:
         },
         "record_types": ["secondhand_listing"],
         "cursor": {"parameter": "cursor", "opaque": True},
+        "limits": {
+            "max_page_records": HAI_RECORDS_MAX_ITEMS,
+            "max_page_bytes": HAI_RECORDS_MAX_BYTES,
+            "max_record_content_bytes": HAI_CONTENT_MAX_BYTES,
+            "max_record_metadata_bytes": HAI_METADATA_MAX_BYTES,
+        },
         "capabilities": {
             "incremental_sync": True,
             "ordered_change_ids": True,
@@ -239,10 +248,29 @@ def _listing_record(listing: Listing, changed_at: datetime, *, image_count: int 
     )
 
 
+def _hai_metadata_json_bytes(metadata: dict) -> bytes:
+    """Measure metadata as Go's JSON encoder will persist it downstream."""
+    encoded = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+    for character, escaped in (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026"),
+                               ("\u2028", "\\u2028"), ("\u2029", "\\u2029")):
+        encoded = encoded.replace(character, escaped)
+    return encoded.encode("utf-8")
+
+
+def _hai_record_json_bytes(record: HaiRecord) -> bytes:
+    return json.dumps(record.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+def _hai_record_page_suffix(next_cursor: str | None, has_more: bool) -> bytes:
+    encoded_cursor = json.dumps(next_cursor, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    encoded_has_more = b"true" if has_more else b"false"
+    return b'],"next_cursor":' + encoded_cursor + b',"has_more":' + encoded_has_more + b'}'
+
+
 @router.get("/api/hai/records", response_model=HaiRecordPage)
 def hai_records(
     cursor: str | None = Query(default=None, max_length=128),
-    limit: int = Query(default=100, ge=1, le=250),
+    limit: int = Query(default=HAI_RECORDS_MAX_ITEMS, ge=1, le=HAI_RECORDS_MAX_ITEMS),
     user: User = Depends(get_hai_user),
     db: Session = Depends(get_db),
 ) -> HaiRecordPage:
@@ -256,6 +284,7 @@ def hai_records(
     )
     has_more = len(changes) > limit
     page = changes[:limit]
+    next_cursor = _encode_cursor(page[-1].id) if page else cursor
     listing_ids = {change.listing_id for change in page if change.action != "delete"}
     listings = {}
     if listing_ids:
@@ -286,27 +315,44 @@ def hai_records(
         }
 
     records: list[HaiRecord] = []
+    record_payload_bytes = 0
+    suffix_bytes = len(_hai_record_page_suffix(next_cursor, has_more))
     for change in page:
         listing = listings.get(change.listing_id)
         if change.action == "delete" or listing is None:
-            records.append(
-                HaiRecord(
-                    id=f"listing:{change.listing_id}",
-                    change_id=str(change.id),
-                    title=f"Deleted listing {change.listing_id}",
-                    content="",
-                    source_url="",
-                    updated_at=change.changed_at,
-                    deleted=True,
-                    metadata={"listing_id": change.listing_id},
-                )
+            record = HaiRecord(
+                id=f"listing:{change.listing_id}",
+                change_id=str(change.id),
+                title=f"Deleted listing {change.listing_id}",
+                content="",
+                source_url="",
+                updated_at=change.changed_at,
+                deleted=True,
+                metadata={"listing_id": change.listing_id},
             )
         else:
-            records.append(_listing_record(listing, change.changed_at).model_copy(update={"change_id": str(change.id)}))
+            record = _listing_record(listing, change.changed_at).model_copy(update={"change_id": str(change.id)})
+        try:
+            content_bytes = record.content.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise HTTPException(413, "A listing contains text that cannot be represented in the HAI feed.") from exc
+        if len(content_bytes) > HAI_CONTENT_MAX_BYTES:
+            raise HTTPException(413, "A listing exceeds HAI's 200,000-byte content limit; no page was returned.")
+        if len(_hai_metadata_json_bytes(record.metadata)) > HAI_METADATA_MAX_BYTES:
+            raise HTTPException(413, "A listing exceeds HAI's 16,000-byte metadata limit; no page was returned.")
+        encoded_record = _hai_record_json_bytes(record)
+        next_payload_bytes = record_payload_bytes + (1 if records else 0) + len(encoded_record)
+        if len(HAI_RECORDS_JSON_PREFIX) + next_payload_bytes + suffix_bytes > HAI_RECORDS_MAX_BYTES:
+            raise HTTPException(
+                413,
+                "HAI records page exceeds 5 MiB; no partial page was returned. Request a smaller limit.",
+            )
+        record_payload_bytes = next_payload_bytes
+        records.append(record)
 
     return HaiRecordPage(
         records=records,
-        next_cursor=_encode_cursor(page[-1].id) if page else cursor,
+        next_cursor=next_cursor,
         has_more=has_more,
     )
 
@@ -337,12 +383,8 @@ def hai_export(user: User = Depends(get_current_user), db: Session = Depends(get
     for index, (listing, image_count) in enumerate(listings):
         record = _listing_record(listing, listing.updated_at, image_count=image_count)
         # HAI validates decoded content bytes and Go's JSON-encoded metadata.
-        metadata_json = json.dumps(record.metadata, ensure_ascii=False, separators=(",", ":"))
-        for character, escaped in (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026"),
-                                   ("\u2028", "\\u2028"), ("\u2029", "\\u2029")):
-            metadata_json = metadata_json.replace(character, escaped)
         if (len(record.content.encode("utf-8")) > HAI_CONTENT_MAX_BYTES
-                or len(metadata_json.encode("utf-8")) > HAI_METADATA_MAX_BYTES):
+                or len(_hai_metadata_json_bytes(record.metadata)) > HAI_METADATA_MAX_BYTES):
             raise HTTPException(413, "A listing exceeds HAI's content or metadata limit; no feed was exported.")
         item = {
             "externalId": f"secondhand:listing:{listing.id}",
