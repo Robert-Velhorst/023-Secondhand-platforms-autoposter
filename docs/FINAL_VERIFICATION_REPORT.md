@@ -953,3 +953,18 @@ is not at Alembic head; no production database was contacted or migrated.
   browser run is not a real non-technical user walkthrough; manual keyboard, zoom, and screen-reader
   QA remain outstanding. Production credentials/deployment, target PostgreSQL migration, backup and
   restore evidence, edge rate-limit evidence, provider acceptance, and final signoff remain open.
+
+## Windows SQLAlchemy and Alembic URL compatibility (2026-10-03)
+
+Target: PR head `0f1f10a`, Windows 11, Python 3.14, SQLAlchemy 2.1.3. The initial full run exposed
+two Alembic migration tests failing because SQLAlchemy percent-encoded the Windows drive colon
+(`C%3A`) and `ConfigParser` interpreted the percent sign as interpolation syntax. Alembic options
+now escape percent signs before setting the URL; the actual value is restored by ConfigParser when
+the migration environment reads it. The focused migration suite passed **6 tests** after the fix.
+
+The full `python scripts/verify.py` gate then passed Ruff, Python compilation, and **563 tests with
+1 skipped** (564 collected) in 97.77 seconds. The doctor returned `warning` only for the expected
+development secret and local SQLite database not being at Alembic head; no production database was
+contacted. GitHub `verify`, `postgres-workers`, and `dependency-audit` checks passed for the pushed
+PR head. The PR now merges cleanly with `main` at `2677933`; it remains a draft. The release gate
+still reports 77 external evidence gaps, and no production launch or human acceptance is claimed.
