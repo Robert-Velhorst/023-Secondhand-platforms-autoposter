@@ -927,3 +927,29 @@ standalone Python launcher on Windows 11 with a new `.tmp` data directory and lo
 - This was an agent-run local smoke walkthrough, not a real non-technical user session. No image was
   uploaded, no marketplace site was opened, and no job was queued. It does not satisfy manual
   accessibility QA or client acceptance.
+
+## Dutch UI localization and committed Windows verification — 2026-10-03
+
+Target: PR source commit `a2b9ad1` on the existing `agent/production-launch-hardening` review branch.
+The complete `python scripts/verify.py` gate passed on Windows 11/Python 3.14: Ruff, compilation,
+and **562 tests passed with 2 skipped** (564 collected). The doctor returned `warning`, not `ok`,
+because this verification checkout uses the default development secret and its local SQLite file
+is not at Alembic head; no production database was contacted or migrated.
+
+- A separate Windows standalone launch used a new temporary data directory on loopback port 18764.
+  It applied migrations through `20261001_0017`; `/api/health` returned `ok` and
+  `/api/localization` reported English complete and Dutch incomplete with English fallback.
+- In the in-app browser, a synthetic local account and disposable listing exercised the dashboard,
+  Dutch listing filters and condition choices, validation/prepublish review, account filters, and
+  assisted queue. English switching and Dutch preference persistence across reload also worked;
+  the browser console had no errors. The disposable listing was validated only; no image was
+  uploaded, no job was queued, and no marketplace submission was made.
+- The frontend catalog now translates common dashboard metrics and onboarding labels, filter/sort
+  choices, listing conditions, known field labels, common statuses, account and queue empty states,
+  and prepublish-review controls. Catalog-key parity and static/dynamic translation references are
+  tested. Unknown backend messages, provider warnings, and action-center reminder details remain
+  English-first by design and are documented in `INTERNATIONALIZATION.md`.
+- `scripts/release_gate.py --json` remains `blocked` with **77 missing evidence fields**. The local
+  browser run is not a real non-technical user walkthrough; manual keyboard, zoom, and screen-reader
+  QA remain outstanding. Production credentials/deployment, target PostgreSQL migration, backup and
+  restore evidence, edge rate-limit evidence, provider acceptance, and final signoff remain open.
