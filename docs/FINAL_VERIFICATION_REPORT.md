@@ -968,3 +968,19 @@ development secret and local SQLite database not being at Alembic head; no produ
 contacted. GitHub `verify`, `postgres-workers`, and `dependency-audit` checks passed for the pushed
 PR head. The PR now merges cleanly with `main` at `2677933`; it remains a draft. The release gate
 still reports 77 external evidence gaps, and no production launch or human acceptance is claimed.
+
+## Fresh Windows standalone build and runtime smoke (2026-10-03)
+
+Built `dist/SecondhandAutoposter.exe` from PR source commit `48162b4` on Windows 11 using the
+hash-locked packaging requirements, Python 3.13.14, and PyInstaller 6.22.0. The executable is
+43,218,637 bytes with SHA-256
+`f96615f3215e4e29c37174ae024eb26e0bb2fdd2f6098424de51f0e2e1a9b038`; the generated checksum
+sidecar matched.
+
+The executable ran against a new disposable data directory on `127.0.0.1:18765`. It migrated the
+database to `20261001_0017`, returned `ok` for `/api/health` and `/api/worker-status`, and served the
+dashboard with HTTP 200. The test processes were stopped afterward and no listener remained on the
+port. No account or listing was created, no marketplace was contacted, and no ngrok tunnel was
+opened. This verifies one local packaged runtime path only; interactive close/Ctrl+C behavior,
+live tunnel policy/access, production deployment, and human accessibility acceptance remain
+unverified.
