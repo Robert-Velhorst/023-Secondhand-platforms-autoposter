@@ -108,20 +108,20 @@
                   <div class="tool-grid">
                     <label data-i18n-label="label.status">Status
                       <select id="listingStatusFilter">
-                        <option value="">All</option>
-                        <option value="draft">Draft</option>
-                        <option value="ready">Ready</option>
-                        <option value="published">Published</option>
-                        <option value="archived">Archived</option>
+                        <option value="" data-i18n="filters.all">All</option>
+                        <option value="draft" data-i18n="status.draft">Draft</option>
+                        <option value="ready" data-i18n="status.ready">Ready</option>
+                        <option value="published" data-i18n="status.published">Published</option>
+                        <option value="archived" data-i18n="status.archived">Archived</option>
                       </select>
                     </label>
                     <label data-i18n-label="label.sort">Sort
                       <select id="listingSort">
-                        <option value="-updated_at">Newest updated</option>
-                        <option value="updated_at">Oldest updated</option>
-                        <option value="title">Title A-Z</option>
-                        <option value="-price_cents">Highest price</option>
-                        <option value="price_cents">Lowest price</option>
+                        <option value="-updated_at" data-i18n="sort.newestUpdated">Newest updated</option>
+                        <option value="updated_at" data-i18n="sort.oldestUpdated">Oldest updated</option>
+                        <option value="title" data-i18n="sort.titleAZ">Title A-Z</option>
+                        <option value="-price_cents" data-i18n="sort.highestPrice">Highest price</option>
+                        <option value="price_cents" data-i18n="sort.lowestPrice">Lowest price</option>
                       </select>
                     </label>
                   </div>
@@ -140,14 +140,14 @@
                     <label data-i18n-label="label.price">Price<input name="price" type="number" min="0" step="0.01" /></label>
                     <label data-i18n-label="label.condition">Condition
                       <select name="condition">
-                        <option value="new">New</option>
-                        <option value="as_new">As new</option>
-                        <option value="good">Good</option>
-                        <option value="used">Used</option>
-                        <option value="fair">Fair</option>
-                        <option value="damaged">Damaged</option>
-                        <option value="for_parts">For parts</option>
-                        <option value="other">Other</option>
+                        <option value="new" data-i18n="condition.new">New</option>
+                        <option value="as_new" data-i18n="condition.asNew">As new</option>
+                        <option value="good" data-i18n="condition.good">Good</option>
+                        <option value="used" data-i18n="condition.used">Used</option>
+                        <option value="fair" data-i18n="condition.fair">Fair</option>
+                        <option value="damaged" data-i18n="condition.damaged">Damaged</option>
+                        <option value="for_parts" data-i18n="condition.forParts">For parts</option>
+                        <option value="other" data-i18n="condition.other">Other</option>
                       </select>
                     </label>
                     <label data-i18n-label="label.category">Category<input name="category" /></label>
@@ -168,7 +168,7 @@
                   </div>
                   <div class="template-apply-row">
                     <label data-i18n-label="label.template">Template<select id="listingTemplateSelect"><option value="">Choose template</option></select></label>
-                    <button type="button" id="applyTemplateButton" class="ghost">Apply template</button>
+                    <button type="button" id="applyTemplateButton" class="ghost" data-i18n="templates.apply">Apply template</button>
                   </div>
                   <label data-i18n-label="label.description">Description<textarea name="description" rows="7"></textarea></label>
                   <label data-i18n-label="label.deliveryOptions">Delivery options<textarea name="delivery_options" rows="3"></textarea><small data-i18n="hint.deliveryOptions">Pickup and shipping selections are included automatically; add extra details only if needed.</small></label>
@@ -223,26 +223,26 @@
             </div>
             <div class="query-tools">
               <div class="tool-grid">
-                <label data-i18n-label="label.platform">Platform<select id="jobPlatformFilter"><option value="">All platforms</option></select></label>
+                <label data-i18n-label="label.platform">Platform<select id="jobPlatformFilter"><option value="" data-i18n="filters.allPlatforms">All platforms</option></select></label>
                 <label data-i18n-label="label.status">Status
                   <select id="jobStatusFilter">
-                    <option value="">All statuses</option>
-                    <option value="queued">Queued</option>
-                    <option value="processing">Processing</option>
-                    <option value="needs_user_action">Needs action</option>
-                    <option value="completed">Completed</option>
-                    <option value="failed">Failed</option>
+                    <option value="" data-i18n="filters.allStatuses">All statuses</option>
+                    <option value="queued" data-i18n="status.queued">Queued</option>
+                    <option value="processing" data-i18n="status.processing">Processing</option>
+                    <option value="needs_user_action" data-i18n="status.needsUserAction">Needs action</option>
+                    <option value="completed" data-i18n="status.completed">Completed</option>
+                    <option value="failed" data-i18n="status.failed">Failed</option>
                   </select>
                 </label>
               </div>
               <div class="tool-grid">
                 <label data-i18n-label="label.sort">Sort
                   <select id="jobSort">
-                    <option value="-created_at">Newest</option>
-                    <option value="created_at">Oldest</option>
-                    <option value="platform">Platform A-Z</option>
-                    <option value="status">Status A-Z</option>
-                    <option value="-finished_at">Recently finished</option>
+                    <option value="-created_at" data-i18n="sort.newest">Newest</option>
+                    <option value="created_at" data-i18n="sort.oldest">Oldest</option>
+                    <option value="platform" data-i18n="sort.platformAZ">Platform A-Z</option>
+                    <option value="status" data-i18n="sort.statusAZ">Status A-Z</option>
+                    <option value="-finished_at" data-i18n="sort.recentlyFinished">Recently finished</option>
                   </select>
                 </label>
                 <div class="row pager-row">
@@ -262,25 +262,25 @@
                 <h3 data-i18n="accounts.title">Platform accounts</h3>
                 <div class="query-tools">
                   <div class="tool-grid">
-                    <label data-i18n-label="label.platform">Platform<select id="accountPlatformFilter"><option value="">All platforms</option></select></label>
+                    <label data-i18n-label="label.platform">Platform<select id="accountPlatformFilter"><option value="" data-i18n="filters.allPlatforms">All platforms</option></select></label>
                     <label data-i18n-label="label.status">Status
                       <select id="accountStatusFilter">
-                        <option value="">All statuses</option>
-                        <option value="needs_setup">Needs setup</option>
-                        <option value="needs_token_exchange">Needs token exchange</option>
-                        <option value="ready">Ready</option>
-                        <option value="connected">Connected</option>
-                        <option value="disabled">Disabled</option>
+                        <option value="" data-i18n="filters.allStatuses">All statuses</option>
+                        <option value="needs_setup" data-i18n="status.needsSetup">Needs setup</option>
+                        <option value="needs_token_exchange" data-i18n="status.needsTokenExchange">Needs token exchange</option>
+                        <option value="ready" data-i18n="status.ready">Ready</option>
+                        <option value="connected" data-i18n="status.connected">Connected</option>
+                        <option value="disabled" data-i18n="status.disabled">Disabled</option>
                       </select>
                     </label>
                   </div>
                   <label data-i18n-label="label.sort">Sort
                     <select id="accountSort">
-                      <option value="-created_at">Newest</option>
-                      <option value="created_at">Oldest</option>
-                      <option value="display_name">Name A-Z</option>
-                      <option value="platform">Platform A-Z</option>
-                      <option value="status">Status A-Z</option>
+                      <option value="-created_at" data-i18n="sort.newest">Newest</option>
+                      <option value="created_at" data-i18n="sort.oldest">Oldest</option>
+                      <option value="display_name" data-i18n="sort.nameAZ">Name A-Z</option>
+                      <option value="platform" data-i18n="sort.platformAZ">Platform A-Z</option>
+                      <option value="status" data-i18n="sort.statusAZ">Status A-Z</option>
                     </select>
                   </label>
                   <div class="row pager-row">
@@ -297,11 +297,11 @@
                   <label data-i18n-label="accounts.displayName">Display name<input id="accountName" required /></label>
                   <label data-i18n-label="label.status">Status
                     <select id="accountStatus">
-                      <option value="needs_setup">Needs setup</option>
-                      <option value="needs_token_exchange">Needs token exchange</option>
-                      <option value="ready">Ready</option>
-                      <option value="connected">Connected</option>
-                      <option value="disabled">Disabled</option>
+                      <option value="needs_setup" data-i18n="status.needsSetup">Needs setup</option>
+                      <option value="needs_token_exchange" data-i18n="status.needsTokenExchange">Needs token exchange</option>
+                      <option value="ready" data-i18n="status.ready">Ready</option>
+                      <option value="connected" data-i18n="status.connected">Connected</option>
+                      <option value="disabled" data-i18n="status.disabled">Disabled</option>
                     </select>
                   </label>
                   <div class="row compact-actions">
@@ -320,18 +320,18 @@
                 <div class="query-tools">
                   <label data-i18n-label="listings.search">Search<input id="templateSearch" placeholder="template name or variant" /></label>
                   <div class="tool-grid">
-                    <label data-i18n-label="label.platform">Platform<select id="templatePlatformFilter"><option value="">All platforms</option></select></label>
+                    <label data-i18n-label="label.platform">Platform<select id="templatePlatformFilter"><option value="" data-i18n="filters.allPlatforms">All platforms</option></select></label>
                     <label data-i18n-label="templates.variant">Variant<input id="templateVariantFilter" placeholder="default, short, seasonal" /></label>
                   </div>
                   <div class="tool-grid">
                     <label data-i18n-label="label.sort">Sort
                       <select id="templateSort">
-                        <option value="name">Name A-Z</option>
-                        <option value="-name">Name Z-A</option>
-                        <option value="variant">Variant A-Z</option>
-                        <option value="platform">Platform A-Z</option>
-                        <option value="-created_at">Newest</option>
-                        <option value="created_at">Oldest</option>
+                        <option value="name" data-i18n="sort.nameAZ">Name A-Z</option>
+                        <option value="-name" data-i18n="sort.nameZA">Name Z-A</option>
+                        <option value="variant" data-i18n="sort.variantAZ">Variant A-Z</option>
+                        <option value="platform" data-i18n="sort.platformAZ">Platform A-Z</option>
+                        <option value="-created_at" data-i18n="sort.newest">Newest</option>
+                        <option value="created_at" data-i18n="sort.oldest">Oldest</option>
                       </select>
                     </label>
                   </div>
@@ -347,14 +347,14 @@
                 <div class="query-tools">
                   <label data-i18n-label="listings.search">Search<input id="mappingSourceFilter" placeholder="source category" /></label>
                   <div class="tool-grid">
-                    <label data-i18n-label="label.platform">Platform<select id="mappingPlatformFilter"><option value="">All platforms</option></select></label>
+                    <label data-i18n-label="label.platform">Platform<select id="mappingPlatformFilter"><option value="" data-i18n="filters.allPlatforms">All platforms</option></select></label>
                     <label data-i18n-label="label.sort">Sort
                       <select id="mappingSort">
-                        <option value="source_category">Source A-Z</option>
-                        <option value="-source_category">Source Z-A</option>
-                        <option value="platform">Platform A-Z</option>
-                        <option value="platform_category">Target A-Z</option>
-                        <option value="-created_at">Newest</option>
+                        <option value="source_category" data-i18n="sort.sourceAZ">Source A-Z</option>
+                        <option value="-source_category" data-i18n="sort.sourceZA">Source Z-A</option>
+                        <option value="platform" data-i18n="sort.platformAZ">Platform A-Z</option>
+                        <option value="platform_category" data-i18n="sort.targetAZ">Target A-Z</option>
+                        <option value="-created_at" data-i18n="sort.newest">Newest</option>
                       </select>
                     </label>
                   </div>
@@ -416,7 +416,7 @@
                 <form id="templateForm">
                   <label data-i18n-label="templates.name">Name<input id="templateName" required /></label>
                   <label data-i18n-label="templates.variant">Variant<input id="templateVariant" value="default" required /></label>
-                  <label data-i18n-label="label.platform">Platform<select id="templatePlatform"><option value="">All platforms</option></select></label>
+                  <label data-i18n-label="label.platform">Platform<select id="templatePlatform"><option value="" data-i18n="filters.allPlatforms">All platforms</option></select></label>
                   <label data-i18n-label="templates.body">Body<textarea id="templateBody" rows="8" required></textarea></label>
                   <div class="row compact-actions">
                     <button type="submit" data-i18n="templates.save">Save template</button>

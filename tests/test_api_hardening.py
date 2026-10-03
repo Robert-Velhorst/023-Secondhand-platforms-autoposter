@@ -117,7 +117,7 @@ def test_localization_metadata_is_public_and_explicit_about_catalog_status():
     assert payload["fallback_locale"] == "en"
     assert payload["ui_catalog_status"] == "frontend_catalog_with_english_fallback"
     assert {locale["code"] for locale in payload["supported_locales"]} >= {"en", "nl"}
-    assert any(locale["code"] == "nl" and locale["complete"] is True for locale in payload["supported_locales"])
+    assert any(locale["code"] == "nl" and locale["complete"] is False for locale in payload["supported_locales"])
 
 
 def test_listings_support_pagination_filtering_and_sorting():

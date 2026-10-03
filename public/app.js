@@ -99,6 +99,113 @@ const COPY_CATALOG = {
     "nav.language": "Language",
     "status.checking": "Checking",
     "status.offline": "Offline",
+    "status.draft": "Draft",
+    "status.ready": "Ready",
+    "status.published": "Published",
+    "status.archived": "Archived",
+    "status.queued": "Queued",
+    "status.processing": "Processing",
+    "status.needsUserAction": "Needs action",
+    "status.completed": "Completed",
+    "status.failed": "Failed",
+    "status.needsSetup": "Needs setup",
+    "status.needsTokenExchange": "Needs token exchange",
+    "status.connected": "Connected",
+    "status.disabled": "Disabled",
+    "status.skipped": "Skipped",
+    "status.validated": "Validated",
+    "status.manual": "Manual",
+    "status.assisted": "Assisted",
+    "status.critical": "Critical",
+    "status.warning": "Warning",
+    "status.tip": "Tip",
+    "status.good": "Good",
+    "status.fair": "Fair",
+    "status.needsWork": "Needs work",
+    "status.blocked": "Blocked",
+    "status.ok": "OK",
+    "status.error": "Error",
+    "status.paused": "Paused",
+    "filters.all": "All",
+    "filters.allStatuses": "All statuses",
+    "filters.allPlatforms": "All platforms",
+    "sort.newestUpdated": "Newest updated",
+    "sort.oldestUpdated": "Oldest updated",
+    "sort.titleAZ": "Title A-Z",
+    "sort.highestPrice": "Highest price",
+    "sort.lowestPrice": "Lowest price",
+    "sort.newest": "Newest",
+    "sort.oldest": "Oldest",
+    "sort.platformAZ": "Platform A-Z",
+    "sort.statusAZ": "Status A-Z",
+    "sort.recentlyFinished": "Recently finished",
+    "sort.nameAZ": "Name A-Z",
+    "sort.nameZA": "Name Z-A",
+    "sort.variantAZ": "Variant A-Z",
+    "sort.sourceAZ": "Source A-Z",
+    "sort.sourceZA": "Source Z-A",
+    "sort.targetAZ": "Target A-Z",
+    "condition.new": "New",
+    "condition.asNew": "As new",
+    "condition.good": "Good",
+    "condition.used": "Used",
+    "condition.fair": "Fair",
+    "condition.damaged": "Damaged",
+    "condition.forParts": "For parts",
+    "condition.other": "Other",
+    "action.edit": "Edit",
+    "action.fix": "Fix",
+    "action.copy": "Copy",
+    "action.done": "Done",
+    "action.open": "Open",
+    "action.copyPackage": "Copy package",
+    "templates.choose": "Choose template",
+    "templates.noSaved": "No templates saved.",
+    "mappings.noSaved": "No category mappings saved.",
+    "dashboard.noListings": "No listings yet.",
+    "dashboard.noJobs": "No jobs yet.",
+    "dashboard.loadingActions": "Loading next actions...",
+    "dashboard.noOutstandingActions": "No outstanding actions.",
+    "dashboard.noData": "No data",
+    "dashboard.noRecurringFixes": "No recurring fixes",
+    "dashboard.noInsights": "No insights yet.",
+    "dashboard.quality": "Quality",
+    "dashboard.inventoryValue": "Inventory value",
+    "dashboard.averagePrice": "Avg price",
+    "dashboard.missingImages": "Missing images",
+    "dashboard.qualityGrades": "Quality grades",
+    "dashboard.selectedPlatforms": "Selected platforms",
+    "dashboard.jobOutcomes": "Job outcomes",
+    "dashboard.commonFixes": "Common fixes",
+    "dashboard.stepCreateListing": "Create your first reusable listing",
+    "dashboard.stepAddImage": "Add at least one item image",
+    "dashboard.stepSelectPlatform": "Select and validate a marketplace",
+    "dashboard.stepQueuePackage": "Queue an assisted posting package",
+    "dashboard.stepRecordCompletion": "Record the final marketplace URL after manual posting",
+    "quality.notChecked": "Not checked",
+    "images.noUploaded": "No images uploaded.",
+    "review.noMappedFields": "No mapped fields returned.",
+    "templates.apply": "Apply template",
+    "listing.untitled": "Untitled listing",
+    "listing.noCategory": "No category",
+    "listing.identifier": "Listing",
+    "listing.attempt": "Attempt",
+    "review.prepublish": "Prepublish review",
+    "review.notChecked": "Not checked",
+    "review.runValidation": "Run validation to build the copy-ready posting package.",
+    "review.openPlatform": "Open platform",
+    "review.missing": "Missing",
+    "review.requiredPresent": "Required fields are present.",
+    "review.compliance": "Compliance",
+    "review.platformDescription": "Platform description variant",
+    "platform.readyForValidation": "Ready for validation",
+    "platform.preparedFields": "prepared fields",
+    "platform.manualSubmit": "manual submit",
+    "platform.apiSubmit": "API submission",
+    "platform.apiCandidate": "API candidate",
+    "empty.assistedPackages": "No assisted packages queued.",
+    "empty.platformAccounts": "No platform accounts.",
+    "templates.default": "default",
     "action.newListing": "New listing",
     "action.refresh": "Refresh",
     "action.previous": "Previous",
@@ -156,6 +263,10 @@ const COPY_CATALOG = {
     "queue.title": "Assisted package queue",
     "queue.liveOn": "Live refresh on",
     "queue.pause": "Pause live refresh",
+    "queue.resume": "Resume live refresh",
+    "queue.livePaused": "Live refresh paused",
+    "queue.updated": "Updated",
+    "queue.waiting": "Waiting for first refresh",
     "queue.manualCompletion": "Confirm manual completion",
     "queue.platformUrl": "Marketplace listing URL",
     "queue.platformListingId": "Marketplace listing ID",
@@ -215,6 +326,113 @@ const COPY_CATALOG = {
     "nav.language": "Taal",
     "status.checking": "Controleren",
     "status.offline": "Offline",
+    "status.draft": "Concept",
+    "status.ready": "Klaar",
+    "status.published": "Gepubliceerd",
+    "status.archived": "Gearchiveerd",
+    "status.queued": "In wachtrij",
+    "status.processing": "Wordt verwerkt",
+    "status.needsUserAction": "Actie nodig",
+    "status.completed": "Voltooid",
+    "status.failed": "Mislukt",
+    "status.needsSetup": "Inrichting nodig",
+    "status.needsTokenExchange": "Tokenuitwisseling nodig",
+    "status.connected": "Verbonden",
+    "status.disabled": "Uitgeschakeld",
+    "status.skipped": "Overgeslagen",
+    "status.validated": "Gevalideerd",
+    "status.manual": "Handmatig",
+    "status.assisted": "Met assistentie",
+    "status.critical": "Kritiek",
+    "status.warning": "Waarschuwing",
+    "status.tip": "Tip",
+    "status.good": "Goed",
+    "status.fair": "Redelijk",
+    "status.needsWork": "Verbetering nodig",
+    "status.blocked": "Geblokkeerd",
+    "status.ok": "In orde",
+    "status.error": "Fout",
+    "status.paused": "Gepauzeerd",
+    "filters.all": "Alle",
+    "filters.allStatuses": "Alle statussen",
+    "filters.allPlatforms": "Alle platforms",
+    "sort.newestUpdated": "Nieuwst bijgewerkt",
+    "sort.oldestUpdated": "Oudst bijgewerkt",
+    "sort.titleAZ": "Titel A-Z",
+    "sort.highestPrice": "Hoogste prijs",
+    "sort.lowestPrice": "Laagste prijs",
+    "sort.newest": "Nieuwste",
+    "sort.oldest": "Oudste",
+    "sort.platformAZ": "Platform A-Z",
+    "sort.statusAZ": "Status A-Z",
+    "sort.recentlyFinished": "Onlangs afgerond",
+    "sort.nameAZ": "Naam A-Z",
+    "sort.nameZA": "Naam Z-A",
+    "sort.variantAZ": "Variant A-Z",
+    "sort.sourceAZ": "Bron A-Z",
+    "sort.sourceZA": "Bron Z-A",
+    "sort.targetAZ": "Doel A-Z",
+    "condition.new": "Nieuw",
+    "condition.asNew": "Als nieuw",
+    "condition.good": "Goed",
+    "condition.used": "Gebruikt",
+    "condition.fair": "Redelijk",
+    "condition.damaged": "Beschadigd",
+    "condition.forParts": "Voor onderdelen",
+    "condition.other": "Anders",
+    "action.edit": "Bewerken",
+    "action.fix": "Herstellen",
+    "action.copy": "Kopiëren",
+    "action.done": "Klaar",
+    "action.open": "Openen",
+    "action.copyPackage": "Pakket kopiëren",
+    "templates.choose": "Sjabloon kiezen",
+    "templates.noSaved": "Geen sjablonen opgeslagen.",
+    "mappings.noSaved": "Geen categoriemappings opgeslagen.",
+    "dashboard.noListings": "Nog geen advertenties.",
+    "dashboard.noJobs": "Nog geen taken.",
+    "dashboard.loadingActions": "Volgende acties laden...",
+    "dashboard.noOutstandingActions": "Geen openstaande acties.",
+    "dashboard.noData": "Geen gegevens",
+    "dashboard.noRecurringFixes": "Geen terugkerende verbeterpunten",
+    "dashboard.noInsights": "Nog geen inzichten.",
+    "dashboard.quality": "Kwaliteit",
+    "dashboard.inventoryValue": "Voorraadwaarde",
+    "dashboard.averagePrice": "Gemiddelde prijs",
+    "dashboard.missingImages": "Ontbrekende afbeeldingen",
+    "dashboard.qualityGrades": "Kwaliteitsniveaus",
+    "dashboard.selectedPlatforms": "Geselecteerde platforms",
+    "dashboard.jobOutcomes": "Taakresultaten",
+    "dashboard.commonFixes": "Veelvoorkomende verbeterpunten",
+    "dashboard.stepCreateListing": "Maak je eerste herbruikbare advertentie",
+    "dashboard.stepAddImage": "Voeg minstens één productafbeelding toe",
+    "dashboard.stepSelectPlatform": "Selecteer een platform en controleer de advertentie",
+    "dashboard.stepQueuePackage": "Zet een assistentiepakket in de wachtrij",
+    "dashboard.stepRecordCompletion": "Leg na handmatig plaatsen de definitieve marketplace-URL vast",
+    "quality.notChecked": "Niet gecontroleerd",
+    "images.noUploaded": "Geen afbeeldingen geüpload.",
+    "review.noMappedFields": "Er zijn geen gekoppelde velden teruggekomen.",
+    "templates.apply": "Sjabloon toepassen",
+    "listing.untitled": "Advertentie zonder titel",
+    "listing.noCategory": "Geen categorie",
+    "listing.identifier": "Advertentie",
+    "listing.attempt": "Poging",
+    "review.prepublish": "Controle vóór plaatsen",
+    "review.notChecked": "Niet gecontroleerd",
+    "review.runValidation": "Valideer om het pakket met plaatsingsgegevens op te bouwen.",
+    "review.openPlatform": "Platform openen",
+    "review.missing": "Ontbreekt",
+    "review.requiredPresent": "Alle verplichte velden zijn ingevuld.",
+    "review.compliance": "Naleving",
+    "review.platformDescription": "Beschrijving voor dit platform",
+    "platform.readyForValidation": "Klaar voor controle",
+    "platform.preparedFields": "velden voorbereid",
+    "platform.manualSubmit": "Handmatige indiening",
+    "platform.apiSubmit": "API-indiening",
+    "platform.apiCandidate": "API-kandidaat",
+    "empty.assistedPackages": "Er staan geen assistentiepakketten in de wachtrij.",
+    "empty.platformAccounts": "Geen platformaccounts.",
+    "templates.default": "standaard",
     "action.newListing": "Nieuwe advertentie",
     "action.refresh": "Vernieuwen",
     "action.previous": "Vorige",
@@ -272,6 +490,10 @@ const COPY_CATALOG = {
     "queue.title": "Wachtrij voor assistentiepakketten",
     "queue.liveOn": "Live verversen aan",
     "queue.pause": "Live verversen pauzeren",
+    "queue.resume": "Live verversen hervatten",
+    "queue.livePaused": "Live verversen gepauzeerd",
+    "queue.updated": "Bijgewerkt",
+    "queue.waiting": "Wacht op de eerste verversing",
     "queue.manualCompletion": "Handmatige voltooiing bevestigen",
     "queue.platformUrl": "Marketplace-advertentie URL",
     "queue.platformListingId": "Marketplace-advertentie ID",
@@ -321,6 +543,83 @@ let mappingSearchTimer = null;
 
 function t(key) {
   return COPY_CATALOG[state.locale]?.[key] || COPY_CATALOG.en[key] || key;
+}
+
+const STATUS_COPY_KEYS = {
+  draft: "status.draft",
+  ready: "status.ready",
+  published: "status.published",
+  archived: "status.archived",
+  queued: "status.queued",
+  processing: "status.processing",
+  needs_user_action: "status.needsUserAction",
+  completed: "status.completed",
+  failed: "status.failed",
+  needs_setup: "status.needsSetup",
+  needs_token_exchange: "status.needsTokenExchange",
+  connected: "status.connected",
+  disabled: "status.disabled",
+  skipped: "status.skipped",
+  validated: "status.validated",
+  manual: "status.manual",
+  assisted: "status.assisted",
+  critical: "status.critical",
+  warning: "status.warning",
+  tip: "status.tip",
+  good: "status.good",
+  fair: "status.fair",
+  needs_work: "status.needsWork",
+  blocked: "status.blocked",
+  ok: "status.ok",
+  error: "status.error",
+  paused: "status.paused",
+};
+
+const FIELD_COPY_KEYS = {
+  title: "label.title",
+  description: "label.description",
+  price: "label.price",
+  price_cents: "label.price",
+  condition: "label.condition",
+  category: "label.category",
+  location: "label.location",
+  tags: "label.tags",
+  brand: "label.brand",
+  model: "label.model",
+  color: "label.color",
+  material: "label.material",
+  category_attributes: "label.categoryAttributes",
+  weight_grams: "label.weightGrams",
+  shipping_cost_cents: "label.shippingCost",
+  pickup_allowed: "label.pickup",
+  shipping_allowed: "label.shipping",
+  delivery_options: "label.deliveryOptions",
+  dimensions: "label.dimensions",
+  notes: "label.notes",
+  internal_notes: "label.internalNotes",
+  images: "images.title",
+  image_filenames: "images.title",
+  status: "label.status",
+};
+
+const ONBOARDING_STEP_COPY_KEYS = {
+  "create-listing": "dashboard.stepCreateListing",
+  "add-image": "dashboard.stepAddImage",
+  "select-platform": "dashboard.stepSelectPlatform",
+  "queue-package": "dashboard.stepQueuePackage",
+  "record-completion": "dashboard.stepRecordCompletion",
+};
+
+function localizedFieldLabel(value) {
+  const raw = String(value || "");
+  const key = FIELD_COPY_KEYS[raw.toLowerCase()];
+  return key ? t(key) : raw.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function localizedStatus(status) {
+  const value = String(status || "");
+  const key = STATUS_COPY_KEYS[value.toLowerCase()];
+  return key ? t(key) : formatFieldLabel(value);
 }
 
 function applyTranslations() {
@@ -701,11 +1000,11 @@ function renderJobPollingStatus() {
   const toggle = $("#jobPollingToggle");
   const status = $("#jobPollingStatus");
   if (!toggle || !status) return;
-  toggle.textContent = state.jobPolling.enabled ? "Pause live refresh" : "Resume live refresh";
+  toggle.textContent = t(state.jobPolling.enabled ? "queue.pause" : "queue.resume");
   const updated = state.jobPolling.lastUpdatedAt
-    ? `Updated ${state.jobPolling.lastUpdatedAt.toLocaleTimeString()}`
-    : "Waiting for first refresh";
-  status.textContent = state.jobPolling.enabled ? `Live refresh on - ${updated}` : "Live refresh paused";
+    ? `${t("queue.updated")} ${state.jobPolling.lastUpdatedAt.toLocaleTimeString(state.locale)}`
+    : t("queue.waiting");
+  status.textContent = state.jobPolling.enabled ? `${t("queue.liveOn")} - ${updated}` : t("queue.livePaused");
 }
 
 function render() {
@@ -724,68 +1023,68 @@ function renderDashboard() {
   $("#metricFailed").textContent = summary.failed_jobs || 0;
   renderAnalytics();
   renderActionCenter();
-  $("#recentListings").innerHTML = state.recentListings.map(listingItemHtml).join("") || `<p class="muted">No listings yet.</p>`;
-  $("#latestJobs").innerHTML = state.latestJobs.map(jobItemHtml).join("") || `<p class="muted">No jobs yet.</p>`;
+  $("#recentListings").innerHTML = state.recentListings.map(listingItemHtml).join("") || `<p class="muted">${escapeHtml(t("dashboard.noListings"))}</p>`;
+  $("#latestJobs").innerHTML = state.latestJobs.map(jobItemHtml).join("") || `<p class="muted">${escapeHtml(t("dashboard.noJobs"))}</p>`;
 }
 
 function renderActionCenter() {
   const center = state.actionCenter;
   if (!center) {
-    $("#onboardingSteps").innerHTML = `<p class="muted">Loading next actions...</p>`;
+    $("#onboardingSteps").innerHTML = `<p class="muted">${escapeHtml(t("dashboard.loadingActions"))}</p>`;
     $("#actionCenterList").innerHTML = "";
     return;
   }
   $("#onboardingSteps").innerHTML = (center.onboarding_steps || []).map((step) => `
     <button type="button" class="onboarding-step ${step.complete ? "complete" : ""}" data-action-view="${escapeHtml(step.target_view)}">
-      <span aria-hidden="true">${step.complete ? "Done" : "Next"}</span>
-      <span>${escapeHtml(step.label)}</span>
+      <span aria-hidden="true">${escapeHtml(t(step.complete ? "action.done" : "action.next"))}</span>
+      <span>${escapeHtml(t(ONBOARDING_STEP_COPY_KEYS[step.id]) || step.label)}</span>
     </button>
   `).join("");
   $("#actionCenterList").innerHTML = (center.reminders || []).map((item) => `
     <article class="action-item ${escapeHtml(item.severity)}">
       <div class="pane-head">
         <strong>${escapeHtml(item.title)}</strong>
-        <span class="${statusClass(item.severity)}">${escapeHtml(item.severity)}</span>
+        <span class="${statusClass(item.severity)}">${escapeHtml(localizedStatus(item.severity))}</span>
       </div>
       <p>${escapeHtml(item.detail)}</p>
       <div class="recovery-row">
         <span>${escapeHtml(item.next_action)}</span>
-        <button type="button" class="ghost" data-action-view="${escapeHtml(item.target_view)}" data-action-resource="${escapeHtml(item.resource_type || "")}" data-action-resource-id="${escapeHtml(item.resource_id || "")}">Open</button>
+        <button type="button" class="ghost" data-action-view="${escapeHtml(item.target_view)}" data-action-resource="${escapeHtml(item.resource_type || "")}" data-action-resource-id="${escapeHtml(item.resource_id || "")}">${escapeHtml(t("action.open"))}</button>
       </div>
     </article>
-  `).join("") || `<p class="muted">No outstanding actions.</p>`;
+  `).join("") || `<p class="muted">${escapeHtml(t("dashboard.noOutstandingActions"))}</p>`;
 }
 
 function renderAnalytics() {
   const analytics = state.analytics;
   if (!analytics) {
-    $("#analyticsSummary").innerHTML = `<p class="muted">No insights yet.</p>`;
+    $("#analyticsSummary").innerHTML = `<p class="muted">${escapeHtml(t("dashboard.noInsights"))}</p>`;
     $("#analyticsDetails").innerHTML = "";
     return;
   }
   const summary = analytics.summary || {};
   const quality = analytics.quality || {};
   $("#analyticsSummary").innerHTML = [
-    analyticsMetricHtml("Quality", `${summary.average_quality_score || 0}/100`),
-    analyticsMetricHtml("Inventory value", money(summary.inventory_value_cents || 0)),
-    analyticsMetricHtml("Avg price", money(summary.average_price_cents || 0)),
-    analyticsMetricHtml("Missing images", quality.listings_missing_images || 0),
+    analyticsMetricHtml(t("dashboard.quality"), `${summary.average_quality_score || 0}/100`),
+    analyticsMetricHtml(t("dashboard.inventoryValue"), money(summary.inventory_value_cents || 0)),
+    analyticsMetricHtml(t("dashboard.averagePrice"), money(summary.average_price_cents || 0)),
+    analyticsMetricHtml(t("dashboard.missingImages"), quality.listings_missing_images || 0),
   ].join("");
   $("#analyticsDetails").innerHTML = `
     <div>
-      <strong>Quality grades</strong>
+      <strong>${escapeHtml(t("dashboard.qualityGrades"))}</strong>
       ${analyticsBarsHtml(quality.grade_counts || {})}
     </div>
     <div>
-      <strong>Selected platforms</strong>
+      <strong>${escapeHtml(t("dashboard.selectedPlatforms"))}</strong>
       ${analyticsBarsHtml(analytics.selected_platforms || {})}
     </div>
     <div>
-      <strong>Job outcomes</strong>
+      <strong>${escapeHtml(t("dashboard.jobOutcomes"))}</strong>
       ${analyticsBarsHtml(analytics.job_statuses || {})}
     </div>
     <div>
-      <strong>Common fixes</strong>
+      <strong>${escapeHtml(t("dashboard.commonFixes"))}</strong>
       ${analyticsIssueListHtml(quality.top_issue_fields || [])}
     </div>
   `;
@@ -802,13 +1101,13 @@ function analyticsMetricHtml(label, value) {
 
 function analyticsBarsHtml(values) {
   const entries = Object.entries(values);
-  if (!entries.length) return `<p class="muted">No data</p>`;
+  if (!entries.length) return `<p class="muted">${escapeHtml(t("dashboard.noData"))}</p>`;
   const max = Math.max(...entries.map(([, count]) => Number(count) || 0), 1);
   return `
     <div class="analytics-bars">
       ${entries.map(([label, count]) => `
         <div class="analytics-bar-row">
-          <span>${escapeHtml(formatFieldLabel(label))}</span>
+          <span>${escapeHtml(localizedStatus(label))}</span>
           <svg viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect width="${Math.max(0, (Number(count) / max) * 100)}" height="8" rx="4"></rect></svg>
           <strong>${Number(count)}</strong>
         </div>
@@ -818,11 +1117,11 @@ function analyticsBarsHtml(values) {
 }
 
 function analyticsIssueListHtml(items) {
-  if (!items.length) return `<p class="muted">No recurring fixes</p>`;
+  if (!items.length) return `<p class="muted">${escapeHtml(t("dashboard.noRecurringFixes"))}</p>`;
   return `
     <div class="analytics-issues">
       ${items.map((item) => `
-        <span>${escapeHtml(formatFieldLabel(item.field))}: ${Number(item.count)}</span>
+        <span>${escapeHtml(localizedFieldLabel(item.field))}: ${Number(item.count)}</span>
       `).join("")}
     </div>
   `;
@@ -831,9 +1130,9 @@ function analyticsIssueListHtml(items) {
 function listingItemHtml(listing) {
   return `
     <article class="list-item ${listing.id === state.selectedListingId ? "selected" : ""}" data-listing-id="${listing.id}">
-      <strong>${escapeHtml(listing.title || "Untitled listing")}</strong>
-      <span class="muted">${escapeHtml(listing.category || "No category")} · ${money(listing.price_cents || 0)}</span>
-      <span class="${statusClass(listing.status)}">${escapeHtml(listing.status)}</span>
+      <strong>${escapeHtml(listing.title || t("listing.untitled"))}</strong>
+      <span class="muted">${escapeHtml(listing.category || t("listing.noCategory"))} · ${money(listing.price_cents || 0)}</span>
+      <span class="${statusClass(listing.status)}">${escapeHtml(localizedStatus(listing.status))}</span>
     </article>
   `;
 }
@@ -843,9 +1142,9 @@ function jobItemHtml(job) {
     <article class="list-item" data-job-id="${job.id}">
       <div class="pane-head">
         <strong>${escapeHtml(job.platform)}</strong>
-        <span class="${statusClass(job.status)}">${escapeHtml(job.status)}</span>
+        <span class="${statusClass(job.status)}">${escapeHtml(localizedStatus(job.status))}</span>
       </div>
-      <span class="muted">Listing #${job.listing_id} · Attempt ${job.attempts}/${job.max_attempts}</span>
+      <span class="muted">${escapeHtml(t("listing.identifier"))} #${job.listing_id} · ${escapeHtml(t("listing.attempt"))} ${job.attempts}/${job.max_attempts}</span>
     </article>
   `;
 }
@@ -859,7 +1158,7 @@ function renderListings() {
   $("#listingPageInfo").textContent = `${start}-${end} of ${state.listingQuery.total}`;
   $("#listingPrevPage").disabled = state.listingQuery.offset === 0;
   $("#listingNextPage").disabled = state.listingQuery.offset + state.listingQuery.limit >= state.listingQuery.total;
-  $("#listingList").innerHTML = state.listings.map(listingItemHtml).join("") || `<p class="muted">No listings yet.</p>`;
+  $("#listingList").innerHTML = state.listings.map(listingItemHtml).join("") || `<p class="muted">${escapeHtml(t("dashboard.noListings"))}</p>`;
   const listing = selectedListing();
   $("#listingEditor").classList.toggle("hidden", !listing);
   if (!listing) return;
@@ -895,7 +1194,7 @@ function renderQualityAssistant() {
   const result = state.qualityResult;
   const panel = $("#qualityAssistant");
   if (!result) {
-    panel.innerHTML = `<p class="muted">Not checked</p>`;
+    panel.innerHTML = `<p class="muted">${escapeHtml(t("quality.notChecked"))}</p>`;
     return;
   }
   const issues = result.issues || [];
@@ -903,7 +1202,7 @@ function renderQualityAssistant() {
   panel.innerHTML = `
     <div class="quality-score">
       <strong>${Number(result.score || 0)}</strong>
-      <span class="${statusClass(result.grade)}">${escapeHtml(formatFieldLabel(result.grade))}</span>
+        <span class="${statusClass(result.grade)}">${escapeHtml(localizedStatus(result.grade))}</span>
       <p>${escapeHtml(result.summary)}</p>
       <small class="muted">Provider: ${escapeHtml(result.provider)} · deterministic · no external data sent</small>
     </div>
@@ -998,12 +1297,12 @@ function qualityIssueHtml(issue) {
     <article class="quality-item">
       <div class="pane-head">
         <strong>${escapeHtml(formatFieldLabel(issue.field))}</strong>
-        <span class="${statusClass(issue.severity)}">${escapeHtml(issue.severity)}</span>
+        <span class="${statusClass(issue.severity)}">${escapeHtml(localizedStatus(issue.severity))}</span>
       </div>
       <p>${escapeHtml(issue.message)}</p>
       <div class="recovery-row">
         <span>${escapeHtml(issue.action)}</span>
-        <button type="button" class="ghost" data-focus-quality="${escapeHtml(issue.field)}">Fix</button>
+        <button type="button" class="ghost" data-focus-quality="${escapeHtml(issue.field)}">${escapeHtml(t("action.fix"))}</button>
       </div>
     </article>
   `;
@@ -1028,7 +1327,7 @@ function renderListingTemplateOptions() {
     const variant = template.variant && template.variant !== "default" ? ` - ${template.variant}` : "";
     return `<option value="${template.id}">${escapeHtml(template.name)}${escapeHtml(variant)}${escapeHtml(platform)}</option>`;
   }).join("");
-  $("#listingTemplateSelect").innerHTML = `<option value="">Choose template</option>${options}`;
+  $("#listingTemplateSelect").innerHTML = `<option value="">${escapeHtml(t("templates.choose"))}</option>${options}`;
 }
 
 function renderImages(listing) {
@@ -1047,7 +1346,7 @@ function renderImages(listing) {
         <button class="ghost" data-delete-image="${image.id}">Delete</button>
       </div>
     </article>
-  `).join("") || `<p class="muted">No images uploaded.</p>`;
+  `).join("") || `<p class="muted">${escapeHtml(t("images.noUploaded"))}</p>`;
   void hydrateListingImages(listing, generation);
 }
 
@@ -1076,20 +1375,20 @@ function renderPlatforms(listing) {
     const mapping = mappings.get(platform.key);
     const checked = state.selectedPlatforms.has(platform.key) ? "checked" : "";
     const override = mapping?.overrides?.description || "";
-    const errors = mapping?.validation_errors?.length ? `Missing: ${mapping.validation_errors.join(", ")}` : "Ready for validation";
+    const errors = mapping?.validation_errors?.length ? `${t("review.missing")}: ${mapping.validation_errors.join(", ")}` : t("platform.readyForValidation");
     const capabilities = platform.capabilities || {};
     const complianceNotes = platform.compliance_notes || [];
     return `
       <article class="platform-card">
         <label><input type="checkbox" data-platform="${platform.key}" ${checked} /> ${escapeHtml(platform.name)}</label>
-        <span class="${statusClass(mapping?.status || "draft")}">${escapeHtml(mapping?.status || platform.automation_mode)}</span>
+        <span class="${statusClass(mapping?.status || "draft")}">${escapeHtml(localizedStatus(mapping?.status || platform.automation_mode))}</span>
         <div class="capability-strip">
-          ${capabilityChipHtml(`${(capabilities.prepared_fields || []).length} prepared fields`)}
-          ${capabilityChipHtml(capabilities.requires_user_final_submission ? "manual submit" : "API submit")}
-          ${capabilities.official_api_candidate ? capabilityChipHtml("API candidate") : ""}
+          ${capabilityChipHtml(`${(capabilities.prepared_fields || []).length} ${t("platform.preparedFields")}`)}
+          ${capabilityChipHtml(t(capabilities.requires_user_final_submission ? "platform.manualSubmit" : "platform.apiSubmit"))}
+          ${capabilities.official_api_candidate ? capabilityChipHtml(t("platform.apiCandidate")) : ""}
         </div>
         ${complianceNotesHtml(complianceNotes)}
-        <textarea data-platform-description="${platform.key}" placeholder="Platform description variant">${escapeHtml(override)}</textarea>
+        <textarea data-platform-description="${platform.key}" placeholder="${escapeHtml(t("review.platformDescription"))}">${escapeHtml(override)}</textarea>
         <small class="muted">${escapeHtml(errors)}</small>
       </article>
     `;
@@ -1105,7 +1404,7 @@ function complianceNotesHtml(notes) {
   if (!notes?.length) return "";
   return `
     <div class="compliance-panel">
-      <strong>Compliance</strong>
+      <strong>${escapeHtml(t("review.compliance"))}</strong>
       <ul>${notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>
     </div>
   `;
@@ -1125,7 +1424,7 @@ function renderPrepublishReview(listing) {
   review.classList.remove("hidden");
   review.innerHTML = `
     <div class="pane-head">
-      <h3>Prepublish review</h3>
+      <h3>${escapeHtml(t("review.prepublish"))}</h3>
       <span class="muted">Listing #${listing.id} - revision ${listing.revision || 1}</span>
     </div>
     <div class="review-grid">
@@ -1143,10 +1442,10 @@ function reviewCardHtml(platformKey) {
       <article class="review-card">
         <div class="pane-head">
           <strong>${escapeHtml(platform.name)}</strong>
-          <span class="status">not checked</span>
+          <span class="status">${escapeHtml(t("review.notChecked"))}</span>
         </div>
-        <p class="muted">Run validation to build the copy-ready posting package.</p>
-        ${platform.posting_url ? `<a href="${escapeHtml(platform.posting_url)}" target="_blank" rel="noreferrer">Open platform</a>` : ""}
+        <p class="muted">${escapeHtml(t("review.runValidation"))}</p>
+        ${platform.posting_url ? `<a href="${escapeHtml(platform.posting_url)}" target="_blank" rel="noreferrer">${escapeHtml(t("review.openPlatform"))}</a>` : ""}
         ${complianceNotesHtml(notes)}
       </article>
     `;
@@ -1159,19 +1458,19 @@ function reviewCardHtml(platformKey) {
     <article class="review-card">
       <div class="pane-head">
         <strong>${escapeHtml(platform.name)}</strong>
-        <span class="${statusClass(validation.ready ? "ready" : "needs_user_action")}">${validation.ready ? "ready" : "needs action"}</span>
+        <span class="${statusClass(validation.ready ? "ready" : "needs_user_action")}">${escapeHtml(t(validation.ready ? "status.ready" : "status.needsUserAction"))}</span>
       </div>
-      ${platform.posting_url ? `<a href="${escapeHtml(platform.posting_url)}" target="_blank" rel="noreferrer">Open platform</a>` : ""}
+      ${platform.posting_url ? `<a href="${escapeHtml(platform.posting_url)}" target="_blank" rel="noreferrer">${escapeHtml(t("review.openPlatform"))}</a>` : ""}
       ${missing.length ? `
-        <p class="review-alert">Missing: ${escapeHtml(missing.join(", "))}</p>
+        <p class="review-alert">${escapeHtml(t("review.missing"))}: ${escapeHtml(missing.join(", "))}</p>
         <div class="recovery-list">
           ${missing.map((field) => missingFieldRecoveryHtml(field)).join("")}
         </div>
-      ` : `<p class="muted">Required fields are present.</p>`}
+      ` : `<p class="muted">${escapeHtml(t("review.requiredPresent"))}</p>`}
       ${warnings.length ? `<ul class="review-notes">${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>` : ""}
       ${complianceNotesHtml(notes)}
       <div class="review-actions">
-        <button type="button" class="ghost" data-copy-package="${platformKey}">Copy package</button>
+        <button type="button" class="ghost" data-copy-package="${platformKey}">${escapeHtml(t("action.copyPackage"))}</button>
       </div>
       <div class="field-list">
         ${fields.map(([field, value]) => `
@@ -1180,16 +1479,16 @@ function reviewCardHtml(platformKey) {
               <strong>${escapeHtml(formatFieldLabel(field))}</strong>
               <span>${escapeHtml(formatFieldValue(value))}</span>
             </div>
-            <button type="button" class="ghost" data-copy-field="${platformKey}" data-copy-name="${escapeHtml(field)}">Copy</button>
+            <button type="button" class="ghost" data-copy-field="${platformKey}" data-copy-name="${escapeHtml(field)}">${escapeHtml(t("action.copy"))}</button>
           </div>
-        `).join("") || `<p class="muted">No mapped fields returned.</p>`}
+        `).join("") || `<p class="muted">${escapeHtml(t("review.noMappedFields"))}</p>`}
       </div>
     </article>
   `;
 }
 
 function formatFieldLabel(value) {
-  return String(value).replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return localizedFieldLabel(value);
 }
 
 function formatFieldValue(value) {
@@ -1210,7 +1509,7 @@ function missingFieldRecoveryHtml(field) {
   return `
     <div class="recovery-row">
       <span>${escapeHtml(missingFieldHint(field))}</span>
-      <button type="button" class="ghost" data-focus-missing="${escapeHtml(field)}">Fix</button>
+      <button type="button" class="ghost" data-focus-missing="${escapeHtml(field)}">${escapeHtml(t("action.fix"))}</button>
     </div>
   `;
 }
@@ -1300,7 +1599,7 @@ async function copyText(text) {
 
 function renderJobs() {
   const platformOptions = state.platforms.map((platform) => `<option value="${platform.key}">${escapeHtml(platform.name)}</option>`).join("");
-  $("#jobPlatformFilter").innerHTML = `<option value="">All platforms</option>${platformOptions}`;
+  $("#jobPlatformFilter").innerHTML = `<option value="">${escapeHtml(t("filters.allPlatforms"))}</option>${platformOptions}`;
   $("#jobPlatformFilter").value = state.jobQuery.platform;
   $("#jobStatusFilter").value = state.jobQuery.status;
   $("#jobSort").value = state.jobQuery.sort;
@@ -1309,15 +1608,15 @@ function renderJobs() {
   $("#jobPageInfo").textContent = `${start}-${end} of ${state.jobQuery.total}`;
   $("#jobPrevPage").disabled = state.jobQuery.offset === 0;
   $("#jobNextPage").disabled = state.jobQuery.offset + state.jobQuery.limit >= state.jobQuery.total;
-  $("#jobList").innerHTML = state.jobs.map(jobItemHtml).join("") || `<p class="muted">No assisted packages queued.</p>`;
+  $("#jobList").innerHTML = state.jobs.map(jobItemHtml).join("") || `<p class="muted">${escapeHtml(t("empty.assistedPackages"))}</p>`;
 }
 
 function renderAccounts() {
   const platformOptions = state.platforms.map((platform) => `<option value="${platform.key}">${escapeHtml(platform.name)}</option>`).join("");
   $("#accountPlatform").innerHTML = platformOptions;
-  $("#templatePlatform").innerHTML = `<option value="">All platforms</option>${platformOptions}`;
+  $("#templatePlatform").innerHTML = `<option value="">${escapeHtml(t("filters.allPlatforms"))}</option>${platformOptions}`;
   $("#mappingPlatform").innerHTML = platformOptions;
-  $("#accountPlatformFilter").innerHTML = `<option value="">All platforms</option>${platformOptions}`;
+  $("#accountPlatformFilter").innerHTML = `<option value="">${escapeHtml(t("filters.allPlatforms"))}</option>${platformOptions}`;
   $("#accountPlatformFilter").value = state.accountQuery.platform;
   $("#accountStatusFilter").value = state.accountQuery.status;
   $("#accountSort").value = state.accountQuery.sort;
@@ -1331,19 +1630,19 @@ function renderAccounts() {
       <div class="pane-head">
         <strong>${escapeHtml(account.display_name)}</strong>
         <div class="row compact-actions">
-          <button class="ghost" data-edit-account="${account.id}">Edit</button>
-          <button class="ghost" data-delete-account="${account.id}">Delete</button>
+          <button class="ghost" data-edit-account="${account.id}">${escapeHtml(t("action.edit"))}</button>
+          <button class="ghost" data-delete-account="${account.id}">${escapeHtml(t("action.delete"))}</button>
         </div>
       </div>
-      <span class="muted">${escapeHtml(account.platform)} · ${escapeHtml(account.mode)}</span>
-      <span class="${statusClass(account.status)}">${escapeHtml(account.status)}</span>
+      <span class="muted">${escapeHtml(account.platform)} · ${escapeHtml(localizedStatus(account.mode))}</span>
+      <span class="${statusClass(account.status)}">${escapeHtml(localizedStatus(account.status))}</span>
     </article>
-  `).join("") || `<p class="muted">No platform accounts.</p>`;
+  `).join("") || `<p class="muted">${escapeHtml(t("empty.platformAccounts"))}</p>`;
 }
 
 function renderSettings() {
   const platformOptions = state.platforms.map((platform) => `<option value="${platform.key}">${escapeHtml(platform.name)}</option>`).join("");
-  $("#templatePlatformFilter").innerHTML = `<option value="">All platforms</option>${platformOptions}`;
+  $("#templatePlatformFilter").innerHTML = `<option value="">${escapeHtml(t("filters.allPlatforms"))}</option>${platformOptions}`;
   $("#templatePlatformFilter").value = state.templateQuery.platform;
   $("#templateVariantFilter").value = state.templateQuery.variant;
   $("#templateSearch").value = state.templateQuery.search;
@@ -1354,7 +1653,7 @@ function renderSettings() {
   $("#templatePrevPage").disabled = state.templateQuery.offset === 0;
   $("#templateNextPage").disabled = state.templateQuery.offset + state.templateQuery.limit >= state.templateQuery.total;
 
-  $("#mappingPlatformFilter").innerHTML = `<option value="">All platforms</option>${platformOptions}`;
+  $("#mappingPlatformFilter").innerHTML = `<option value="">${escapeHtml(t("filters.allPlatforms"))}</option>${platformOptions}`;
   $("#mappingPlatformFilter").value = state.mappingQuery.platform;
   $("#mappingSourceFilter").value = state.mappingQuery.sourceCategory;
   $("#mappingSort").value = state.mappingQuery.sort;
@@ -1369,26 +1668,26 @@ function renderSettings() {
       <div class="pane-head">
         <strong>${escapeHtml(template.name)}</strong>
         <div class="row compact-actions">
-          <button class="ghost" data-edit-template="${template.id}">Edit</button>
-          <button class="ghost" data-delete-template="${template.id}">Delete</button>
+          <button class="ghost" data-edit-template="${template.id}">${escapeHtml(t("action.edit"))}</button>
+          <button class="ghost" data-delete-template="${template.id}">${escapeHtml(t("action.delete"))}</button>
         </div>
       </div>
-      <span class="muted">${escapeHtml(template.variant || "default")} - ${escapeHtml(template.platform || "All platforms")}</span>
+      <span class="muted">${escapeHtml(template.variant || t("templates.default"))} - ${escapeHtml(template.platform || t("filters.allPlatforms"))}</span>
       <p>${escapeHtml(template.body.slice(0, 160))}</p>
     </article>
-  `).join("") || `<p class="muted">No templates saved.</p>`;
+  `).join("") || `<p class="muted">${escapeHtml(t("templates.noSaved"))}</p>`;
   $("#categoryMappingList").innerHTML = state.categoryMappings.map((mapping) => `
     <article class="list-item">
       <div class="pane-head">
         <strong>${escapeHtml(mapping.source_category)}</strong>
         <div class="row compact-actions">
-          <button class="ghost" data-edit-category-mapping="${mapping.id}">Edit</button>
-          <button class="ghost" data-delete-category-mapping="${mapping.id}">Delete</button>
+          <button class="ghost" data-edit-category-mapping="${mapping.id}">${escapeHtml(t("action.edit"))}</button>
+          <button class="ghost" data-delete-category-mapping="${mapping.id}">${escapeHtml(t("action.delete"))}</button>
         </div>
       </div>
       <span class="muted">${escapeHtml(mapping.platform)} -> ${escapeHtml(mapping.platform_category)}</span>
     </article>
-  `).join("") || `<p class="muted">No category mappings saved.</p>`;
+  `).join("") || `<p class="muted">${escapeHtml(t("mappings.noSaved"))}</p>`;
 
   $("#auditEventList").innerHTML = state.auditEvents.map((event) => `
     <article class="list-item">
@@ -1432,8 +1731,8 @@ function renderDiagnostics(result) {
   $("#diagnosticsOutput").classList.remove("muted");
   $("#diagnosticsOutput").innerHTML = `
     <div class="pane-head">
-      <strong>Status: ${escapeHtml(result.status)}</strong>
-      <span class="${statusClass(result.status)}">${escapeHtml(result.doctor?.status || result.status)}</span>
+      <strong>${escapeHtml(t("label.status"))}: ${escapeHtml(localizedStatus(result.status))}</strong>
+      <span class="${statusClass(result.status)}">${escapeHtml(localizedStatus(result.doctor?.status || result.status))}</span>
     </div>
     <p class="muted">${Number(result.listings || 0)} listings · ${Number(result.jobs || 0)} jobs · ${(result.platforms || []).length} platforms</p>
     <div class="diagnostic-checks">
@@ -1441,7 +1740,7 @@ function renderDiagnostics(result) {
         <article class="diagnostic-check">
           <div class="pane-head">
             <strong>${escapeHtml(check.name)}</strong>
-            <span class="${statusClass(check.status)}">${escapeHtml(check.status)}</span>
+            <span class="${statusClass(check.status)}">${escapeHtml(localizedStatus(check.status))}</span>
           </div>
           <p>${escapeHtml(check.message)}</p>
         </article>
@@ -2051,7 +2350,7 @@ $("#jobList").addEventListener("click", (event) => {
       <h3>${escapeHtml(job.platform)} job #${job.id}</h3>
       <button class="ghost" id="retryJobButton">Retry</button>
     </div>
-    <p><span class="${statusClass(job.status)}">${escapeHtml(job.status)}</span></p>
+    <p><span class="${statusClass(job.status)}">${escapeHtml(localizedStatus(job.status))}</span></p>
     <p class="muted">${escapeHtml(job.error_message || job.result?.posting_url || "")}</p>
     <p class="retry-guidance">${escapeHtml(jobRetryGuidance(job))}</p>
     ${manualCompletionHtml(job)}
