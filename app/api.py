@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
+from starlette.background import BackgroundTask
 
 from app.adapters import get_adapter, list_platforms
 from app.config import get_settings
@@ -83,6 +84,8 @@ from app.storage import (
 
 router = APIRouter(prefix="/api")
 MAX_LISTING_CSV_BYTES = 2_000_000
+EXPORT_SPOOL_MEMORY_BYTES = 4 * 1024 * 1024
+EXPORT_DB_BATCH_SIZE = 250
 SENSITIVE_CONNECTION_KEYS = ("password", "secret", "token", "api_key", "apikey", "access_key", "private_key")
 CSV_TEXT_FIELDS = {
     "title", "description", "currency", "condition", "category", "location", "brand", "model",
@@ -1088,42 +1091,109 @@ def _listing_from_csv_row(row: dict[str, str]) -> ListingCreate:
     return ListingCreate.model_validate(payload)
 
 
-def _image_export_archive(listings: list[Listing]) -> tuple[bytes, dict]:
+def _write_manifest_item(output, item: dict, *, first: bool) -> None:
+    if not first:
+        output.write(b",")
+    output.write(json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+def _copy_fileobj(source, destination) -> None:
+    source.seek(0)
+    while chunk := source.read(64 * 1024):
+        destination.write(chunk)
+
+
+def _image_export_archive(db: Session, owner_id: int):
     settings = get_settings()
-    manifest = {
-        "version": "1",
-        "exported_at": datetime.now(UTC).isoformat(),
-        "images": [],
-        "missing": [],
-    }
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for listing in listings:
-            for image in listing.images:
-                local_path = local_storage_path(image.storage_path, settings)
-                entry = {
-                    "listing_id": listing.id,
-                    "listing_title": listing.title,
-                    "filename": image.filename,
-                    "content_type": image.content_type,
-                    "file_size": image.file_size,
-                    "checksum_sha256": image.checksum_sha256,
-                    "position": image.position,
-                }
-                if not local_path:
-                    reason = (
-                        "object_storage_not_exportable" if image.storage_path.startswith("s3://") else "file_missing"
-                    )
-                    manifest["missing"].append({**entry, "reason": reason})
-                    continue
-                archive_name = (
-                    f"listing-{listing.id}/"
-                    f"{image.position:03d}-{image.id}-{safe_filename(image.filename or local_path.name)}"
+    archive_file = tempfile.SpooledTemporaryFile(max_size=EXPORT_SPOOL_MEMORY_BYTES, mode="w+b")
+    image_manifest = tempfile.SpooledTemporaryFile(max_size=EXPORT_SPOOL_MEMORY_BYTES, mode="w+b")
+    missing_manifest = tempfile.SpooledTemporaryFile(max_size=EXPORT_SPOOL_MEMORY_BYTES, mode="w+b")
+    exported_at = datetime.now(UTC).isoformat()
+    image_count = 0
+    missing_count = 0
+    try:
+        with zipfile.ZipFile(archive_file, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            result = db.execute(
+                select(
+                    Listing.id,
+                    Listing.title,
+                    ListingImage.id,
+                    ListingImage.filename,
+                    ListingImage.content_type,
+                    ListingImage.file_size,
+                    ListingImage.checksum_sha256,
+                    ListingImage.position,
+                    ListingImage.storage_path,
                 )
-                archive.write(local_path, archive_name)
-                manifest["images"].append({**entry, "archive_path": archive_name})
-        archive.writestr("manifest.json", json.dumps(manifest, indent=2, sort_keys=True))
-    return buffer.getvalue(), manifest
+                .join(Listing, Listing.id == ListingImage.listing_id)
+                .where(Listing.owner_id == owner_id)
+                .order_by(
+                    Listing.created_at.asc(),
+                    Listing.id.asc(),
+                    ListingImage.position.asc(),
+                    ListingImage.id.asc(),
+                )
+                .execution_options(stream_results=True, yield_per=EXPORT_DB_BATCH_SIZE)
+            )
+            try:
+                for (
+                    listing_id,
+                    listing_title,
+                    image_id,
+                    filename,
+                    content_type,
+                    file_size,
+                    checksum_sha256,
+                    position,
+                    storage_path,
+                ) in result:
+                    local_path = local_storage_path(storage_path, settings)
+                    entry = {
+                        "listing_id": listing_id,
+                        "listing_title": listing_title,
+                        "filename": filename,
+                        "content_type": content_type,
+                        "file_size": file_size,
+                        "checksum_sha256": checksum_sha256,
+                        "position": position,
+                    }
+                    if not local_path:
+                        reason = "object_storage_not_exportable" if storage_path.startswith("s3://") else "file_missing"
+                        _write_manifest_item(missing_manifest, {**entry, "reason": reason}, first=missing_count == 0)
+                        missing_count += 1
+                        continue
+
+                    archive_name = (
+                        f"listing-{listing_id}/"
+                        f"{position:03d}-{image_id}-{safe_filename(filename or local_path.name)}"
+                    )
+                    archive.write(local_path, archive_name)
+                    _write_manifest_item(
+                        image_manifest,
+                        {**entry, "archive_path": archive_name},
+                        first=image_count == 0,
+                    )
+                    image_count += 1
+            finally:
+                result.close()
+
+            with archive.open("manifest.json", "w") as manifest_file:
+                manifest_file.write(b'{"version":"1","exported_at":')
+                manifest_file.write(json.dumps(exported_at).encode("utf-8"))
+                manifest_file.write(b',"images":[')
+                _copy_fileobj(image_manifest, manifest_file)
+                manifest_file.write(b'],"missing":[')
+                _copy_fileobj(missing_manifest, manifest_file)
+                manifest_file.write(b"]}")
+
+        archive_file.seek(0)
+        return archive_file, image_count, missing_count
+    except Exception:
+        archive_file.close()
+        raise
+    finally:
+        image_manifest.close()
+        missing_manifest.close()
 
 
 @router.get("/export", response_model=DataExportBundle, tags=["Data portability"])
@@ -1188,7 +1258,7 @@ def export_listings_csv(user: User = Depends(get_current_user), db: Session = De
     listing_filter = Listing.owner_id == user.id
     listing_count = db.query(func.count(Listing.id)).filter(listing_filter).scalar() or 0
 
-    spool = tempfile.SpooledTemporaryFile(max_size=4 * 1024 * 1024, mode="w+b")
+    spool = tempfile.SpooledTemporaryFile(max_size=EXPORT_SPOOL_MEMORY_BYTES, mode="w+b")
     try:
         output = io.StringIO(newline="")
         writer = csv.DictWriter(output, fieldnames=LISTING_CSV_FIELDS, lineterminator="\n")
@@ -1199,7 +1269,7 @@ def export_listings_csv(user: User = Depends(get_current_user), db: Session = De
             select(Listing)
             .where(listing_filter)
             .order_by(Listing.created_at.asc(), Listing.id.asc())
-            .execution_options(stream_results=True, yield_per=250)
+            .execution_options(stream_results=True, yield_per=EXPORT_DB_BATCH_SIZE)
         )
         try:
             for listing in result.scalars():
@@ -1227,6 +1297,7 @@ def export_listings_csv(user: User = Depends(get_current_user), db: Session = De
         content=csv_chunks(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="autoposter-listings.csv"'},
+        background=BackgroundTask(spool.close),
     )
 
 
@@ -1271,25 +1342,31 @@ def import_listings_csv(
 
 @router.get("/export/images.zip", tags=["Data portability"])
 def export_images_zip(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    listings = (
-        db.query(Listing)
-        .options(selectinload(Listing.images))
-        .filter(Listing.owner_id == user.id)
-        .order_by(Listing.created_at.asc())
-        .all()
-    )
-    archive_bytes, manifest = _image_export_archive(listings)
-    record_audit_event(
-        db,
-        user,
-        "images_exported",
-        {"images": len(manifest["images"]), "missing": len(manifest["missing"])},
-    )
-    db.commit()
-    return Response(
-        content=archive_bytes,
+    archive_file, image_count, missing_count = _image_export_archive(db, user.id)
+    try:
+        record_audit_event(
+            db,
+            user,
+            "images_exported",
+            {"images": image_count, "missing": missing_count},
+        )
+        db.commit()
+    except Exception:
+        archive_file.close()
+        raise
+
+    def archive_chunks():
+        try:
+            while chunk := archive_file.read(64 * 1024):
+                yield chunk
+        finally:
+            archive_file.close()
+
+    return StreamingResponse(
+        content=archive_chunks(),
         media_type="application/zip",
         headers={"Content-Disposition": 'attachment; filename="autoposter-images.zip"'},
+        background=BackgroundTask(archive_file.close),
     )
 
 

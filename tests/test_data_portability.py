@@ -2,6 +2,7 @@ import asyncio
 import csv
 import io
 import json
+import random
 import uuid
 import zipfile
 from datetime import UTC, datetime, timedelta
@@ -421,6 +422,30 @@ def test_image_zip_export_contains_manifest_and_owned_images():
         assert event.event_data == {"images": 1, "missing": 0}
     finally:
         db.close()
+
+
+def test_image_zip_export_handles_large_archive_with_bounded_spool():
+    headers = auth_headers("large-image-export")
+    listing_response = client.post("/api/listings", headers=headers, json={"title": "Large image export"})
+    assert listing_response.status_code == 200, listing_response.text
+    listing_id = listing_response.json()["id"]
+    payload = PNG_BYTES[:8] + random.Random(20261003).randbytes(5 * 1024 * 1024 - 8)
+    image_response = client.post(
+        f"/api/listings/{listing_id}/images",
+        headers=headers,
+        files={"file": ("large.png", payload, "image/png")},
+    )
+    assert image_response.status_code == 200, image_response.text
+
+    response = client.get("/api/export/images.zip", headers=headers)
+
+    assert response.status_code == 200, response.text[:500]
+    assert len(response.content) > 4 * 1024 * 1024
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+        assert len(manifest["images"]) == 1
+        assert manifest["missing"] == []
+        assert archive.read(manifest["images"][0]["archive_path"]) == payload
 
 
 def test_image_zip_export_reports_object_storage_images_in_manifest():

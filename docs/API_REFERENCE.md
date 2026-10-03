@@ -127,7 +127,7 @@ Queue idempotency covers every job state. A repeated `publish` request with the 
 | `POST` | `/api/import` | Import supported portable JSON data. |
 | `GET` | `/api/export/listings.csv` | Export owned listings as CSV using 250-row database batches and a 4 MiB in-memory spool threshold; larger exports roll to temporary storage instead of growing response memory without bound. |
 | `POST` | `/api/import/listings.csv` | Import owned listings from the supported CSV format. |
-| `GET` | `/api/export/images.zip` | Export owned uploaded image binaries as a ZIP with `manifest.json`. |
+| `GET` | `/api/export/images.zip` | Export owned uploaded image binaries as a ZIP with `manifest.json`; database rows are streamed in batches and both the archive and manifest use bounded-memory temporary spools. |
 
 ## Privacy
 
