@@ -27,6 +27,7 @@ from app.models import (
     User,
 )
 from app.routes.auth import delete_user_data
+from app.schemas import DataExportBundle
 from app.services.audit import purge_expired_audit_events, record_audit_event
 from tests.test_api import PNG_BYTES, client
 
@@ -312,6 +313,25 @@ def test_listing_csv_export_and_import_round_trip():
         assert "listings_csv_imported" in actions
     finally:
         db.close()
+
+
+def test_json_export_handles_large_bundle_with_bounded_spool():
+    headers = auth_headers("large-json-export")
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.email.like("large-json-export-%")).one()
+        db.add_all(
+            Listing(owner_id=user.id, title=f"Large JSON export {index}", description="x" * 70_000)
+            for index in range(64)
+        )
+        db.commit()
+
+    response = client.get("/api/export", headers=headers)
+
+    assert response.status_code == 200, response.text[:500]
+    assert len(response.content) > 4 * 1024 * 1024
+    bundle = DataExportBundle.model_validate(response.json())
+    assert len(bundle.listings) == 64
+    assert bundle.listings[0].description == "x" * 70_000
 
 
 def test_listing_csv_export_handles_large_output_with_bounded_spool():

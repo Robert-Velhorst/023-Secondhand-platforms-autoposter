@@ -39,6 +39,7 @@ from app.schemas import (
     DataExportBundle,
     DataImportBundle,
     DataImportResult,
+    ExportListing,
     ImageOrderUpdate,
     ListingCreate,
     ListingOut,
@@ -56,6 +57,7 @@ from app.schemas import (
     TemplateCreate,
     TemplateOut,
     TemplateUpdate,
+    UserOut,
     ValidationResult,
 )
 from app.services.audit import record_audit_event
@@ -1103,6 +1105,25 @@ def _copy_fileobj(source, destination) -> None:
         destination.write(chunk)
 
 
+def _iter_owned_batches(db: Session, model, owner_id: int, *, options=()):
+    last_id = 0
+    while True:
+        query = db.query(model).filter(model.owner_id == owner_id, model.id > last_id)
+        if options:
+            query = query.options(*options)
+        batch = query.order_by(model.id.asc()).limit(EXPORT_DB_BATCH_SIZE).all()
+        if not batch:
+            return
+        last_id = batch[-1].id
+        yield batch
+
+
+def _write_json_export_item(output, item: dict, *, first: bool) -> None:
+    if not first:
+        output.write(b",")
+    output.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+
 def _image_export_archive(db: Session, owner_id: int):
     settings = get_settings()
     archive_file = tempfile.SpooledTemporaryFile(max_size=EXPORT_SPOOL_MEMORY_BYTES, mode="w+b")
@@ -1198,59 +1219,84 @@ def _image_export_archive(db: Session, owner_id: int):
 
 @router.get("/export", response_model=DataExportBundle, tags=["Data portability"])
 def export_data(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    listings = (
-        db.query(Listing)
-        .options(selectinload(Listing.images), selectinload(Listing.platform_mappings))
-        .filter(Listing.owner_id == user.id)
-        .order_by(Listing.created_at.asc())
-        .all()
+    exported_at = datetime.now(UTC)
+    spool = tempfile.SpooledTemporaryFile(max_size=EXPORT_SPOOL_MEMORY_BYTES, mode="w+b")
+    counts = {"listings": 0, "platform_accounts": 0, "templates": 0, "category_mappings": 0}
+    try:
+        spool.write(b'{"version":"1","exported_at":')
+        spool.write(json.dumps(exported_at.isoformat()).encode("utf-8"))
+        spool.write(b',"user":')
+        _write_json_export_item(spool, UserOut.model_validate(user).model_dump(mode="json"), first=True)
+
+        spool.write(b',"listings":[')
+        for batch in _iter_owned_batches(
+            db,
+            Listing,
+            user.id,
+            options=(selectinload(Listing.images), selectinload(Listing.platform_mappings)),
+        ):
+            for listing in batch:
+                item = ExportListing.model_validate(_export_listing(listing)).model_dump(mode="json")
+                _write_json_export_item(spool, item, first=counts["listings"] == 0)
+                counts["listings"] += 1
+        spool.write(b'],"platform_accounts":[')
+
+        for batch in _iter_owned_batches(db, PlatformAccount, user.id):
+            for account in batch:
+                item = PlatformAccountCreate.model_validate(
+                    {
+                        "platform": account.platform,
+                        "display_name": account.display_name,
+                        "mode": account.mode,
+                        "status": account.status,
+                        "connection_data": _sanitize_connection_data(account.connection_data or {}),
+                    }
+                ).model_dump(mode="json")
+                _write_json_export_item(spool, item, first=counts["platform_accounts"] == 0)
+                counts["platform_accounts"] += 1
+        spool.write(b'],"templates":[')
+
+        for batch in _iter_owned_batches(db, ListingTemplate, user.id):
+            for template in batch:
+                item = TemplateCreate.model_validate(
+                    {"name": template.name, "variant": template.variant, "platform": template.platform,
+                     "body": template.body}
+                ).model_dump(mode="json")
+                _write_json_export_item(spool, item, first=counts["templates"] == 0)
+                counts["templates"] += 1
+        spool.write(b'],"category_mappings":[')
+
+        for batch in _iter_owned_batches(db, CategoryMapping, user.id):
+            for category_mapping in batch:
+                item = CategoryMappingCreate.model_validate(
+                    {
+                        "source_category": category_mapping.source_category,
+                        "platform": category_mapping.platform,
+                        "platform_category": category_mapping.platform_category,
+                    }
+                ).model_dump(mode="json")
+                _write_json_export_item(spool, item, first=counts["category_mappings"] == 0)
+                counts["category_mappings"] += 1
+        spool.write(b"]}")
+        spool.seek(0)
+        record_audit_event(db, user, "data_exported", counts)
+        db.commit()
+    except Exception:
+        spool.close()
+        raise
+
+    def json_chunks():
+        try:
+            while chunk := spool.read(64 * 1024):
+                yield chunk
+        finally:
+            spool.close()
+
+    return StreamingResponse(
+        content=json_chunks(),
+        media_type="application/json",
+        background=BackgroundTask(spool.close),
     )
-    accounts = db.query(PlatformAccount).filter(PlatformAccount.owner_id == user.id).order_by(PlatformAccount.id).all()
-    templates = db.query(ListingTemplate).filter(ListingTemplate.owner_id == user.id).order_by(ListingTemplate.id).all()
-    category_mappings = (
-        db.query(CategoryMapping).filter(CategoryMapping.owner_id == user.id).order_by(CategoryMapping.id).all()
-    )
-    bundle = {
-        "version": "1",
-        "exported_at": datetime.now(UTC),
-        "user": user,
-        "listings": [_export_listing(listing) for listing in listings],
-        "platform_accounts": [
-            {
-                "platform": account.platform,
-                "display_name": account.display_name,
-                "mode": account.mode,
-                "status": account.status,
-                "connection_data": _sanitize_connection_data(account.connection_data or {}),
-            }
-            for account in accounts
-        ],
-        "templates": [
-            {"name": template.name, "variant": template.variant, "platform": template.platform, "body": template.body}
-            for template in templates
-        ],
-        "category_mappings": [
-            {
-                "source_category": category_mapping.source_category,
-                "platform": category_mapping.platform,
-                "platform_category": category_mapping.platform_category,
-            }
-            for category_mapping in category_mappings
-        ],
-    }
-    record_audit_event(
-        db,
-        user,
-        "data_exported",
-        {
-            "listings": len(listings),
-            "platform_accounts": len(accounts),
-            "templates": len(templates),
-            "category_mappings": len(category_mappings),
-        },
-    )
-    db.commit()
-    return bundle
 
 
 @router.get("/export/listings.csv", tags=["Data portability"])

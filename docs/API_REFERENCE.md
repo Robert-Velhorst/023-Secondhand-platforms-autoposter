@@ -123,7 +123,7 @@ Queue idempotency covers every job state. A repeated `publish` request with the 
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/export` | Export portable JSON data without secrets or image binaries. |
+| `GET` | `/api/export` | Export portable JSON data without secrets or image binaries, using 250-record database batches and a 4 MiB in-memory spool threshold. |
 | `POST` | `/api/import` | Import supported portable JSON data. |
 | `GET` | `/api/export/listings.csv` | Export owned listings as CSV using 250-row database batches and a 4 MiB in-memory spool threshold; larger exports roll to temporary storage instead of growing response memory without bound. |
 | `POST` | `/api/import/listings.csv` | Import owned listings from the supported CSV format. |
