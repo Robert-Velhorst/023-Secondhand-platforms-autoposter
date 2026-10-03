@@ -971,16 +971,23 @@ still reports 77 external evidence gaps, and no production launch or human accep
 
 ## Fresh Windows standalone build and runtime smoke (2026-10-03)
 
-Built `dist/SecondhandAutoposter.exe` from PR source commit `48162b4` on Windows 11 using the
-hash-locked packaging requirements, Python 3.13.14, and PyInstaller 6.22.0. The executable is
-43,218,637 bytes with SHA-256
-`f96615f3215e4e29c37174ae024eb26e0bb2fdd2f6098424de51f0e2e1a9b038`; the generated checksum
-sidecar matched.
+Reproduced the Windows 11 standalone package from exact PR-head source commit `4ebc28a` using
+`requirements-build.lock.txt`, Python 3.13.14, and PyInstaller 6.22.0. The isolated output
+executable is 43,219,620 bytes with SHA-256
+`eaffff430bfe0526c51b64bf0061534bbee306220b19921d90fba66db2cd1c53`; its generated checksum
+sidecar matched. Output went to an isolated temporary directory; the existing ignored `dist`
+executable was not overwritten.
 
-The executable ran against a new disposable data directory on `127.0.0.1:18765`. It migrated the
-database to `20261001_0017`, returned `ok` for `/api/health` and `/api/worker-status`, and served the
-dashboard with HTTP 200. The test processes were stopped afterward and no listener remained on the
-port. No account or listing was created, no marketplace was contacted, and no ngrok tunnel was
-opened. This verifies one local packaged runtime path only; interactive close/Ctrl+C behavior,
-live tunnel policy/access, production deployment, and human accessibility acceptance remain
-unverified.
+The package ran against a new disposable data directory on `127.0.0.1:18765`. It migrated the
+database to `20261001_0017`, returned `ok` for `/api/health` and `/api/worker-status`, served the
+dashboard with HTTP 200, and rendered the login/registration UI in a local browser. No account or
+listing was created. Ctrl+C requested Uvicorn graceful shutdown; afterward no packaged process or
+listener remained on the test port. The enclosing shell session returned exit code 1, however, so
+the command's final exit status remains unresolved. Window-close behavior was not tested. No
+marketplace was contacted and no ngrok tunnel was opened. This verifies one local packaged runtime
+path only; live tunnel policy/access, production deployment, real-user use, and human accessibility
+acceptance remain unverified.
+
+The earlier same-day package from source `48162b4` (43,218,637 bytes,
+`f96615f3215e4e29c37174ae024eb26e0bb2fdd2f6098424de51f0e2e1a9b038`) is superseded by this exact
+PR-head reproduction and retained here only as historical evidence.
