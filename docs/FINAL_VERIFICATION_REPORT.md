@@ -991,3 +991,27 @@ acceptance remain unverified.
 The earlier same-day package from source `48162b4` (43,218,637 bytes,
 `f96615f3215e4e29c37174ae024eb26e0bb2fdd2f6098424de51f0e2e1a9b038`) is superseded by this exact
 PR-head reproduction and retained here only as historical evidence.
+
+## Incremental HAI feed bounds and packaged verification (2026-10-03)
+
+Target source commit: `c08885f`. The full Windows 11/Python 3.14 verification gate passed Ruff,
+compilation, and **565 tests with 1 skip** (566 collected) in 123.21 seconds. The local doctor
+reported only the expected development-secret warning and that its checkout SQLite database was
+not at Alembic head; no production database was contacted.
+
+The incremental HAI endpoint now caps requests at 50 records, rejects any record whose content
+exceeds 200,000 UTF-8 bytes or Go-encoded metadata exceeds 16,000 bytes, and refuses a serialized
+page above 5 MiB with HTTP 413 and no partial response. The manifest publishes these limits. Tests
+cover the manifest, page-size validation, oversized individual records, and aggregate serialized
+page overflow. Retaining the old consumer cursor on failure is therefore required and remains
+covered by the HAI connector's existing cursor-preservation test.
+
+A PyInstaller 6.22.0 package was built from `c08885f` with Python 3.13.14 into isolated output
+paths. It is 43,219,729 bytes with SHA-256
+`744b0f4f5924cf77cf6b9debe7a5b41642fe230e6bf524b75ccd66ee64b67851`. On fresh disposable data
+at loopback port 18766, migrations reached `20261001_0017`; `/api/health` and
+`/api/worker-status` returned `ok`; and a synthetic account/token/listing flow confirmed an
+oversized record returns HTTP 413 with the expected message. Ctrl+C logged graceful Uvicorn
+shutdown and left no package process or port listener, though the enclosing command exited 1.
+This is local packaged verification only. No real user, marketplace, public tunnel, target HAI
+installation, or production environment was used.

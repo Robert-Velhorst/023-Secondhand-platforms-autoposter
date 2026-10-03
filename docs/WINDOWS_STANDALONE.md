@@ -46,27 +46,26 @@ mode retains its previous Uvicorn graceful-drain policy.
 
 ### Current package check — 2026-10-03
 
-The latest local Windows 11 build was reproduced from PR-head source commit
-`4ebc28a` using `requirements-build.lock.txt`, Python 3.13.14, and PyInstaller
-6.22.0. The executable is 43,219,620 bytes with SHA-256
-`eaffff430bfe0526c51b64bf0061534bbee306220b19921d90fba66db2cd1c53`; its
-checksum sidecar matched. The build was placed in an isolated temporary
-directory so the existing ignored `dist` executable was not overwritten. A
-fresh isolated data directory and loopback-only port 18765 were used. The
-packaged app applied migrations through `20261001_0017`, API health returned
-`ok`, worker health returned `ok`, and the dashboard returned HTTP 200. The
-login/registration UI rendered in a local browser, but no account or listing
-was created. Ctrl+C requested Uvicorn's graceful shutdown; afterward no
-packaged process or listener remained on the test port. The enclosing shell
-session nevertheless returned exit code 1, so its exit status is unresolved;
-window-close behavior was not tested. No ngrok tunnel, marketplace, real user,
-or production environment was involved. This is a local package/runtime check,
-not a signed release or production/live-ngrok acceptance.
+The latest local Windows 11 build was produced from source commit `c08885f`
+using the hash-locked build environment, Python 3.13.14, and PyInstaller
+6.22.0. The 43,219,729-byte executable has SHA-256
+`744b0f4f5924cf77cf6b9debe7a5b41642fe230e6bf524b75ccd66ee64b67851`. PyInstaller
+used isolated `dist` and work paths so the existing ignored executable was not
+overwritten. On a fresh isolated data directory and loopback-only port 18766,
+the package migrated through `20261001_0017`; API and worker health returned
+`ok`. A synthetic account, HAI token, and listing were created through the
+packaged API; an oversized HAI record returned HTTP 413 with the expected
+content-limit message, and the discovery manifest exposed the 50-record and
+5-MiB page limits. Ctrl+C logged graceful Uvicorn shutdown; afterward no
+packaged process or listener remained. The enclosing shell session returned
+exit code 1, so its final exit status is unresolved. No ngrok tunnel,
+marketplace, real user, or production environment was involved. This is a
+local package/runtime check, not a signed release or production/live-ngrok
+acceptance.
 
-The earlier 2026-10-03 build from `48162b4` (43,218,637 bytes,
-`f96615f3215e4e29c37174ae024eb26e0bb2fdd2f6098424de51f0e2e1a9b038`) is
-historical; it was the first fresh-data package smoke before rebuilding the
-exact current PR head.
+The earlier exact-PR-head UI smoke from `4ebc28a` (43,219,620 bytes,
+`eaffff430bfe0526c51b64bf0061534bbee306220b19921d90fba66db2cd1c53`) and the
+first same-day build from `48162b4` remain historical evidence.
 
 ### Historical sign-out checkpoint — 2026-09-22
 
