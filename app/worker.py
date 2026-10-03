@@ -12,6 +12,7 @@ from app.services.jobs import process_due_jobs
 from app.services.storage_cleanup import process_due_storage_deletions
 from app.services.token_secret_cleanup import process_due_token_secret_deletions
 from app.services.worker_health import record_heartbeat
+from app.worker_identity import worker_id_for_host
 
 logger = logging.getLogger("autoposter.worker")
 
@@ -70,5 +71,9 @@ def run_forever(worker_id: str | None = None) -> None:
         time.sleep(settings.job_worker_poll_seconds)
 
 
+def main() -> None:
+    run_forever(worker_id=worker_id_for_host())
+
+
 if __name__ == "__main__":
-    run_forever()
+    main()

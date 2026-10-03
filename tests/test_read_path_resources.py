@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import Base
 from app.models import (
@@ -18,6 +18,7 @@ from app.models import (
 )
 from app.services.action_center import build_action_center
 from app.services.analytics import build_user_analytics
+from app.services.quality import analyze_listing_quality
 from app.services.worker_health import worker_status
 from scripts.benchmark_read_paths import seed
 
@@ -88,7 +89,58 @@ def test_analytics_aggregates_history_without_loading_job_payloads(isolated_db):
     assert result["quality"]["listings_missing_images"] == 600
     assert loaded["PublishingJob"] == 0, "Analytics needs counts, not stored job result payloads"
     assert loaded["PlatformListingMapping"] == 0
+    assert loaded["Listing"] == 0, "Aggregate analytics needs a scalar projection, not full listing objects"
     assert peak_listings <= 512, "Quality analysis must use bounded batches"
+
+
+def test_analytics_scalar_projection_preserves_quality_results(isolated_db):
+    db = isolated_db
+    db.execute(User.__table__.insert(), {"id": 1, "email": "quality@example.com", "password_hash": "unused"})
+    db.execute(Listing.__table__.insert(), [
+        {
+            "id": 1, "owner_id": 1, "title": "Vintage chair", "description": "Used chair with visible scratches.",
+            "price_cents": 12500, "condition": "used", "category": "Furniture", "location": "Arnhem",
+            "pickup_allowed": True, "shipping_allowed": False, "shipping_cost_cents": 0,
+            "dimensions": {}, "weight_grams": 0, "brand": "Acme", "model": "",
+            "color": "", "material": "oak", "status": "draft", "tags": ["wood", "chair"],
+            "internal_notes": "private",
+        },
+        {
+            "id": 2, "owner_id": 1, "title": "", "description": "", "price_cents": 0,
+            "condition": "new", "category": "", "location": "", "pickup_allowed": False,
+            "shipping_allowed": True, "shipping_cost_cents": 0, "dimensions": {}, "weight_grams": 0,
+            "brand": "", "model": "", "color": "", "material": "", "status": "ready",
+            "tags": [], "internal_notes": "",
+        },
+    ])
+    db.execute(ListingImage.__table__.insert(), [
+        {"listing_id": 1, "filename": "one.png", "storage_path": "unused-1"},
+        {"listing_id": 2, "filename": "two.png", "storage_path": "unused-2"},
+        {"listing_id": 2, "filename": "three.png", "storage_path": "unused-3"},
+    ])
+    db.commit()
+
+    # Establish the quality result through the full ORM path as the semantic baseline.
+    listings = (
+        db.query(Listing)
+        .options(selectinload(Listing.images))
+        .filter(Listing.owner_id == 1)
+        .order_by(Listing.id)
+        .all()
+    )
+    expected = [analyze_listing_quality(listing, include_suggestions=False) for listing in listings]
+    result = build_user_analytics(db, 1)
+
+    assert result["summary"]["average_quality_score"] == round(sum(item["score"] for item in expected) / 2, 1)
+    assert result["quality"]["grade_counts"] == {
+        grade: sum(item["grade"] == grade for item in expected)
+        for grade in sorted({item["grade"] for item in expected})
+    }
+    assert result["quality"]["top_issue_fields"] == [
+        {"field": field, "count": count}
+        for field, count in Counter(issue["field"] for item in expected for issue in item["issues"]).most_common(8)
+    ]
+    assert result["quality"]["listings_missing_images"] == 0
 
 
 def test_action_center_keeps_priority_and_owner_scope_without_loading_inventory(isolated_db):

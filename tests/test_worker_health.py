@@ -72,6 +72,44 @@ def test_worker_records_the_launch_identity_after_a_completed_cycle(monkeypatch)
         assert rows[0].worker_id == expected
 
 
+def test_worker_id_is_stable_and_scoped_to_the_container_hostname():
+    from app.worker_identity import worker_id_for_host
+
+    first = worker_id_for_host("container-a")
+    assert first == worker_id_for_host("container-a")
+    assert first != worker_id_for_host("container-b")
+    assert len(first) == 39
+    assert first.startswith("worker-")
+    assert all(character in "0123456789abcdef" for character in first.removeprefix("worker-"))
+
+
+def test_worker_cli_uses_the_same_container_identity_as_its_healthcheck(monkeypatch):
+    from app import worker
+
+    expected = "worker-" + "c" * 32
+    observed = {}
+    monkeypatch.setattr(worker, "worker_id_for_host", lambda: expected)
+    monkeypatch.setattr(worker, "run_forever", lambda **kwargs: observed.update(kwargs))
+
+    worker.main()
+
+    assert observed == {"worker_id": expected}
+
+
+def test_exact_worker_health_does_not_accept_a_healthy_sibling():
+    expected_id = "worker-" + "a" * 32
+    sibling_id = "worker-" + "b" * 32
+    with SessionLocal() as db:
+        record_heartbeat(db, sibling_id, processed_jobs=1)
+
+    response = client.get("/api/worker-status", params={"worker_id": expected_id})
+
+    assert response.status_code == 503
+    assert response.json()["worker_id"] == expected_id
+    assert response.json()["active_workers"] == 0
+    assert client.get("/api/worker-status").json()["active_workers"] == 1
+
+
 @pytest.mark.parametrize("worker_id", ["not-a-launch-id", "worker-" + "a" * 1000])
 def test_worker_status_rejects_malformed_instance_filters(worker_id):
     assert client.get("/api/worker-status", params={"worker_id": worker_id}).status_code == 422

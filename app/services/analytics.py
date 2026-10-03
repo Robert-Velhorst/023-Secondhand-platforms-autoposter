@@ -1,18 +1,57 @@
 from collections import Counter
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session, defer, selectinload
+from sqlalchemy.orm import Session
 
 from app.models import Listing, ListingImage, PlatformListingMapping, PublishingJob
 from app.services.quality import analyze_listing_quality
 
 
+@dataclass(frozen=True, slots=True)
+class _QualityListing:
+    title: str
+    description: str
+    price_cents: int
+    condition: str
+    category: str
+    location: str
+    pickup_allowed: bool
+    shipping_allowed: bool
+    shipping_cost_cents: int
+    dimensions: dict
+    weight_grams: int
+    brand: str
+    model: str
+    color: str
+    material: str
+
+
 def build_user_analytics(db: Session, owner_id: int) -> dict[str, Any]:
+    listings = db.query(
+        Listing.id,
+        Listing.title,
+        Listing.description,
+        Listing.price_cents,
+        Listing.condition,
+        Listing.category,
+        Listing.location,
+        Listing.status,
+        Listing.pickup_allowed,
+        Listing.shipping_allowed,
+        Listing.shipping_cost_cents,
+        Listing.dimensions,
+        Listing.weight_grams,
+        Listing.brand,
+        Listing.model,
+        Listing.color,
+        Listing.material,
+        func.count(ListingImage.id).label("image_count"),
+    ).outerjoin(ListingImage, ListingImage.listing_id == Listing.id)
     listings = (
-        db.query(Listing)
-        .options(defer(Listing.internal_notes), selectinload(Listing.images).load_only(ListingImage.id))
-        .filter(Listing.owner_id == owner_id)
+        listings.filter(Listing.owner_id == owner_id)
+        .group_by(Listing.id)
         .order_by(Listing.id)
         .yield_per(250)
     )
@@ -37,17 +76,35 @@ def build_user_analytics(db: Session, owner_id: int) -> dict[str, Any]:
     grade_counts: Counter[str] = Counter()
     issue_counter: Counter[str] = Counter()
     listing_count = price_count = price_sum = image_sum = missing_images = quality_sum = 0
-    for listing in listings:
-        result = analyze_listing_quality(listing, include_suggestions=False)
+    for row in listings:
+        listing = _QualityListing(
+            title=row.title,
+            description=row.description,
+            price_cents=row.price_cents,
+            condition=row.condition,
+            category=row.category,
+            location=row.location,
+            pickup_allowed=row.pickup_allowed,
+            shipping_allowed=row.shipping_allowed,
+            shipping_cost_cents=row.shipping_cost_cents,
+            dimensions=row.dimensions,
+            weight_grams=row.weight_grams,
+            brand=row.brand,
+            model=row.model,
+            color=row.color,
+            material=row.material,
+        )
+        image_count = row.image_count or 0
+        result = analyze_listing_quality(listing, include_suggestions=False, image_count=image_count)
         issue_counter.update(issue["field"] for issue in result["issues"])
-        listing_statuses[listing.status] += 1
+        listing_statuses[row.status] += 1
         grade_counts[result["grade"]] += 1
         listing_count += 1
         quality_sum += int(result["score"])
-        image_sum += len(listing.images)
-        missing_images += not listing.images
-        if listing.price_cents > 0:
-            price_sum += listing.price_cents
+        image_sum += image_count
+        missing_images += image_count == 0
+        if row.price_cents > 0:
+            price_sum += row.price_cents
             price_count += 1
 
     return {

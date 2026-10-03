@@ -9,6 +9,9 @@ def test_production_compose_requires_migrations_before_services_start():
     assert "worker:" in content
     assert "/api/health" in content
     assert "/api/worker-status" in content
+    assert "worker_id_for_host()" in content
+    assert 'result.get("worker_id") == expected_worker_id' in content
+    assert 'result.get("active_workers") == 1' in content
     assert "healthcheck:" in content
     assert "condition: service_healthy" in content
     assert "UPLOAD_VOLUME" in content

@@ -52,14 +52,23 @@ services:
           import json
           import sys
           import urllib.error
+          import urllib.parse
           import urllib.request
+          from app.worker_identity import worker_id_for_host
           opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          expected_worker_id = worker_id_for_host()
+          query = urllib.parse.urlencode({"worker_id": expected_worker_id})
           try:
-              response = opener.open("http://autoposter:8000/api/worker-status", timeout=5)
+              response = opener.open("http://autoposter:8000/api/worker-status?" + query, timeout=5)
           except urllib.error.HTTPError as error:
               response = error
           result = json.load(response)
-          sys.exit(0 if result.get("status") in {"ok", "paused"} and result.get("active_workers", 0) > 0 else 1)
+          healthy = (
+              result.get("status") in {"ok", "paused"}
+              and result.get("worker_id") == expected_worker_id
+              and result.get("active_workers") == 1
+          )
+          sys.exit(0 if healthy else 1)
       interval: 30s
       timeout: 10s
       retries: 3

@@ -96,9 +96,12 @@ CATEGORY_RULES: tuple[dict[str, Any], ...] = (
 )
 
 
-def analyze_listing_quality(listing: Listing, *, include_suggestions: bool = True) -> dict[str, Any]:
+def analyze_listing_quality(
+    listing: Listing, *, include_suggestions: bool = True, image_count: int | None = None,
+) -> dict[str, Any]:
     """Analyze a listing; callers that only aggregate quality can skip copy suggestions."""
     issues: list[QualityIssue] = []
+    attached_images = len(listing.images) if image_count is None else image_count
 
     title = (listing.title or "").strip()
     description = (listing.description or "").strip()
@@ -142,9 +145,9 @@ def analyze_listing_quality(listing: Listing, *, include_suggestions: bool = Tru
         issues.append(
             issue("location", "critical", "Location is missing.", "Add the pickup or shipping origin location.")
         )
-    if not listing.images:
+    if attached_images <= 0:
         issues.append(issue("images", "critical", "No images are attached.", "Upload at least one clear item photo."))
-    elif len(listing.images) == 1:
+    elif attached_images == 1:
         issues.append(
             issue("images", "tip", "Only one image is attached.", "Add extra angles, labels, defects, or scale photos.")
         )

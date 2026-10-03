@@ -111,6 +111,29 @@ production latency promise. The fixture is reproducible with the command in
 the preceding benchmark section; the measured before/after sample details are
 summarized here rather than linked to a local-only scratch artifact.
 
+These older medians were measured with `tracemalloc` enabled. Tracing adds
+overhead and can distort wall time, so the benchmark now measures latency
+without tracing and runs separate allocation samples. The latter also compares
+normalized outputs across the two phases to catch nondeterministic behavior.
+
+## Analytics Scalar Projection — 2026-10-01
+
+Aggregate analytics now selects only fields required by quality checks and
+summary totals, and counts image rows in SQL instead of materializing full
+`Listing` and `ListingImage` ORM objects. A regression compares score, grade,
+issue counts, and image totals with the original full-ORM quality analysis;
+resource tests require zero loaded listing/job/mapping objects for this path.
+
+A same-process, untraced comparison against source `cd88e80` on the synthetic
+10,000-listing / 50,000-job / 100,000-stale-worker fixture, using three samples
+per path on this Windows 11/Python 3.14 host, measured analytics at **709.87 ms
+before** and **373.40 ms after** (47% lower median). Peak traced Python
+allocation changed from **1,343,193** to **435,447 bytes** (68% lower), and ORM
+objects loaded changed from 10,000 to zero. The complete normalized response
+matched. This is a synthetic SQLite comparison, not a production guarantee;
+the grouped join and quality scan still need representative PostgreSQL
+measurement.
+
 ## Remaining Scale Work
 
 - Capture PostgreSQL migration and representative query evidence on the supplied target before production launch.

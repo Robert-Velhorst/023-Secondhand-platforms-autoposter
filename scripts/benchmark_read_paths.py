@@ -55,6 +55,13 @@ def measure(engine, callback, repeats: int) -> dict:
     loaded_counts = []
     result = None
     for _ in range(repeats):
+        with Session(engine) as db:
+            started = time.perf_counter()
+            result = callback(db)
+            elapsed.append((time.perf_counter() - started) * 1000)
+
+    memory_result = None
+    for _ in range(repeats):
         gc.collect()
         loaded = 0
 
@@ -65,17 +72,21 @@ def measure(engine, callback, repeats: int) -> dict:
         with Session(engine) as db:
             event.listen(db, "loaded_as_persistent", track_load)
             tracemalloc.start()
-            started = time.perf_counter()
-            result = callback(db)
-            elapsed.append((time.perf_counter() - started) * 1000)
+            memory_result = callback(db)
             peaks.append(tracemalloc.get_traced_memory()[1])
             tracemalloc.stop()
             loaded_counts.append(loaded)
-    if result is not None:
-        result.pop("generated_at", None)
-        result.pop("last_heartbeat_at", None)
-        result.pop("last_worker_started_at", None)
-    return {"median_ms_with_tracing": round(median(elapsed), 2),
+
+    def normalize(value):
+        if value is not None:
+            value.pop("generated_at", None)
+            value.pop("last_heartbeat_at", None)
+            value.pop("last_worker_started_at", None)
+        return value
+
+    if normalize(result) != normalize(memory_result):
+        raise RuntimeError("Read-path response changed between latency and allocation samples")
+    return {"median_ms": round(median(elapsed), 2),
             "peak_python_bytes": max(peaks), "loaded_orm_objects": max(loaded_counts), "result": result}
 
 

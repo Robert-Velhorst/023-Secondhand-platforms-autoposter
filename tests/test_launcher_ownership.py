@@ -2,6 +2,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 
 import pytest
@@ -235,10 +236,26 @@ def test_keyboard_interrupt_stops_worker_and_exits_launcher_cleanly(tmp_path, mo
 
 def _wait_for_file(path):
     deadline = time.monotonic() + 15
-    while not path.exists() and time.monotonic() < deadline:
+    while time.monotonic() < deadline:
+        try:
+            contents = path.read_text().strip()
+        except OSError:
+            contents = ""
+        if contents.isdecimal():
+            return contents
         time.sleep(0.02)
-    assert path.exists(), "Child did not reach the test handshake"
-    return path.read_text()
+    raise AssertionError("Child did not complete the test handshake")
+
+
+def test_wait_for_file_ignores_an_incomplete_handshake(tmp_path):
+    handshake = tmp_path / "port"
+    handshake.touch()
+    writer = threading.Timer(0.05, lambda: handshake.write_text("12345"))
+    writer.start()
+    try:
+        assert _wait_for_file(handshake) == "12345"
+    finally:
+        writer.join(timeout=2)
 
 
 def _assert_port_eventually_free(port):
