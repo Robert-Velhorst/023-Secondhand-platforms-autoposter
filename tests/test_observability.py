@@ -1,6 +1,10 @@
 import json
 import logging
 
+from sqlalchemy.exc import OperationalError
+
+from app.database import get_db
+from app.main import app
 from app.observability import JsonLogFormatter
 from tests.test_api import client
 
@@ -52,3 +56,22 @@ def test_request_logging_records_request_metadata(monkeypatch):
     assert captured["extra"]["path"] == "/api/health"
     assert captured["extra"]["status_code"] == 200
     assert captured["extra"]["duration_ms"] >= 0
+
+
+def test_health_returns_sanitized_unavailable_when_database_probe_fails():
+    class UnavailableDatabase:
+        def execute(self, _statement):
+            raise OperationalError("SELECT 1", {}, RuntimeError("private database endpoint"))
+
+    def unavailable_database():
+        yield UnavailableDatabase()
+
+    app.dependency_overrides[get_db] = unavailable_database
+    try:
+        response = client.get("/api/health")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "unavailable"
+    assert "private database endpoint" not in response.text

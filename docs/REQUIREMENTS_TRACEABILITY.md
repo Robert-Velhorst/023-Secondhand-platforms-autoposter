@@ -1,109 +1,22 @@
 # Requirements Traceability
 
-This document maps the 89 goal phases to concrete repository evidence. It is not a claim that every phase is complete; it is a release-control index for finding the code, tests, and documents that support each status in `docs/COMPLETION_MATRIX.md`.
+The row-level source of truth is the 116-phase table in `docs/GOAL_COMPLETION_MATRIX.md`. This document maps phase groups to implementation surfaces and verification evidence.
 
-The remaining `Partial` phases are consolidated in `docs/EXTERNAL_EVIDENCE_BACKLOG.md`.
-
-Legend:
-
-- `Evidence`: primary file, test, or document supporting the current status.
-- `Remaining gate`: the next proof required before the phase can be considered stronger than its current status.
-
-| Phase | Status | Evidence | Remaining gate |
+| Phases | Requirement area | Primary implementation | Verification/evidence |
 | --- | --- | --- | --- |
-| 0 | Done | `docs/REPOSITORY_PROVENANCE.md`, `docs/COMPLETION_MATRIX.md`, `git status` practice in local verification | Refresh provenance when branch, remote, or release baseline changes. |
-| 1 | Done | `docs/DEEP_TECHNICAL_AUDIT.md`, `docs/RED_TEAM_REVIEW.md`, `docs/TECHNICAL_DEBT_REGISTER.md`, `tests/test_deep_technical_audit.py` | Refresh audit after major route, model, storage, auth, adapter, worker, or deployment changes. |
-| 2 | Done | `docs/PRODUCT_DEFINITION.md` | Keep aligned when product scope changes. |
-| 3 | Done | `app/main.py`, `app/routes/auth.py`, `app/routes/system.py`, `app/dependencies.py`, `app/api.py`, `docs/ARCHITECTURE.md`, `tests/test_architecture.py` | Keep route modules aligned when new product areas are added. |
-| 4 | Partial | `app/models.py`, `migrations/versions/`, `tests/test_migrations.py` | Run Alembic migrations against the target PostgreSQL database. |
-| 5 | Partial | `app/config.py`, `.env.example`, `tests/test_config.py`, `tests/test_startup_safety.py` | Capture deployment-specific environment evidence from the chosen host. |
-| 6 | Partial | `app/security.py`, `app/rate_limit.py`, `app/middleware.py`, `tests/test_auth_security.py` | Add edge/proxy rate-limit evidence for the chosen deployment. |
-| 7 | Done | `tests/test_owner_isolation.py`, owner filters in `app/api.py` | Keep coverage aligned with new owner-owned routes. |
-| 8 | Done | `app/middleware.py`, `app/rate_limit.py`, `tests/test_api_hardening.py`, `tests/test_api_rate_limit.py` | Keep API limits aligned with deployment edge throttling and traffic patterns. |
-| 9 | Done | `app/storage.py`, `app/config.py`, `docs/IMAGE_STORAGE.md`, `tests/test_storage_uploads.py`, `tests/test_startup_safety.py`, `tests/test_data_portability.py` | Revisit only when adding signed URL delivery, image transformations, or a deployment-specific bucket policy. |
-| 10 | Done | `app/models.py`, `app/schemas.py`, `app/api.py`, `migrations/versions/20260703_0010_listing_category_attributes.py`, `tests/test_data_invariants.py`, `tests/test_category_mappings.py`, `tests/test_data_portability.py` | Keep category attributes aligned with adapter fields, portability formats, and UI controls. |
-| 11 | Done | `app/adapters/base.py`, `app/adapters/assisted.py`, `app/adapters/registry.py`, `tests/test_api.py` | Keep capability metadata aligned when adapters or platform modes change. |
-| 12 | Done | `docs/PLATFORM_COMPLETION_CONTRACTS.md`, `tests/test_platform_contracts.py`, `app/adapters/` | Keep platform contracts current when adapters, categories, blocked actions, or official API modes change. |
-| 13 | Done | `docs/PLATFORM_REALITY_REVIEW.md` | Re-review if platform policies change. |
-| 14 | Done | `app/services/jobs.py`, `app/api.py`, `public/app.js`, `tests/test_api.py`, `tests/test_job_state.py`, `tests/test_job_polling_ui.py` | Keep assisted-job completion records aligned with queue UI wording, listing mappings, logs, and attempts. |
-| 15 | Done | `docs/UI_WORDING_AUDIT.md`, `tests/test_ui_wording.py`, `public/index.html`, `public/app.js` | Re-audit wording when platform modes, official API behavior, or primary job actions change. |
-| 16 | Done | `app/services/oauth.py`, `app/services/secrets.py`, `tests/test_ebay_oauth.py`, `tests/test_config.py`, `docs/OFFICIAL_API_CREDENTIAL_CHECKLIST.md` | Add an official publishing adapter only after live sandbox listing proof, seller-policy checks, and production secret-manager evidence exist. |
-| 17 | Done | `docs/LEGACY_SCRIPT_QUARANTINE.md`, `tests/test_legacy_quarantine.py` | Remove archive later only by explicit decision. |
-| 18 | Partial | `app/services/jobs.py`, `app/worker.py`, `tests/test_worker.py` | Run concurrent worker verification against the target PostgreSQL database. |
-| 19 | Done | `app/services/jobs.py`, `app/api.py`, `public/index.html`, `public/app.js`, `tests/test_listing_revisions.py`, `tests/test_regenerate_package_ui.py` | Keep regenerate/repost semantics explicit if future official API publishing or manual completion confirmation is added. |
-| 20 | Done | `app/services/platform_rate_limits.py`, `app/services/jobs.py`, `docs/RATE_LIMITS.md`, `tests/test_platform_rate_limits.py`, `tests/test_worker.py` | Revisit only when a live official API adapter adds platform-specific quota semantics beyond common headers. |
-| 21 | Done | `GET /api/jobs`, queue polling in `public/app.js`, `public/index.html`, `tests/test_job_polling_ui.py` | Revisit only if SSE/WebSocket delivery becomes necessary for deployment scale. |
-| 22 | Done | Static frontend in `public/`, README architecture notes | Revisit only if frontend complexity changes. |
-| 23 | Done | `public/index.html`, `public/app.js`, `public/styles.css`, `docs/FRONTEND_PRODUCT_COMPLETION.md`, `docs/BROWSER_E2E_WORKFLOW.md`, `docs/BROWSER_PREPUBLISH_WALKTHROUGH.md`, `docs/BROWSER_ERROR_UX_WALKTHROUGH.md`, `tests/test_frontend_product_completion.py` | Keep frontend evidence current when the visible seller workflow changes. |
-| 24 | Done | `docs/UI_ACTION_AUDIT.md`, `tests/test_ui_action_audit.py` | Keep action audit current when visible controls change. |
-| 25 | Done | `docs/API_USAGE_AUDIT.md` | Keep updated with routes and UI changes. |
-| 26 | Done | Template variants in `app/models.py`, `app/schemas.py`, `app/api.py`, `public/index.html`, `public/app.js`, `tests/test_template_variants.py` | Keep template variant controls aligned with export/import and UI filters. |
-| 27 | Done | Category-specific local quality rules in `app/services/quality.py`, API/UI quality flow, `tests/test_listing_quality.py` | Keep heuristics local, explainable, and user-applied as categories expand. |
-| 28 | Done | `app/query.py`, `app/api.py`, `public/index.html`, `public/app.js`, `tests/test_extended_query_controls.py` | Keep query controls and route parameters aligned when list screens or sortable fields change. |
-| 29 | Done | JSON, CSV, and image ZIP portability routes in `app/api.py`, Settings UI controls, `tests/test_data_portability.py` | Keep JSON privacy boundary, CSV fields, and image ZIP manifest aligned as listing fields change. |
-| 30 | Done | Data delete/export/import audit events, owner-scoped `/api/audit-events`, Settings privacy activity UI, retention purge, `tests/test_data_portability.py` | Keep audit events sanitized and scoped as new privacy-sensitive actions are added. |
-| 31 | Done | Account CRUD/status routes and UI, connection metadata scrubbing, eBay OAuth handoff records, `tests/test_api.py`, `tests/test_ebay_oauth.py` | Keep raw platform secrets out of app tables/API responses and exports. |
-| 32 | Done | Security headers in `app/middleware.py`, bearer-only CSRF posture in `docs/AUTH_SECURITY_POSTURE.md`, `tests/test_api_hardening.py` | Keep CSP and auth transport reviewed when frontend assets or auth mode change. |
-| 33 | Done | `docs/ERROR_HANDLING_UX.md`, `app/middleware.py`, `public/app.js`, `tests/test_api_hardening.py`, `tests/test_frontend_error_ux.py` | Keep error codes, retryability, and frontend display aligned when new error classes are introduced. |
-| 34 | Done | `public/app.js`, `scripts/browser_error_ux_walkthrough.cjs`, `docs/BROWSER_ERROR_UX_WALKTHROUGH.md`, `docs/browser-evidence/error-ux-walkthrough.json`, `tests/test_browser_error_ux_walkthrough.py` | Keep browser evidence current when auth errors, import errors, validation recovery, or retry guidance changes. |
-| 35 | Done | `Dockerfile`, `docker-compose.yml` | Keep in sync with runtime dependencies. |
-| 36 | Done | `app/doctor.py`, `tests/test_doctor.py` | Add checks as new infrastructure appears. |
-| 37 | Done | `scripts/verify.py` | Keep quality gate current. |
-| 38 | Done | `app/demo.py`, `docs/DEMO_MODE.md`, tests | Keep demo mode development-only. |
-| 39 | Done | `docs/FAKE_PROVIDER_LAB.md`, `tests/fake_provider_lab.py` | Keep fake providers out of production registry. |
-| 40 | Done | `docs/NO_MOCKS_PRODUCTION_AUDIT.md`, `tests/test_no_mocks_production.py` | Re-run when adapters change. |
-| 41 | Done | `docs/TESTING_STRATEGY.md` | Update strategy as coverage changes. |
-| 42 | Done | `docs/ACCEPTANCE_TESTS.md`, `tests/test_acceptance_workflow.py`, `tests/test_api.py` | Keep acceptance workflow aligned with seller-critical API behavior; browser E2E remains tracked separately. |
-| 43 | Done | `tests/test_acceptance_workflow.py`, `scripts/browser_e2e_workflow.cjs`, `docs/BROWSER_E2E_WORKFLOW.md`, `docs/browser-evidence/e2e-workflow.json`, `tests/test_browser_e2e_workflow.py` | Keep browser E2E evidence current when the seller workflow changes. |
-| 44 | Done | `pyproject.toml`, `scripts/verify.py` | Consider type-check gate later. |
-| 45 | Done | `.github/workflows/verify.yml` | Keep CI matrix aligned with verify script. |
-| 46 | Done | `Readme.md`, `docs/USER_GUIDE.md`, `docs/API_REFERENCE.md`, `tests/test_documentation_overhaul.py` | Keep user guide and API reference aligned when workflows, endpoints, or launch limits change. |
-| 47 | Done | `docs/COMPLETION_MATRIX.md` | Keep counts synchronized. |
-| 48 | Done | `docs/FINAL_VERIFICATION_REPORT.md`, `tests/test_final_verification_report.py` | Refresh before final release and after release-blocking evidence-control changes. |
-| 49 | Done | `docs/TECHNICAL_DEBT_REGISTER.md` | Keep debt items current. |
-| 50 | Done | `docs/RED_TEAM_REVIEW.md` | Re-review after sensitive changes. |
-| 51 | Done | `docs/ADVERSARIAL_TEST_REPORT.md` | Re-run adversarial review near release. |
-| 52 | Done | `docs/UI_UX_DEBUGGING_ROUNDS.md`, `docs/BROWSER_E2E_WORKFLOW.md`, `docs/BROWSER_PREPUBLISH_WALKTHROUGH.md`, `docs/BROWSER_ERROR_UX_WALKTHROUGH.md`, `tests/test_ui_ux_debugging_rounds.py` | Keep debugging-round evidence current when browser workflow scripts or visible UX flows change. |
-| 53 | Done | `docs/ACCESSIBILITY_AUDIT.md`, `tests/test_accessibility_audit.py`, `public/index.html` | Keep smoke checks aligned with new visible controls and still execute the broader browser checklist before launch. |
-| 54 | Done | `scripts/browser_responsive_matrix.cjs`, `docs/RESPONSIVE_BROWSER_COMPATIBILITY.md`, `docs/browser-evidence/responsive-matrix.json`, `tests/test_responsive_browser_compatibility.py` | Keep browser/viewport matrix evidence current when responsive layout or navigation changes. |
-| 55 | Done | `docs/BACKUP_RESTORE.md` | Validate restore against deployment target. |
-| 56 | Done | `app/observability.py`, `/api/metrics`, runbook | Add Prometheus/OTel only if required. |
-| 57 | Done | `app/services/analytics.py`, `docs/PRODUCT_ANALYTICS_LOCAL_FIRST.md` | Keep local-only analytics posture. |
-| 58 | Done | `docs/SAAS_READINESS.md`, `GET /api/account/readiness`, `tests/test_saas_readiness.py` | Reopen only if subscriptions, organizations, seats, or role-based team access enter scope. |
-| 59 | Done | `docs/WORKSPACES_OPTIONAL_REVIEW.md`, `tests/test_workspaces_optional_review.py` | Reopen only if team collaboration enters scope. |
-| 60 | Done | `app/services/localization.py`, `/api/localization`, `public/index.html`, `public/app.js`, `docs/INTERNATIONALIZATION.md`, `tests/test_internationalization.py` | Keep new static UI copy in the catalog; broader keyboard/responsive browser coverage remains tracked under phase 54. |
-| 61 | Done | `app/feature_flags.py`, `docs/FEATURE_FLAGS.md` | Keep flags safety-reviewed. |
-| 62 | Done | `app/services/job_state.py`, `docs/STATE_MACHINES.md` | Keep transition docs aligned. |
-| 63 | Done | `docs/DOMAIN_MODEL.md`, `app/models.py`, `tests/test_domain_model.py`, `tests/test_data_invariants.py`, `tests/test_listing_revisions.py` | Keep aggregate cascade and invariant coverage aligned with new domain entities. |
-| 64 | Done | Schema validators, `tests/test_data_invariants.py` | Keep invariants aligned with new fields. |
-| 65 | Done | Explicit listing state transition helpers in `public/app.js`, `tests/test_frontend_state_consistency.py` | Keep stale review-state invalidation aligned with new listing mutation paths. |
-| 66 | Done | `public/app.js`, `scripts/browser_prepublish_walkthrough.cjs`, `docs/BROWSER_PREPUBLISH_WALKTHROUGH.md`, `docs/browser-evidence/prepublish-walkthrough.json`, `tests/test_frontend_state_consistency.py` | Keep selected-platform validation and evidence current when prepublish review behavior changes. |
-| 67 | Done | Adapter compliance notes from `GET /api/platforms`, platform/prepublish UI in `public/app.js`, `tests/test_ui_wording.py` | Keep notes visible when adapters or compliance language change. |
-| 68 | Done | `docs/OFFICIAL_API_CREDENTIAL_CHECKLIST.md` | Update with each official API candidate. |
-| 69 | Done | Performance indexes migration and docs | Benchmark against production-like data later. |
-| 70 | Partial | `docs/RELEASE_READINESS.md`, `docs/RELEASE_EVIDENCE_RECORD.md`, `scripts/release_gate.py`, `tests/test_release_readiness.py`, `tests/test_release_gate.py` | Capture final launch evidence; `python scripts/release_gate.py --json` lists the remaining missing evidence fields. |
-| 71 | Done | `scripts/audit_dependencies.py`, supply-chain workflow/docs | Keep audits current with dependencies. |
-| 72 | Done | `docs/BACKUP_RESTORE.md` | Prove restore in target environment. |
-| 73 | Done | `docs/OPERATOR_RUNBOOK.md` | Update when operations change. |
-| 74 | Partial | `docs/NON_TECHNICAL_USER_SIMULATION.md`, `docs/NON_TECHNICAL_USER_WALKTHROUGH_RECORD.md`, `tests/test_non_technical_user_simulation.py` | Execute and record a real non-technical user walkthrough. |
-| 75 | Done | `docs/AUTONOMY_FIRST_DESIGN.md`, `tests/test_autonomy_first_design.py` | Keep user-control boundaries aligned with UI wording and adapter behavior. |
-| 76 | Done | `docs/PRODUCT_VALUE_REVIEW.md`, `tests/test_product_value_review.py` | Revisit after non-technical simulation and browser evidence. |
-| 77 | Done | `docs/PRODUCT_REALISM_REVIEW.md`, `docs/PLATFORM_REALITY_REVIEW.md`, `tests/test_product_realism_review.py` | Revisit if product positioning or automation scope changes. |
-| 78 | Done | This traceability document plus `tests/test_requirements_traceability.py` | Keep synchronized with completion matrix. |
-| 79 | Done | `docs/TASK_GRAPH_AND_EXECUTION.md` | Keep execution lanes and critical path aligned with the matrix. |
-| 80 | Done | `docs/PROGRESSIVE_STABILIZATION_GATES.md`, `tests/test_progressive_stabilization_gates.py` | Keep gate status aligned with release readiness evidence and `scripts/release_gate.py`. |
-| 81 | Partial | `docs/IMPLEMENTATION_DEPTH_REVIEW.md`, core app and many docs/tests | Complete external depth gates or record accepted risks in final acceptance. |
-| 82 | Done | `docs/API_USAGE_AUDIT.md`, visible UI/API wiring | Keep route/UI audit current. |
-| 83 | Done | `docs/API_USAGE_AUDIT.md` | Keep purposeful endpoint mapping current. |
-| 84 | Done | `docs/FALSE_COMPLETION_PREVENTION.md`, `tests/test_false_completion_prevention.py` | Keep blocked claims aligned with release readiness status. |
-| 85 | Partial | `docs/FINAL_NO_EXCUSES_SEARCH.md`, `tests/test_final_no_excuses_search.py` | Repeat the no-excuses search after launch evidence exists and before final acceptance. |
-| 86 | Done | `docs/FRESH_CLONE_DRY_RUN.md` | Repeat after release-blocking changes or immediately before final launch. |
-| 87 | Partial | `docs/FINAL_ACCEPTANCE_RECORD.md`, `tests/test_final_acceptance_controls.py` | Capture accepted final launch decision. |
-| 88 | Partial | `docs/FINAL_RESPONSE_REQUIREMENTS.md`, `scripts/final_response_check.py`, `tests/test_final_acceptance_controls.py`, `tests/test_final_response_check.py` | Prepare final release response only after acceptance evidence exists and final response preflight reports ready. |
+| 0-4 | Integrity, audit, product, critical path, architecture | Repository structure and FastAPI/static-dashboard design | `TECHNICAL_AUDIT.md`, `CRITICAL_PATH.md`, architecture/provenance tests |
+| 5-9 | Data, configuration, authentication, ownership, API contracts | Models, schemas, config, security, middleware, dependencies | Migration, startup, auth, isolation, and API hardening tests |
+| 10-14 | Frontend/core flow/provider honesty | `public/`, adapters, API/job service | Browser workflow, UI wording, no-mocks production tests |
+| 15-19 | Storage, workers, idempotency, rates, audit | Storage service, jobs, worker, rate-limit, audit | Storage/worker/rate-limit/data-portability tests |
+| 20-27 | Dashboard, forms, queries, portability, templates, suggestions, review, reminders | Dashboard/action center, listing autosave, local suggestion provider | Action-center, frontend-state, quality, query, acceptance tests |
+| 28-36 | Privacy, web security, secrets, local/deploy, migrations, doctor, observability, diagnostics | Auth deletion/export, headers, secret references, Docker, Alembic, doctor, support bundle | Security, deployment, migrations, observability, support redaction tests |
+| 37-48 | Demo/fake-lab/factories/test suites/adversarial/isolation/files/provider failure | Demo module, test fake provider, shared factories, full tests | Pytest suite and adversarial reports |
+| 49-58 | Accessibility, responsive, performance, scale, backup, reconciliation, analytics, SaaS, i18n, flags | UI semantics/CSS, indexes, reconcile CLI, analytics/localization/flags | Browser matrix, accessibility, query, reconciliation, analytics tests |
+| 59-67 | State/domain/invariants/safety/credentials/threat/privacy/supply chain/licenses | State service, models/schemas, prepublish UI, security and provider docs | State/invariant/prepublish/security/dependency evidence |
+| 68-77 | CI, release, operations, help, troubleshooting, audits, debt, bug hunt | GitHub workflows, release gate, runbooks and audits | CI checks, release-gate tests, documentation contract tests |
+| 78-88 | Red-team loops through context-loss safety | Review docs, goal matrix, task graph, worklog/checkpoints | Documentation truthfulness and traceability tests |
+| 89-99 | Stabilization, DoD, clone/manual/final evidence, maintenance, roadmap | Gate docs/scripts and final evidence records | Verify/release/final-response gates and fresh-clone procedure |
+| 100-105 | Provider cleanup, support bundle, retention, production migration, emergency stop, onboarding | Provider checklist, support/reconcile/operator CLIs, action center | Provider, support, operator, action-center tests |
+| 106-115 | Scope decision, quality, decision minimization, exception dashboard, retries, ambiguity, versioning, regression, maintenance, operator readiness | Personal-account scope, suggestion provider, action center, job service, version/changelog | Quality/action-center/worker/full regression plus external operator gate |
 
-## Traceability Maintenance
-
-- Update this file in the same change that updates `docs/COMPLETION_MATRIX.md`.
-- Keep each phase number present exactly once.
-- Prefer concrete files over broad claims.
-- Do not mark a phase `Done` here unless the completion matrix agrees.
+The canonical matrix uses `Partial` or `Not applicable` whenever repository code cannot truthfully satisfy an external or out-of-scope phase. `docs/EXTERNAL_EVIDENCE_BACKLOG.md` contains every current `Partial` phase.

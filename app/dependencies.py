@@ -10,10 +10,15 @@ from app.models import User, UserSession
 from app.security import hash_token
 
 
-def get_current_session(
+def get_authenticated_session(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> UserSession:
+    """Validate session credentials without granting active-account access.
+
+    Only session revocation should depend on this directly. Data endpoints
+    must use get_current_session/get_current_user to enforce account status.
+    """
     settings = get_settings()
     if settings.dev_auto_login:
         if not demo_mode_enabled(settings):
@@ -44,6 +49,10 @@ def get_current_session(
         expires_at = expires_at.replace(tzinfo=UTC)
     if expires_at < datetime.now(UTC):
         raise HTTPException(status_code=401, detail="Invalid or expired session")
+    return session
+
+
+def get_current_session(session: UserSession = Depends(get_authenticated_session)) -> UserSession:
     if not session.user.is_active:
         raise HTTPException(status_code=403, detail="User is disabled")
     return session

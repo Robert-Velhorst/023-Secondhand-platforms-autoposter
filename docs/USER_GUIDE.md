@@ -43,11 +43,15 @@ Open Queue to watch assisted package jobs. The queue supports:
 
 Retry only after fixing the listing, platform account, or validation issue that caused the previous job to fail. For `needs_user_action` jobs, retry is mainly for regenerating package output after a deliberate listing change.
 
+Selecting Queue assisted package again for the same unchanged listing and platform/account returns the original job, even if it failed or was skipped. This protects against double clicks and repeated requests; it is not a retry. Use the eligible job's retry action after correcting the problem, or save a listing change or deliberately select Regenerate package to queue a new revision. A successful request alone does not mean the package succeeded: read the job's status and log.
+
 After you finish the marketplace-side posting steps, open the job details, paste the marketplace listing URL, optionally add the listing ID, and record completion. The app updates the job and platform mapping from your confirmation; it still treats final marketplace submission as manual.
 
 ## Accounts, Templates, And Mappings
 
 Accounts identify the platform account context and setup status. You can create, edit, disable, or delete account metadata. The app strips token-like keys from manual connection metadata and does not expose raw platform passwords, active marketplace tokens, or secret references.
+
+The normal dashboard can prepare assisted packages without choosing a saved platform account. If an integration selects one, it must be your account for that marketplace. An unavailable or mismatched account is rejected before the request creates jobs or a new revision. If an account's marketplace changes after a job was queued, that job fails safely when processed. Restore the correct account details before retrying, or prepare a new package using a suitable account; retry cannot switch an existing job to another account. This does not sign you into a marketplace or enable automatic posting.
 
 Templates help reuse description text. Use variants such as `default`, `short`, `seasonal`, or platform-specific copy styles to keep multiple reusable versions under clear labels. Category mappings translate a master listing category into a platform-specific category. Both settings screens support search/filter/sort/page controls.
 

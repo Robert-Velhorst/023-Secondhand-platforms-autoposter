@@ -14,6 +14,8 @@ This audit maps the FastAPI surface to visible frontend usage, tests, and remain
 | Method | Route | Frontend usage | Test coverage | Notes |
 | --- | --- | --- | --- | --- |
 | `GET` | `/api/health` | Boot health badge | `test_api_hardening.py` | Public endpoint. |
+| `GET` | `/api/worker-status` | Operator readiness endpoint | `test_worker_health.py`, `test_operator_controls.py` | Reports heartbeat and persistent pause state. |
+| `GET` | `/api/action-center` | Dashboard onboarding and reminders | `test_action_center.py` | Authenticated and owner-scoped. |
 | `GET` | `/api/diagnostics` | Settings diagnostics panel | `test_doctor.py` | Visible and tested through doctor coverage. |
 | `GET` | `/api/metrics` | Operator/runbook endpoint | `test_api_hardening.py` | Lightweight JSON counters for local/operator monitoring. |
 | `GET` | `/api/analytics` | Dashboard Insights panel | `test_analytics.py` | User-scoped local product analytics; no external tracking. |
@@ -35,7 +37,7 @@ This audit maps the FastAPI surface to visible frontend usage, tests, and remain
 | `DELETE` | `/api/listings/{listing_id}/images/{image_id}` | Image tile delete | `test_storage_uploads.py` | Visible and tested. |
 | `POST` | `/api/listings/{listing_id}/platforms` | Platform selection and description overrides | `test_listing_revisions.py`, `test_category_mappings.py` | Visible and tested. |
 | `GET` | `/api/listings/{listing_id}/validate` | Validate button | `test_api.py`, `test_category_mappings.py` | Visible and tested. |
-| `GET` | `/api/listings/{listing_id}/quality` | Listing quality assistant panel | `test_listing_quality.py` | Visible and tested; deterministic local scoring, category-specific guidance, and user-applied suggestions only. |
+| `GET` | `/api/listings/{listing_id}/quality` | Listing quality assistant panel | `test_listing_quality.py` | Visible and tested; explicit `deterministic_local` provider, no external data transfer, and user-applied suggestions only. |
 | `POST` | `/api/listings/{listing_id}/publish` | Queue assisted package button | `test_api.py`, `test_category_mappings.py`, `test_worker.py` | Visible and tested. |
 | `GET` | `/api/jobs` | Dashboard/latest jobs and queue view with platform/status/sort/page controls | `test_worker.py` | Visible and tested. |
 | `GET` | `/api/jobs/{job_id}` | Not directly used | `test_worker.py` | Useful for future deep-linking. |

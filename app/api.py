@@ -1,12 +1,17 @@
 import csv
 import io
 import json
+import tempfile
 import zipfile
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
+from starlette.background import BackgroundTask
 
 from app.adapters import get_adapter, list_platforms
 from app.config import get_settings
@@ -21,6 +26,7 @@ from app.models import (
     ListingTemplate,
     PlatformAccount,
     PlatformListingMapping,
+    PlatformOAuthState,
     PublishingJob,
     User,
 )
@@ -33,6 +39,7 @@ from app.schemas import (
     DataExportBundle,
     DataImportBundle,
     DataImportResult,
+    ExportListing,
     ImageOrderUpdate,
     ListingCreate,
     ListingOut,
@@ -50,28 +57,43 @@ from app.schemas import (
     TemplateCreate,
     TemplateOut,
     TemplateUpdate,
+    UserOut,
     ValidationResult,
 )
 from app.services.audit import record_audit_event
+from app.services.image_writes import image_write_scope
 from app.services.jobs import (
+    PublishingAccountError,
     confirm_manual_completion,
     enqueue_publish_job,
     get_or_create_mapping,
+    load_publishing_account,
     process_job,
     retry_job,
 )
 from app.services.oauth import consume_ebay_authorization_callback, create_ebay_authorization_url
-from app.services.quality import analyze_listing_quality
+from app.services.storage_cleanup import cleanup_after_commit, queue_storage_deletions
+from app.services.suggestions import get_suggestion_provider
+from app.services.token_secret_cleanup import cleanup_token_secrets_after_commit, queue_token_secret_deletions
 from app.storage import (
-    delete_stored_file,
+    ValidatedUpload,
     local_storage_path,
-    read_validated_image,
+    open_stored_file,
+    read_validated_image_sync,
     safe_filename,
     store_validated_image,
+    stored_file_bytes,
 )
 
 router = APIRouter(prefix="/api")
+MAX_LISTING_CSV_BYTES = 2_000_000
+EXPORT_SPOOL_MEMORY_BYTES = 4 * 1024 * 1024
+EXPORT_DB_BATCH_SIZE = 250
 SENSITIVE_CONNECTION_KEYS = ("password", "secret", "token", "api_key", "apikey", "access_key", "private_key")
+CSV_TEXT_FIELDS = {
+    "title", "description", "currency", "condition", "category", "location", "brand", "model",
+    "color", "material", "notes", "internal_notes", "tags", "status",
+}
 LISTING_CSV_FIELDS = [
     "title",
     "description",
@@ -197,8 +219,11 @@ def delete_listing(
     db: Session = Depends(get_db),
 ):
     listing = _load_listing(db, user.id, listing_id)
+    image_paths = [image.storage_path for image in listing.images]
+    cleanup_ids = queue_storage_deletions(db, image_paths)
     db.delete(listing)
     db.commit()
+    cleanup_after_commit(cleanup_ids)
 
 
 @router.post("/listings/{listing_id}/duplicate", response_model=ListingOut, tags=["Listings"])
@@ -208,9 +233,19 @@ def duplicate_listing(
     db: Session = Depends(get_db),
 ):
     source = _load_listing(db, user.id, listing_id)
+    source_images: list[tuple[ListingImage, bytes]] = []
+    for image in source.images:
+        content = stored_file_bytes(image.storage_path)
+        if content is None:
+            raise HTTPException(
+                status_code=409,
+                detail="A source image is unavailable. Restore or remove the missing image before duplicating.",
+            )
+        source_images.append((image, content))
+    _enforce_owner_storage_quota(db, user.id, sum(len(content) for _, content in source_images))
     clone = Listing(
         owner_id=user.id,
-        title=f"{source.title} copy".strip(),
+        title=f"{source.title[:155].rstrip()} copy".strip(),
         description=source.description,
         price_cents=source.price_cents,
         currency=source.currency,
@@ -227,38 +262,52 @@ def duplicate_listing(
         model=source.model,
         color=source.color,
         material=source.material,
+        category_attributes=source.category_attributes,
         notes=source.notes,
         internal_notes=source.internal_notes,
         tags=source.tags,
         status="draft",
     )
-    db.add(clone)
-    db.flush()
-    for image in source.images:
-        db.add(
-            ListingImage(
-                listing_id=clone.id,
-                filename=image.filename,
-                storage_path=image.storage_path,
-                content_type=image.content_type,
-                file_size=image.file_size,
-                checksum_sha256=image.checksum_sha256,
-                position=image.position,
+    with image_write_scope(db) as track_image:
+        db.add(clone)
+        db.flush()
+        for image, content in source_images:
+            stored_file = store_validated_image(
+                ValidatedUpload(
+                    original_filename=image.filename,
+                    content=content,
+                    content_type=image.content_type,
+                    file_size=len(content),
+                    checksum_sha256=image.checksum_sha256,
+                    extension=Path(image.filename).suffix or ".img",
+                ),
+                clone.id,
+                on_planned=track_image,
             )
-        )
-    db.commit()
+            db.add(
+                ListingImage(
+                    listing_id=clone.id,
+                    filename=image.filename,
+                    storage_path=stored_file.storage_path,
+                    content_type=image.content_type,
+                    file_size=stored_file.file_size,
+                    checksum_sha256=image.checksum_sha256,
+                    position=image.position,
+                )
+            )
+        db.commit()
     return _load_listing(db, user.id, clone.id)
 
 
 @router.post("/listings/{listing_id}/images", response_model=ListingOut, tags=["Images"])
-async def upload_image(
+def upload_image(
     listing_id: int,
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     listing = _load_listing(db, user.id, listing_id)
-    validated = await read_validated_image(file)
+    validated = read_validated_image_sync(file)
     duplicate = (
         db.query(ListingImage)
         .filter(
@@ -269,21 +318,72 @@ async def upload_image(
     )
     if duplicate:
         return _load_listing(db, user.id, listing.id)
-    stored_file = store_validated_image(validated, listing.id)
-    position = len(listing.images)
-    db.add(
-        ListingImage(
-            listing_id=listing.id,
-            filename=stored_file.original_filename,
-            storage_path=stored_file.storage_path,
-            content_type=stored_file.content_type,
-            file_size=stored_file.file_size,
-            checksum_sha256=stored_file.checksum_sha256,
-            position=position,
+    _enforce_owner_storage_quota(db, user.id, validated.file_size)
+    with image_write_scope(db) as track_image:
+        stored_file = store_validated_image(validated, listing.id, on_planned=track_image)
+        position = len(listing.images)
+        db.add(
+            ListingImage(
+                listing_id=listing.id,
+                filename=stored_file.original_filename,
+                storage_path=stored_file.storage_path,
+                content_type=stored_file.content_type,
+                file_size=stored_file.file_size,
+                checksum_sha256=stored_file.checksum_sha256,
+                position=position,
+            )
         )
-    )
-    db.commit()
+        db.commit()
     return _load_listing(db, user.id, listing.id)
+
+
+@router.get("/listings/{listing_id}/images/{image_id}/content", tags=["Images"])
+def get_image_content(
+    listing_id: int,
+    image_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    image = (
+        db.query(ListingImage)
+        .join(Listing, Listing.id == ListingImage.listing_id)
+        .filter(
+            Listing.id == listing_id,
+            Listing.owner_id == user.id,
+            ListingImage.id == image_id,
+        )
+        .one_or_none()
+    )
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+    stored_read = open_stored_file(image.storage_path)
+    if stored_read is None:
+        raise HTTPException(status_code=404, detail="Image content is unavailable")
+
+    content_type = image.content_type
+    headers = {
+        "Cache-Control": "private, max-age=300",
+        "Content-Disposition": f'inline; filename="{safe_filename(image.filename)}"',
+    }
+    if stored_read.content_length is not None:
+        headers["Content-Length"] = str(stored_read.content_length)
+
+    # Release the database connection before a potentially slow client download.
+    db.close()
+
+    def image_chunks():
+        try:
+            while chunk := stored_read.body.read(64 * 1024):
+                yield chunk
+        finally:
+            stored_read.body.close()
+
+    return StreamingResponse(
+        content=image_chunks(),
+        media_type=content_type,
+        headers=headers,
+        background=BackgroundTask(stored_read.body.close),
+    )
 
 
 @router.patch("/listings/{listing_id}/images/order", response_model=ListingOut, tags=["Images"])
@@ -313,9 +413,11 @@ def delete_image(
     image = next((item for item in listing.images if item.id == image_id), None)
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
-    delete_stored_file(image.storage_path)
+    storage_path = image.storage_path
+    cleanup_ids = queue_storage_deletions(db, [storage_path])
     db.delete(image)
     db.commit()
+    cleanup_after_commit(cleanup_ids)
     return _load_listing(db, user.id, listing.id)
 
 
@@ -373,7 +475,8 @@ def listing_quality(
     db: Session = Depends(get_db),
 ):
     listing = _load_listing(db, user.id, listing_id)
-    return analyze_listing_quality(listing)
+    settings = get_settings()
+    return get_suggestion_provider(settings.suggestion_provider).analyze(listing)
 
 
 def effective_platform_overrides(
@@ -408,20 +511,28 @@ def publish_listing(
     db: Session = Depends(get_db),
 ):
     listing = _load_listing(db, user.id, listing_id)
-    if payload.force_new_revision:
-        listing.revision += 1
-        db.add(ListingDraft(listing_id=listing.id, payload={"force_new_revision": True}, source="regenerate_package"))
-        db.commit()
-        listing = _load_listing(db, user.id, listing_id)
-    jobs = []
-    for platform_key in payload.platforms:
-        get_adapter(platform_key)
-        account_id = payload.account_ids.get(platform_key)
-        job = enqueue_publish_job(db, listing, platform_key, account_id)
-        if payload.process_now and get_settings().job_process_inline:
-            job = process_job(db, job.id)
-        jobs.append(job)
-    return jobs
+    try:
+        # Validate the entire selection before revision changes or per-job commits.
+        for platform_key in payload.platforms:
+            get_adapter(platform_key)
+            load_publishing_account(db, listing.owner_id, platform_key, payload.account_ids.get(platform_key))
+        if payload.force_new_revision:
+            listing.revision += 1
+            db.add(ListingDraft(
+                listing_id=listing.id, payload={"force_new_revision": True}, source="regenerate_package",
+            ))
+            db.commit()
+            listing = _load_listing(db, user.id, listing_id)
+        jobs = []
+        for platform_key in payload.platforms:
+            account_id = payload.account_ids.get(platform_key)
+            job = enqueue_publish_job(db, listing, platform_key, account_id)
+            if payload.process_now and get_settings().job_process_inline:
+                job = process_job(db, job.id)
+            jobs.append(job)
+        return jobs
+    except PublishingAccountError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 def process_job_task(job_id: int) -> None:
@@ -443,11 +554,11 @@ def list_jobs(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    listing_ids = [id_ for (id_,) in db.query(Listing.id).filter(Listing.owner_id == user.id).all()]
     query = (
         db.query(PublishingJob)
         .options(selectinload(PublishingJob.logs))
-        .filter(PublishingJob.listing_id.in_(listing_ids))
+        .join(Listing)
+        .filter(Listing.owner_id == user.id)
     )
     if platform:
         query = query.filter(PublishingJob.platform == platform)
@@ -492,7 +603,10 @@ def retry_publish_job(job_id: int, user: User = Depends(get_current_user), db: S
     )
     if not job or job.listing.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Job not found")
-    return retry_job(db, job)
+    try:
+        return retry_job(db, job)
+    except PublishingAccountError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/jobs/{job_id}/manual-completion", response_model=PublishingJobOut, tags=["Jobs"])
@@ -604,8 +718,14 @@ def delete_account(account_id: int, user: User = Depends(get_current_user), db: 
     )
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
+    cleanup_ids = queue_token_secret_deletions(db, [account.secret_ref] if account.secret_ref else [])
+    db.query(PlatformOAuthState).filter(
+        PlatformOAuthState.user_id == user.id,
+        PlatformOAuthState.platform == account.platform,
+    ).delete(synchronize_session=False)
     db.delete(account)
     db.commit()
+    cleanup_token_secrets_after_commit(cleanup_ids)
 
 
 @router.post("/accounts/ebay/oauth/start", response_model=OAuthStartResponse, tags=["Accounts"])
@@ -878,7 +998,7 @@ def _export_listing(listing: Listing) -> dict:
 
 
 def _listing_csv_row(listing: Listing) -> dict[str, str]:
-    return {
+    row = {
         "title": listing.title or "",
         "description": listing.description or "",
         "price_cents": str(listing.price_cents or 0),
@@ -902,6 +1022,36 @@ def _listing_csv_row(listing: Listing) -> dict[str, str]:
         "delivery_options_json": json.dumps(listing.delivery_options or {}, sort_keys=True),
         "dimensions_json": json.dumps(listing.dimensions or {}, sort_keys=True),
     }
+    return {key: _safe_csv_text(value) if key in CSV_TEXT_FIELDS else value for key, value in row.items()}
+
+
+def _safe_csv_text(value: str) -> str:
+    # Spreadsheet applications may evaluate formulas after ignoring leading
+    # whitespace/control characters. Prefix only dangerous text fields; numeric
+    # columns retain their normal negative-number representation.
+    candidate = value.lstrip("\ufeff\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r\x1c\x1d\x1e\x1f ")
+    if candidate.startswith(("=", "+", "-", "@")):
+        return "'" + value
+    return value
+
+
+def _enforce_owner_storage_quota(db: Session, owner_id: int, additional_bytes: int) -> None:
+    settings = get_settings()
+    # Locking the owner row serializes quota checks across PostgreSQL API workers.
+    # SQLite does not implement row locks; its local single-process deployment is
+    # still bounded by the same check, while production PostgreSQL is race-safe.
+    db.query(User.id).filter(User.id == owner_id).with_for_update().one()
+    current_bytes = (
+        db.query(func.coalesce(func.sum(ListingImage.file_size), 0))
+        .join(Listing, Listing.id == ListingImage.listing_id)
+        .filter(Listing.owner_id == owner_id)
+        .scalar()
+    )
+    if int(current_bytes or 0) + additional_bytes > settings.max_user_storage_mb * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Account image storage quota of {settings.max_user_storage_mb} MiB would be exceeded.",
+        )
 
 
 def _format_csv_bool(value: bool) -> str:
@@ -969,148 +1119,294 @@ def _listing_from_csv_row(row: dict[str, str]) -> ListingCreate:
     return ListingCreate.model_validate(payload)
 
 
-def _image_export_archive(listings: list[Listing]) -> tuple[bytes, dict]:
+def _write_manifest_item(output, item: dict, *, first: bool) -> None:
+    if not first:
+        output.write(b",")
+    output.write(json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+def _copy_fileobj(source, destination) -> None:
+    source.seek(0)
+    while chunk := source.read(64 * 1024):
+        destination.write(chunk)
+
+
+def _iter_owned_batches(db: Session, model, owner_id: int, *, options=()):
+    last_id = 0
+    while True:
+        query = db.query(model).filter(model.owner_id == owner_id, model.id > last_id)
+        if options:
+            query = query.options(*options)
+        batch = query.order_by(model.id.asc()).limit(EXPORT_DB_BATCH_SIZE).all()
+        if not batch:
+            return
+        last_id = batch[-1].id
+        yield batch
+
+
+def _write_json_export_item(output, item: dict, *, first: bool) -> None:
+    if not first:
+        output.write(b",")
+    output.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+
+def _image_export_archive(db: Session, owner_id: int):
     settings = get_settings()
-    manifest = {
-        "version": "1",
-        "exported_at": datetime.now(UTC).isoformat(),
-        "images": [],
-        "missing": [],
-    }
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for listing in listings:
-            for image in listing.images:
-                local_path = local_storage_path(image.storage_path, settings)
-                entry = {
-                    "listing_id": listing.id,
-                    "listing_title": listing.title,
-                    "filename": image.filename,
-                    "content_type": image.content_type,
-                    "file_size": image.file_size,
-                    "checksum_sha256": image.checksum_sha256,
-                    "position": image.position,
-                }
-                if not local_path:
-                    reason = (
-                        "object_storage_not_exportable" if image.storage_path.startswith("s3://") else "file_missing"
-                    )
-                    manifest["missing"].append({**entry, "reason": reason})
-                    continue
-                archive_name = (
-                    f"listing-{listing.id}/"
-                    f"{image.position:03d}-{image.id}-{safe_filename(image.filename or local_path.name)}"
+    archive_file = tempfile.SpooledTemporaryFile(max_size=EXPORT_SPOOL_MEMORY_BYTES, mode="w+b")
+    image_manifest = tempfile.SpooledTemporaryFile(max_size=EXPORT_SPOOL_MEMORY_BYTES, mode="w+b")
+    missing_manifest = tempfile.SpooledTemporaryFile(max_size=EXPORT_SPOOL_MEMORY_BYTES, mode="w+b")
+    exported_at = datetime.now(UTC).isoformat()
+    image_count = 0
+    missing_count = 0
+    try:
+        with zipfile.ZipFile(archive_file, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            result = db.execute(
+                select(
+                    Listing.id,
+                    Listing.title,
+                    ListingImage.id,
+                    ListingImage.filename,
+                    ListingImage.content_type,
+                    ListingImage.file_size,
+                    ListingImage.checksum_sha256,
+                    ListingImage.position,
+                    ListingImage.storage_path,
                 )
-                archive.write(local_path, archive_name)
-                manifest["images"].append({**entry, "archive_path": archive_name})
-        archive.writestr("manifest.json", json.dumps(manifest, indent=2, sort_keys=True))
-    return buffer.getvalue(), manifest
+                .join(Listing, Listing.id == ListingImage.listing_id)
+                .where(Listing.owner_id == owner_id)
+                .order_by(
+                    Listing.created_at.asc(),
+                    Listing.id.asc(),
+                    ListingImage.position.asc(),
+                    ListingImage.id.asc(),
+                )
+                .execution_options(stream_results=True, yield_per=EXPORT_DB_BATCH_SIZE)
+            )
+            try:
+                for (
+                    listing_id,
+                    listing_title,
+                    image_id,
+                    filename,
+                    content_type,
+                    file_size,
+                    checksum_sha256,
+                    position,
+                    storage_path,
+                ) in result:
+                    local_path = local_storage_path(storage_path, settings)
+                    entry = {
+                        "listing_id": listing_id,
+                        "listing_title": listing_title,
+                        "filename": filename,
+                        "content_type": content_type,
+                        "file_size": file_size,
+                        "checksum_sha256": checksum_sha256,
+                        "position": position,
+                    }
+                    if not local_path:
+                        reason = "object_storage_not_exportable" if storage_path.startswith("s3://") else "file_missing"
+                        _write_manifest_item(missing_manifest, {**entry, "reason": reason}, first=missing_count == 0)
+                        missing_count += 1
+                        continue
+
+                    archive_name = (
+                        f"listing-{listing_id}/"
+                        f"{position:03d}-{image_id}-{safe_filename(filename or local_path.name)}"
+                    )
+                    archive.write(local_path, archive_name)
+                    _write_manifest_item(
+                        image_manifest,
+                        {**entry, "archive_path": archive_name},
+                        first=image_count == 0,
+                    )
+                    image_count += 1
+            finally:
+                result.close()
+
+            with archive.open("manifest.json", "w") as manifest_file:
+                manifest_file.write(b'{"version":"1","exported_at":')
+                manifest_file.write(json.dumps(exported_at).encode("utf-8"))
+                manifest_file.write(b',"images":[')
+                _copy_fileobj(image_manifest, manifest_file)
+                manifest_file.write(b'],"missing":[')
+                _copy_fileobj(missing_manifest, manifest_file)
+                manifest_file.write(b"]}")
+
+        archive_file.seek(0)
+        return archive_file, image_count, missing_count
+    except Exception:
+        archive_file.close()
+        raise
+    finally:
+        image_manifest.close()
+        missing_manifest.close()
 
 
 @router.get("/export", response_model=DataExportBundle, tags=["Data portability"])
 def export_data(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    listings = (
-        db.query(Listing)
-        .options(selectinload(Listing.images), selectinload(Listing.platform_mappings))
-        .filter(Listing.owner_id == user.id)
-        .order_by(Listing.created_at.asc())
-        .all()
+    exported_at = datetime.now(UTC)
+    spool = tempfile.SpooledTemporaryFile(max_size=EXPORT_SPOOL_MEMORY_BYTES, mode="w+b")
+    counts = {"listings": 0, "platform_accounts": 0, "templates": 0, "category_mappings": 0}
+    try:
+        spool.write(b'{"version":"1","exported_at":')
+        spool.write(json.dumps(exported_at.isoformat()).encode("utf-8"))
+        spool.write(b',"user":')
+        _write_json_export_item(spool, UserOut.model_validate(user).model_dump(mode="json"), first=True)
+
+        spool.write(b',"listings":[')
+        for batch in _iter_owned_batches(
+            db,
+            Listing,
+            user.id,
+            options=(selectinload(Listing.images), selectinload(Listing.platform_mappings)),
+        ):
+            for listing in batch:
+                item = ExportListing.model_validate(_export_listing(listing)).model_dump(mode="json")
+                _write_json_export_item(spool, item, first=counts["listings"] == 0)
+                counts["listings"] += 1
+        spool.write(b'],"platform_accounts":[')
+
+        for batch in _iter_owned_batches(db, PlatformAccount, user.id):
+            for account in batch:
+                item = PlatformAccountCreate.model_validate(
+                    {
+                        "platform": account.platform,
+                        "display_name": account.display_name,
+                        "mode": account.mode,
+                        "status": account.status,
+                        "connection_data": _sanitize_connection_data(account.connection_data or {}),
+                    }
+                ).model_dump(mode="json")
+                _write_json_export_item(spool, item, first=counts["platform_accounts"] == 0)
+                counts["platform_accounts"] += 1
+        spool.write(b'],"templates":[')
+
+        for batch in _iter_owned_batches(db, ListingTemplate, user.id):
+            for template in batch:
+                item = TemplateCreate.model_validate(
+                    {"name": template.name, "variant": template.variant, "platform": template.platform,
+                     "body": template.body}
+                ).model_dump(mode="json")
+                _write_json_export_item(spool, item, first=counts["templates"] == 0)
+                counts["templates"] += 1
+        spool.write(b'],"category_mappings":[')
+
+        for batch in _iter_owned_batches(db, CategoryMapping, user.id):
+            for category_mapping in batch:
+                item = CategoryMappingCreate.model_validate(
+                    {
+                        "source_category": category_mapping.source_category,
+                        "platform": category_mapping.platform,
+                        "platform_category": category_mapping.platform_category,
+                    }
+                ).model_dump(mode="json")
+                _write_json_export_item(spool, item, first=counts["category_mappings"] == 0)
+                counts["category_mappings"] += 1
+        spool.write(b"]}")
+        spool.seek(0)
+        record_audit_event(db, user, "data_exported", counts)
+        db.commit()
+    except Exception:
+        spool.close()
+        raise
+
+    def json_chunks():
+        try:
+            while chunk := spool.read(64 * 1024):
+                yield chunk
+        finally:
+            spool.close()
+
+    return StreamingResponse(
+        content=json_chunks(),
+        media_type="application/json",
+        background=BackgroundTask(spool.close),
     )
-    accounts = db.query(PlatformAccount).filter(PlatformAccount.owner_id == user.id).order_by(PlatformAccount.id).all()
-    templates = db.query(ListingTemplate).filter(ListingTemplate.owner_id == user.id).order_by(ListingTemplate.id).all()
-    category_mappings = (
-        db.query(CategoryMapping).filter(CategoryMapping.owner_id == user.id).order_by(CategoryMapping.id).all()
-    )
-    bundle = {
-        "version": "1",
-        "exported_at": datetime.now(UTC),
-        "user": user,
-        "listings": [_export_listing(listing) for listing in listings],
-        "platform_accounts": [
-            {
-                "platform": account.platform,
-                "display_name": account.display_name,
-                "mode": account.mode,
-                "status": account.status,
-                "connection_data": _sanitize_connection_data(account.connection_data or {}),
-            }
-            for account in accounts
-        ],
-        "templates": [
-            {"name": template.name, "variant": template.variant, "platform": template.platform, "body": template.body}
-            for template in templates
-        ],
-        "category_mappings": [
-            {
-                "source_category": category_mapping.source_category,
-                "platform": category_mapping.platform,
-                "platform_category": category_mapping.platform_category,
-            }
-            for category_mapping in category_mappings
-        ],
-    }
-    record_audit_event(
-        db,
-        user,
-        "data_exported",
-        {
-            "listings": len(listings),
-            "platform_accounts": len(accounts),
-            "templates": len(templates),
-            "category_mappings": len(category_mappings),
-        },
-    )
-    db.commit()
-    return bundle
 
 
 @router.get("/export/listings.csv", tags=["Data portability"])
 def export_listings_csv(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    listings = (
-        db.query(Listing)
-        .filter(Listing.owner_id == user.id)
-        .order_by(Listing.created_at.asc())
-        .all()
-    )
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=LISTING_CSV_FIELDS, lineterminator="\n")
-    writer.writeheader()
-    for listing in listings:
-        writer.writerow(_listing_csv_row(listing))
-    record_audit_event(db, user, "listings_csv_exported", {"listings": len(listings)})
-    db.commit()
-    return Response(
-        content=output.getvalue(),
+    listing_filter = Listing.owner_id == user.id
+    listing_count = db.query(func.count(Listing.id)).filter(listing_filter).scalar() or 0
+
+    spool = tempfile.SpooledTemporaryFile(max_size=EXPORT_SPOOL_MEMORY_BYTES, mode="w+b")
+    try:
+        output = io.StringIO(newline="")
+        writer = csv.DictWriter(output, fieldnames=LISTING_CSV_FIELDS, lineterminator="\n")
+        writer.writeheader()
+        spool.write(output.getvalue().encode("utf-8"))
+
+        result = db.execute(
+            select(Listing)
+            .where(listing_filter)
+            .order_by(Listing.created_at.asc(), Listing.id.asc())
+            .execution_options(stream_results=True, yield_per=EXPORT_DB_BATCH_SIZE)
+        )
+        try:
+            for listing in result.scalars():
+                output.seek(0)
+                output.truncate(0)
+                writer.writerow(_listing_csv_row(listing))
+                spool.write(output.getvalue().encode("utf-8"))
+        finally:
+            result.close()
+        spool.seek(0)
+        record_audit_event(db, user, "listings_csv_exported", {"listings": listing_count})
+        db.commit()
+    except Exception:
+        spool.close()
+        raise
+
+    def csv_chunks():
+        try:
+            while chunk := spool.read(64 * 1024):
+                yield chunk
+        finally:
+            spool.close()
+
+    return StreamingResponse(
+        content=csv_chunks(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="autoposter-listings.csv"'},
+        background=BackgroundTask(spool.close),
     )
 
 
 @router.post("/import/listings.csv", response_model=DataImportResult, tags=["Data portability"])
-async def import_listings_csv(
+def import_listings_csv(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    content = await file.read(2_000_000)
+    content = file.file.read(MAX_LISTING_CSV_BYTES + 1)
     if not content:
         raise HTTPException(status_code=422, detail="CSV file is empty")
-    text = content.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text))
-    if not reader.fieldnames:
-        raise HTTPException(status_code=422, detail="CSV file must include a header row")
-    missing_fields = set(LISTING_CSV_FIELDS) - set(reader.fieldnames)
-    if missing_fields:
-        raise HTTPException(status_code=422, detail=f"CSV file is missing fields: {', '.join(sorted(missing_fields))}")
-
+    if len(content) > MAX_LISTING_CSV_BYTES:
+        raise HTTPException(status_code=413, detail=f"CSV exceeds {MAX_LISTING_CSV_BYTES:,} byte limit")
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=422, detail="CSV file must use UTF-8 encoding") from exc
+    reader = csv.DictReader(io.StringIO(text), strict=True)
     result = DataImportResult()
-    for row_number, row in enumerate(reader, start=2):
-        try:
-            listing_payload = _listing_from_csv_row(row)
-        except (ValidationError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail=f"CSV row {row_number}: {exc}") from exc
-        db.add(Listing(owner_id=user.id, **listing_payload.model_dump()))
-        result.listings_created += 1
+    try:
+        if not reader.fieldnames:
+            raise HTTPException(status_code=422, detail="CSV file must include a header row")
+        missing_fields = set(LISTING_CSV_FIELDS) - set(reader.fieldnames)
+        if missing_fields:
+            raise HTTPException(
+                status_code=422, detail=f"CSV file is missing fields: {', '.join(sorted(missing_fields))}",
+            )
+        for row_number, row in enumerate(reader, start=2):
+            try:
+                listing_payload = _listing_from_csv_row(row)
+            except (ValidationError, ValueError) as exc:
+                raise HTTPException(status_code=422, detail=f"CSV row {row_number}: {exc}") from exc
+            db.add(Listing(owner_id=user.id, **listing_payload.model_dump()))
+            result.listings_created += 1
+    except csv.Error as exc:
+        raise HTTPException(status_code=422, detail="CSV is malformed or contains an oversized field") from exc
     record_audit_event(db, user, "listings_csv_imported", {"listings_created": result.listings_created})
     db.commit()
     return result
@@ -1118,25 +1414,31 @@ async def import_listings_csv(
 
 @router.get("/export/images.zip", tags=["Data portability"])
 def export_images_zip(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    listings = (
-        db.query(Listing)
-        .options(selectinload(Listing.images))
-        .filter(Listing.owner_id == user.id)
-        .order_by(Listing.created_at.asc())
-        .all()
-    )
-    archive_bytes, manifest = _image_export_archive(listings)
-    record_audit_event(
-        db,
-        user,
-        "images_exported",
-        {"images": len(manifest["images"]), "missing": len(manifest["missing"])},
-    )
-    db.commit()
-    return Response(
-        content=archive_bytes,
+    archive_file, image_count, missing_count = _image_export_archive(db, user.id)
+    try:
+        record_audit_event(
+            db,
+            user,
+            "images_exported",
+            {"images": image_count, "missing": missing_count},
+        )
+        db.commit()
+    except Exception:
+        archive_file.close()
+        raise
+
+    def archive_chunks():
+        try:
+            while chunk := archive_file.read(64 * 1024):
+                yield chunk
+        finally:
+            archive_file.close()
+
+    return StreamingResponse(
+        content=archive_chunks(),
         media_type="application/zip",
         headers={"Content-Disposition": 'attachment; filename="autoposter-images.zip"'},
+        background=BackgroundTask(archive_file.close),
     )
 
 

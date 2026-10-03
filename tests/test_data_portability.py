@@ -1,11 +1,19 @@
+import asyncio
+import csv
 import io
 import json
+import random
 import uuid
 import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import httpx
+import pytest
+from sqlalchemy.exc import OperationalError
+
 from app.database import Base, SessionLocal, engine
+from app.main import app
 from app.models import (
     AuditEvent,
     CategoryMapping,
@@ -15,8 +23,11 @@ from app.models import (
     PlatformAccount,
     PlatformOAuthState,
     PublishingJob,
+    StorageDeletion,
     User,
 )
+from app.routes.auth import delete_user_data
+from app.schemas import DataExportBundle
 from app.services.audit import purge_expired_audit_events, record_audit_event
 from tests.test_api import PNG_BYTES, client
 
@@ -37,6 +48,77 @@ def auth_headers(prefix: str):
     )
     assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['token']}"}
+
+
+def create_account_deletion_image(headers):
+    response = client.post("/api/listings", headers=headers, json={"title": "Deletion safety"})
+    assert response.status_code == 200, response.text
+    listing_id = response.json()["id"]
+    response = client.post(
+        f"/api/listings/{listing_id}/images",
+        headers=headers,
+        files={"file": ("keep-until-committed.png", PNG_BYTES, "image/png")},
+    )
+    assert response.status_code == 200, response.text
+    image_id = response.json()["images"][0]["id"]
+    with SessionLocal() as db:
+        storage_path = db.get(ListingImage, image_id).storage_path
+        owner_id = db.get(Listing, listing_id).owner_id
+    return owner_id, listing_id, image_id, Path(storage_path)
+
+
+def test_failed_account_deletion_commit_preserves_uploaded_image(monkeypatch):
+    headers = auth_headers("rollback")
+    owner_id, listing_id, image_id, path = create_account_deletion_image(headers)
+
+    def fail_commit():
+        raise OperationalError("COMMIT", {}, RuntimeError("injected commit failure"))
+
+    with SessionLocal() as db:
+        user = db.get(User, owner_id)
+        monkeypatch.setattr(db, "commit", fail_commit)
+        with pytest.raises(OperationalError, match="injected commit failure"):
+            delete_user_data(db, user)
+        db.rollback()
+
+    with SessionLocal() as db:
+        assert db.get(User, owner_id) is not None
+        assert db.get(Listing, listing_id) is not None
+        assert db.get(ListingImage, image_id) is not None
+        assert db.query(StorageDeletion).count() == 0
+        assert db.query(AuditEvent).filter(AuditEvent.action == "account_deleted").count() == 0
+    assert path.is_file(), "A rolled-back account deletion must not destroy the uploaded image"
+    assert path.read_bytes() == PNG_BYTES
+    response = client.get(f"/api/listings/{listing_id}/images/{image_id}/content", headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.content == PNG_BYTES
+
+
+def test_account_deletion_preserves_image_referenced_by_another_account():
+    headers = auth_headers("shared-delete")
+    owner_id, _, _, path = create_account_deletion_image(headers)
+    other_headers = auth_headers("shared-keep")
+    response = client.post("/api/listings", headers=other_headers, json={"title": "Keep shared image"})
+    assert response.status_code == 200, response.text
+    other_listing_id = response.json()["id"]
+    # Legacy/imported rows may share a stored object even though new duplicates copy it.
+    with SessionLocal() as db:
+        image = ListingImage(listing_id=other_listing_id, storage_path=str(path), filename="shared.png")
+        db.add(image)
+        db.commit()
+        other_image_id = image.id
+
+    response = client.delete("/api/auth/me", headers=headers)
+    assert response.status_code == 204, response.text
+    with SessionLocal() as db:
+        assert db.get(User, owner_id) is None
+        assert db.get(ListingImage, other_image_id) is not None
+    assert path.is_file(), "Deleting one account must preserve another account's referenced image"
+    response = client.get(
+        f"/api/listings/{other_listing_id}/images/{other_image_id}/content", headers=other_headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.content == PNG_BYTES
 
 
 def create_portable_workspace(headers):
@@ -233,6 +315,100 @@ def test_listing_csv_export_and_import_round_trip():
         db.close()
 
 
+def test_json_export_handles_large_bundle_with_bounded_spool():
+    headers = auth_headers("large-json-export")
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.email.like("large-json-export-%")).one()
+        db.add_all(
+            Listing(owner_id=user.id, title=f"Large JSON export {index}", description="x" * 70_000)
+            for index in range(64)
+        )
+        db.commit()
+
+    response = client.get("/api/export", headers=headers)
+
+    assert response.status_code == 200, response.text[:500]
+    assert len(response.content) > 4 * 1024 * 1024
+    bundle = DataExportBundle.model_validate(response.json())
+    assert len(bundle.listings) == 64
+    assert bundle.listings[0].description == "x" * 70_000
+
+
+def test_listing_csv_export_handles_large_output_with_bounded_spool():
+    headers = auth_headers("csv-large-export")
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.email.like("csv-large-export-%")).one()
+        db.add_all(
+            Listing(owner_id=user.id, title=f"Large export {index}", description="x" * 70_000)
+            for index in range(64)
+        )
+        db.commit()
+
+    response = client.get("/api/export/listings.csv", headers=headers)
+
+    assert response.status_code == 200, response.text[:500]
+    assert len(response.content) > 4 * 1024 * 1024
+    assert sum(1 for _ in csv.reader(io.StringIO(response.text))) == 65
+
+
+def test_listing_csv_export_neutralizes_spreadsheet_formulas():
+    headers = auth_headers("csv-formula")
+    created = client.post(
+        "/api/listings",
+        headers=headers,
+        json={"title": "  =HYPERLINK(\"https://example.invalid\")", "price_cents": 125,
+              "category": "@SUM(1,2)", "location": "\t+cmd"},
+    )
+    assert created.status_code == 200, created.text
+    response = client.get("/api/export/listings.csv", headers=headers)
+    assert response.status_code == 200
+    assert "'  =HYPERLINK" in response.text
+    assert "'@SUM" in response.text
+    assert "'\t+cmd" in response.text
+    # Numeric values remain numeric rather than being escaped as text.
+    assert ",125," in response.text
+
+
+def test_json_import_rejects_excessive_record_count_without_creating_data():
+    headers = auth_headers("json-import-count")
+    response = client.post("/api/import", headers=headers, json={"listings": [{}] * 1001})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert client.get("/api/listings", headers=headers).json() == []
+
+
+def test_json_import_rejects_oversized_request_body():
+    from app.middleware import IMPORT_BODY_LIMIT_BYTES
+
+    headers = auth_headers("json-import-size")
+    response = client.post(
+        "/api/import", headers={**headers, "Content-Type": "application/json"},
+        content=b" " * (IMPORT_BODY_LIMIT_BYTES + 1),
+    )
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "PAYLOAD_TOO_LARGE"
+    assert client.get("/api/listings", headers=headers).json() == []
+
+
+def test_json_import_streaming_limit_cannot_be_bypassed_without_content_length():
+    from app.middleware import IMPORT_BODY_LIMIT_BYTES
+
+    headers = {**auth_headers("json-import-stream"), "Content-Type": "application/json"}
+
+    async def run_request():
+        async def body_chunks():
+            yield b" " * (IMPORT_BODY_LIMIT_BYTES // 2)
+            yield b" " * (IMPORT_BODY_LIMIT_BYTES // 2 + 1)
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http:
+            return await http.post("/api/import", headers=headers, content=body_chunks())
+
+    response = asyncio.run(run_request())
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "PAYLOAD_TOO_LARGE"
+
+
 def test_image_zip_export_contains_manifest_and_owned_images():
     headers = auth_headers("image-export")
     create_portable_workspace(headers)
@@ -266,6 +442,30 @@ def test_image_zip_export_contains_manifest_and_owned_images():
         assert event.event_data == {"images": 1, "missing": 0}
     finally:
         db.close()
+
+
+def test_image_zip_export_handles_large_archive_with_bounded_spool():
+    headers = auth_headers("large-image-export")
+    listing_response = client.post("/api/listings", headers=headers, json={"title": "Large image export"})
+    assert listing_response.status_code == 200, listing_response.text
+    listing_id = listing_response.json()["id"]
+    payload = PNG_BYTES[:8] + random.Random(20261003).randbytes(5 * 1024 * 1024 - 8)
+    image_response = client.post(
+        f"/api/listings/{listing_id}/images",
+        headers=headers,
+        files={"file": ("large.png", payload, "image/png")},
+    )
+    assert image_response.status_code == 200, image_response.text
+
+    response = client.get("/api/export/images.zip", headers=headers)
+
+    assert response.status_code == 200, response.text[:500]
+    assert len(response.content) > 4 * 1024 * 1024
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+        assert len(manifest["images"]) == 1
+        assert manifest["missing"] == []
+        assert archive.read(manifest["images"][0]["archive_path"]) == payload
 
 
 def test_image_zip_export_reports_object_storage_images_in_manifest():
@@ -341,7 +541,10 @@ def test_delete_me_purges_owned_data_and_revokes_session():
         files={"file": ("cabinet.png", PNG_BYTES, "image/png")},
     )
     assert image_response.status_code == 200, image_response.text
-    image_path = image_response.json()["images"][0]["storage_path"]
+    image_id = image_response.json()["images"][0]["id"]
+    with SessionLocal() as db:
+        image_path = db.query(ListingImage.storage_path).filter(ListingImage.id == image_id).scalar()
+    assert image_path
     publish_response = client.post(
         f"/api/listings/{listing['id']}/publish",
         headers=headers,

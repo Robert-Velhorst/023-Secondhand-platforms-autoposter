@@ -1,18 +1,26 @@
 const state = {
   token: localStorage.getItem("autoposterToken"),
   user: null,
+  authPending: false,
   platforms: [],
   listings: [],
+  recentListings: [],
   jobs: [],
+  latestJobs: [],
   accounts: [],
   templates: [],
   categoryMappings: [],
   auditEvents: [],
+  haiTokens: [],
+  newHaiToken: null,
   analytics: null,
+  actionCenter: null,
   validationResults: {},
   qualityResult: null,
   selectedListingId: null,
   selectedPlatforms: new Set(),
+  imageObjectUrls: [],
+  imageRenderGeneration: 0,
   listingQuery: {
     search: "",
     status: "",
@@ -64,6 +72,10 @@ const state = {
   pendingRequests: 0,
   locale: localStorage.getItem("autoposterLocale") || document.documentElement.lang || "en",
   localization: null,
+  autosave: {
+    timerId: null,
+    inFlight: false,
+  },
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -75,6 +87,9 @@ const COPY_CATALOG = {
     "auth.name": "Name",
     "auth.signIn": "Sign in",
     "auth.createAccount": "Create account",
+    "auth.retrySession": "Retry session check",
+    "auth.sessionCheckFailed": "Your session could not be checked. Retry when the connection is available.",
+    "auth.timeout": "The request timed out. Please try again.",
     "nav.dashboard": "Dashboard",
     "nav.listings": "Listings",
     "nav.queue": "Queue",
@@ -84,6 +99,113 @@ const COPY_CATALOG = {
     "nav.language": "Language",
     "status.checking": "Checking",
     "status.offline": "Offline",
+    "status.draft": "Draft",
+    "status.ready": "Ready",
+    "status.published": "Published",
+    "status.archived": "Archived",
+    "status.queued": "Queued",
+    "status.processing": "Processing",
+    "status.needsUserAction": "Needs action",
+    "status.completed": "Completed",
+    "status.failed": "Failed",
+    "status.needsSetup": "Needs setup",
+    "status.needsTokenExchange": "Needs token exchange",
+    "status.connected": "Connected",
+    "status.disabled": "Disabled",
+    "status.skipped": "Skipped",
+    "status.validated": "Validated",
+    "status.manual": "Manual",
+    "status.assisted": "Assisted",
+    "status.critical": "Critical",
+    "status.warning": "Warning",
+    "status.tip": "Tip",
+    "status.good": "Good",
+    "status.fair": "Fair",
+    "status.needsWork": "Needs work",
+    "status.blocked": "Blocked",
+    "status.ok": "OK",
+    "status.error": "Error",
+    "status.paused": "Paused",
+    "filters.all": "All",
+    "filters.allStatuses": "All statuses",
+    "filters.allPlatforms": "All platforms",
+    "sort.newestUpdated": "Newest updated",
+    "sort.oldestUpdated": "Oldest updated",
+    "sort.titleAZ": "Title A-Z",
+    "sort.highestPrice": "Highest price",
+    "sort.lowestPrice": "Lowest price",
+    "sort.newest": "Newest",
+    "sort.oldest": "Oldest",
+    "sort.platformAZ": "Platform A-Z",
+    "sort.statusAZ": "Status A-Z",
+    "sort.recentlyFinished": "Recently finished",
+    "sort.nameAZ": "Name A-Z",
+    "sort.nameZA": "Name Z-A",
+    "sort.variantAZ": "Variant A-Z",
+    "sort.sourceAZ": "Source A-Z",
+    "sort.sourceZA": "Source Z-A",
+    "sort.targetAZ": "Target A-Z",
+    "condition.new": "New",
+    "condition.asNew": "As new",
+    "condition.good": "Good",
+    "condition.used": "Used",
+    "condition.fair": "Fair",
+    "condition.damaged": "Damaged",
+    "condition.forParts": "For parts",
+    "condition.other": "Other",
+    "action.edit": "Edit",
+    "action.fix": "Fix",
+    "action.copy": "Copy",
+    "action.done": "Done",
+    "action.open": "Open",
+    "action.copyPackage": "Copy package",
+    "templates.choose": "Choose template",
+    "templates.noSaved": "No templates saved.",
+    "mappings.noSaved": "No category mappings saved.",
+    "dashboard.noListings": "No listings yet.",
+    "dashboard.noJobs": "No jobs yet.",
+    "dashboard.loadingActions": "Loading next actions...",
+    "dashboard.noOutstandingActions": "No outstanding actions.",
+    "dashboard.noData": "No data",
+    "dashboard.noRecurringFixes": "No recurring fixes",
+    "dashboard.noInsights": "No insights yet.",
+    "dashboard.quality": "Quality",
+    "dashboard.inventoryValue": "Inventory value",
+    "dashboard.averagePrice": "Avg price",
+    "dashboard.missingImages": "Missing images",
+    "dashboard.qualityGrades": "Quality grades",
+    "dashboard.selectedPlatforms": "Selected platforms",
+    "dashboard.jobOutcomes": "Job outcomes",
+    "dashboard.commonFixes": "Common fixes",
+    "dashboard.stepCreateListing": "Create your first reusable listing",
+    "dashboard.stepAddImage": "Add at least one item image",
+    "dashboard.stepSelectPlatform": "Select and validate a marketplace",
+    "dashboard.stepQueuePackage": "Queue an assisted posting package",
+    "dashboard.stepRecordCompletion": "Record the final marketplace URL after manual posting",
+    "quality.notChecked": "Not checked",
+    "images.noUploaded": "No images uploaded.",
+    "review.noMappedFields": "No mapped fields returned.",
+    "templates.apply": "Apply template",
+    "listing.untitled": "Untitled listing",
+    "listing.noCategory": "No category",
+    "listing.identifier": "Listing",
+    "listing.attempt": "Attempt",
+    "review.prepublish": "Prepublish review",
+    "review.notChecked": "Not checked",
+    "review.runValidation": "Run validation to build the copy-ready posting package.",
+    "review.openPlatform": "Open platform",
+    "review.missing": "Missing",
+    "review.requiredPresent": "Required fields are present.",
+    "review.compliance": "Compliance",
+    "review.platformDescription": "Platform description variant",
+    "platform.readyForValidation": "Ready for validation",
+    "platform.preparedFields": "prepared fields",
+    "platform.manualSubmit": "manual submit",
+    "platform.apiSubmit": "API submission",
+    "platform.apiCandidate": "API candidate",
+    "empty.assistedPackages": "No assisted packages queued.",
+    "empty.platformAccounts": "No platform accounts.",
+    "templates.default": "default",
     "action.newListing": "New listing",
     "action.refresh": "Refresh",
     "action.previous": "Previous",
@@ -100,6 +222,8 @@ const COPY_CATALOG = {
     "dashboard.localOnly": "Local only",
     "dashboard.recentListings": "Recent listings",
     "dashboard.latestJobs": "Latest jobs",
+    "dashboard.actionCenter": "Getting started and action center",
+    "dashboard.derivedLocal": "Derived locally",
     "metric.listings": "Listings",
     "metric.ready": "Ready",
     "metric.needAction": "Need action",
@@ -127,6 +251,8 @@ const COPY_CATALOG = {
     "label.template": "Template",
     "label.description": "Description",
     "label.deliveryOptions": "Delivery options",
+    "hint.deliveryOptions": "Pickup and shipping selections are included automatically; add extra details only if needed.",
+    "hint.deliveryOptionsMissing": "Choose pickup and/or shipping above, or add delivery details.",
     "label.dimensions": "Dimensions",
     "label.notes": "Notes",
     "label.internalNotes": "Internal notes",
@@ -137,6 +263,10 @@ const COPY_CATALOG = {
     "queue.title": "Assisted package queue",
     "queue.liveOn": "Live refresh on",
     "queue.pause": "Pause live refresh",
+    "queue.resume": "Resume live refresh",
+    "queue.livePaused": "Live refresh paused",
+    "queue.updated": "Updated",
+    "queue.waiting": "Waiting for first refresh",
     "queue.manualCompletion": "Confirm manual completion",
     "queue.platformUrl": "Marketplace listing URL",
     "queue.platformListingId": "Marketplace listing ID",
@@ -160,6 +290,16 @@ const COPY_CATALOG = {
     "settings.importJson": "Import JSON",
     "settings.importCsv": "Import listings CSV",
     "settings.diagnostics": "Diagnostics",
+    "settings.hai": "HAI connection",
+    "settings.haiHelp": "Download a listing file for HAI's local JSON feed. Connector tokens below are for a custom authenticated adapter; HAI's current HTTP reader cannot use them directly.",
+    "settings.haiDownload": "Download HAI feed",
+    "settings.haiDownloadHelp": "Contains your current listing text and safe metadata, without private notes or image files. Maximum 5 MiB; oversized exports fail without a partial file. Importing requires HAI operator setup. This is not automatic sync and does not delete previously imported HAI records.",
+    "settings.haiPreparing": "Preparing HAI feed…",
+    "settings.haiReady": "HAI feed downloaded. Ask your HAI operator to import this file; automatic sync is not configured.",
+    "settings.haiFailed": "HAI feed download failed. No file was exported.",
+    "settings.haiName": "Connection name",
+    "settings.haiExpiry": "Expires after",
+    "settings.haiCreate": "Create read-only token",
     "settings.runDiagnostics": "Run diagnostics",
     "settings.notRun": "Not run yet.",
     "settings.privacy": "Privacy",
@@ -174,6 +314,9 @@ const COPY_CATALOG = {
     "auth.name": "Naam",
     "auth.signIn": "Inloggen",
     "auth.createAccount": "Account maken",
+    "auth.retrySession": "Sessie opnieuw controleren",
+    "auth.sessionCheckFailed": "Je sessie kon niet worden gecontroleerd. Probeer het opnieuw zodra de verbinding beschikbaar is.",
+    "auth.timeout": "Het verzoek duurde te lang. Probeer het opnieuw.",
     "nav.dashboard": "Dashboard",
     "nav.listings": "Advertenties",
     "nav.queue": "Wachtrij",
@@ -183,6 +326,113 @@ const COPY_CATALOG = {
     "nav.language": "Taal",
     "status.checking": "Controleren",
     "status.offline": "Offline",
+    "status.draft": "Concept",
+    "status.ready": "Klaar",
+    "status.published": "Gepubliceerd",
+    "status.archived": "Gearchiveerd",
+    "status.queued": "In wachtrij",
+    "status.processing": "Wordt verwerkt",
+    "status.needsUserAction": "Actie nodig",
+    "status.completed": "Voltooid",
+    "status.failed": "Mislukt",
+    "status.needsSetup": "Inrichting nodig",
+    "status.needsTokenExchange": "Tokenuitwisseling nodig",
+    "status.connected": "Verbonden",
+    "status.disabled": "Uitgeschakeld",
+    "status.skipped": "Overgeslagen",
+    "status.validated": "Gevalideerd",
+    "status.manual": "Handmatig",
+    "status.assisted": "Met assistentie",
+    "status.critical": "Kritiek",
+    "status.warning": "Waarschuwing",
+    "status.tip": "Tip",
+    "status.good": "Goed",
+    "status.fair": "Redelijk",
+    "status.needsWork": "Verbetering nodig",
+    "status.blocked": "Geblokkeerd",
+    "status.ok": "In orde",
+    "status.error": "Fout",
+    "status.paused": "Gepauzeerd",
+    "filters.all": "Alle",
+    "filters.allStatuses": "Alle statussen",
+    "filters.allPlatforms": "Alle platforms",
+    "sort.newestUpdated": "Nieuwst bijgewerkt",
+    "sort.oldestUpdated": "Oudst bijgewerkt",
+    "sort.titleAZ": "Titel A-Z",
+    "sort.highestPrice": "Hoogste prijs",
+    "sort.lowestPrice": "Laagste prijs",
+    "sort.newest": "Nieuwste",
+    "sort.oldest": "Oudste",
+    "sort.platformAZ": "Platform A-Z",
+    "sort.statusAZ": "Status A-Z",
+    "sort.recentlyFinished": "Onlangs afgerond",
+    "sort.nameAZ": "Naam A-Z",
+    "sort.nameZA": "Naam Z-A",
+    "sort.variantAZ": "Variant A-Z",
+    "sort.sourceAZ": "Bron A-Z",
+    "sort.sourceZA": "Bron Z-A",
+    "sort.targetAZ": "Doel A-Z",
+    "condition.new": "Nieuw",
+    "condition.asNew": "Als nieuw",
+    "condition.good": "Goed",
+    "condition.used": "Gebruikt",
+    "condition.fair": "Redelijk",
+    "condition.damaged": "Beschadigd",
+    "condition.forParts": "Voor onderdelen",
+    "condition.other": "Anders",
+    "action.edit": "Bewerken",
+    "action.fix": "Herstellen",
+    "action.copy": "Kopiëren",
+    "action.done": "Klaar",
+    "action.open": "Openen",
+    "action.copyPackage": "Pakket kopiëren",
+    "templates.choose": "Sjabloon kiezen",
+    "templates.noSaved": "Geen sjablonen opgeslagen.",
+    "mappings.noSaved": "Geen categoriemappings opgeslagen.",
+    "dashboard.noListings": "Nog geen advertenties.",
+    "dashboard.noJobs": "Nog geen taken.",
+    "dashboard.loadingActions": "Volgende acties laden...",
+    "dashboard.noOutstandingActions": "Geen openstaande acties.",
+    "dashboard.noData": "Geen gegevens",
+    "dashboard.noRecurringFixes": "Geen terugkerende verbeterpunten",
+    "dashboard.noInsights": "Nog geen inzichten.",
+    "dashboard.quality": "Kwaliteit",
+    "dashboard.inventoryValue": "Voorraadwaarde",
+    "dashboard.averagePrice": "Gemiddelde prijs",
+    "dashboard.missingImages": "Ontbrekende afbeeldingen",
+    "dashboard.qualityGrades": "Kwaliteitsniveaus",
+    "dashboard.selectedPlatforms": "Geselecteerde platforms",
+    "dashboard.jobOutcomes": "Taakresultaten",
+    "dashboard.commonFixes": "Veelvoorkomende verbeterpunten",
+    "dashboard.stepCreateListing": "Maak je eerste herbruikbare advertentie",
+    "dashboard.stepAddImage": "Voeg minstens één productafbeelding toe",
+    "dashboard.stepSelectPlatform": "Selecteer een platform en controleer de advertentie",
+    "dashboard.stepQueuePackage": "Zet een assistentiepakket in de wachtrij",
+    "dashboard.stepRecordCompletion": "Leg na handmatig plaatsen de definitieve marketplace-URL vast",
+    "quality.notChecked": "Niet gecontroleerd",
+    "images.noUploaded": "Geen afbeeldingen geüpload.",
+    "review.noMappedFields": "Er zijn geen gekoppelde velden teruggekomen.",
+    "templates.apply": "Sjabloon toepassen",
+    "listing.untitled": "Advertentie zonder titel",
+    "listing.noCategory": "Geen categorie",
+    "listing.identifier": "Advertentie",
+    "listing.attempt": "Poging",
+    "review.prepublish": "Controle vóór plaatsen",
+    "review.notChecked": "Niet gecontroleerd",
+    "review.runValidation": "Valideer om het pakket met plaatsingsgegevens op te bouwen.",
+    "review.openPlatform": "Platform openen",
+    "review.missing": "Ontbreekt",
+    "review.requiredPresent": "Alle verplichte velden zijn ingevuld.",
+    "review.compliance": "Naleving",
+    "review.platformDescription": "Beschrijving voor dit platform",
+    "platform.readyForValidation": "Klaar voor controle",
+    "platform.preparedFields": "velden voorbereid",
+    "platform.manualSubmit": "Handmatige indiening",
+    "platform.apiSubmit": "API-indiening",
+    "platform.apiCandidate": "API-kandidaat",
+    "empty.assistedPackages": "Er staan geen assistentiepakketten in de wachtrij.",
+    "empty.platformAccounts": "Geen platformaccounts.",
+    "templates.default": "standaard",
     "action.newListing": "Nieuwe advertentie",
     "action.refresh": "Vernieuwen",
     "action.previous": "Vorige",
@@ -199,6 +449,8 @@ const COPY_CATALOG = {
     "dashboard.localOnly": "Alleen lokaal",
     "dashboard.recentListings": "Recente advertenties",
     "dashboard.latestJobs": "Laatste taken",
+    "dashboard.actionCenter": "Aan de slag en actiecentrum",
+    "dashboard.derivedLocal": "Lokaal afgeleid",
     "metric.listings": "Advertenties",
     "metric.ready": "Klaar",
     "metric.needAction": "Actie nodig",
@@ -226,6 +478,8 @@ const COPY_CATALOG = {
     "label.template": "Sjabloon",
     "label.description": "Beschrijving",
     "label.deliveryOptions": "Leveringsopties",
+    "hint.deliveryOptions": "Ophalen en verzenden worden automatisch opgenomen; voeg alleen extra details toe als dat nodig is.",
+    "hint.deliveryOptionsMissing": "Kies hierboven ophalen en/of verzenden, of voeg bezorggegevens toe.",
     "label.dimensions": "Afmetingen",
     "label.notes": "Notities",
     "label.internalNotes": "Interne notities",
@@ -236,6 +490,10 @@ const COPY_CATALOG = {
     "queue.title": "Wachtrij voor assistentiepakketten",
     "queue.liveOn": "Live verversen aan",
     "queue.pause": "Live verversen pauzeren",
+    "queue.resume": "Live verversen hervatten",
+    "queue.livePaused": "Live verversen gepauzeerd",
+    "queue.updated": "Bijgewerkt",
+    "queue.waiting": "Wacht op de eerste verversing",
     "queue.manualCompletion": "Handmatige voltooiing bevestigen",
     "queue.platformUrl": "Marketplace-advertentie URL",
     "queue.platformListingId": "Marketplace-advertentie ID",
@@ -259,6 +517,16 @@ const COPY_CATALOG = {
     "settings.importJson": "JSON importeren",
     "settings.importCsv": "Advertenties CSV importeren",
     "settings.diagnostics": "Diagnostiek",
+    "settings.hai": "HAI-koppeling",
+    "settings.haiHelp": "Download een advertentiebestand voor de lokale JSON-feed van HAI. De koppeltokens hieronder zijn voor een aparte geauthenticeerde adapter; de huidige HTTP-lezer van HAI kan ze niet rechtstreeks gebruiken.",
+    "settings.haiDownload": "HAI-feed downloaden",
+    "settings.haiDownloadHelp": "Bevat je huidige advertentietekst en veilige metadata, zonder privénotities of afbeeldingsbestanden. Maximaal 5 MiB; bij een te grote export wordt geen gedeeltelijk bestand gemaakt. Importeren vereist inrichting door je HAI-beheerder. Dit is geen automatische synchronisatie en verwijdert geen eerder geïmporteerde HAI-records.",
+    "settings.haiPreparing": "HAI-feed voorbereiden…",
+    "settings.haiReady": "HAI-feed gedownload. Vraag je HAI-beheerder dit bestand te importeren; automatische synchronisatie is niet ingesteld.",
+    "settings.haiFailed": "Downloaden van de HAI-feed is mislukt. Er is geen bestand geëxporteerd.",
+    "settings.haiName": "Naam van koppeling",
+    "settings.haiExpiry": "Verloopt na",
+    "settings.haiCreate": "Alleen-lezen token maken",
     "settings.runDiagnostics": "Diagnostiek uitvoeren",
     "settings.notRun": "Nog niet uitgevoerd.",
     "settings.privacy": "Privacy",
@@ -275,6 +543,83 @@ let mappingSearchTimer = null;
 
 function t(key) {
   return COPY_CATALOG[state.locale]?.[key] || COPY_CATALOG.en[key] || key;
+}
+
+const STATUS_COPY_KEYS = {
+  draft: "status.draft",
+  ready: "status.ready",
+  published: "status.published",
+  archived: "status.archived",
+  queued: "status.queued",
+  processing: "status.processing",
+  needs_user_action: "status.needsUserAction",
+  completed: "status.completed",
+  failed: "status.failed",
+  needs_setup: "status.needsSetup",
+  needs_token_exchange: "status.needsTokenExchange",
+  connected: "status.connected",
+  disabled: "status.disabled",
+  skipped: "status.skipped",
+  validated: "status.validated",
+  manual: "status.manual",
+  assisted: "status.assisted",
+  critical: "status.critical",
+  warning: "status.warning",
+  tip: "status.tip",
+  good: "status.good",
+  fair: "status.fair",
+  needs_work: "status.needsWork",
+  blocked: "status.blocked",
+  ok: "status.ok",
+  error: "status.error",
+  paused: "status.paused",
+};
+
+const FIELD_COPY_KEYS = {
+  title: "label.title",
+  description: "label.description",
+  price: "label.price",
+  price_cents: "label.price",
+  condition: "label.condition",
+  category: "label.category",
+  location: "label.location",
+  tags: "label.tags",
+  brand: "label.brand",
+  model: "label.model",
+  color: "label.color",
+  material: "label.material",
+  category_attributes: "label.categoryAttributes",
+  weight_grams: "label.weightGrams",
+  shipping_cost_cents: "label.shippingCost",
+  pickup_allowed: "label.pickup",
+  shipping_allowed: "label.shipping",
+  delivery_options: "label.deliveryOptions",
+  dimensions: "label.dimensions",
+  notes: "label.notes",
+  internal_notes: "label.internalNotes",
+  images: "images.title",
+  image_filenames: "images.title",
+  status: "label.status",
+};
+
+const ONBOARDING_STEP_COPY_KEYS = {
+  "create-listing": "dashboard.stepCreateListing",
+  "add-image": "dashboard.stepAddImage",
+  "select-platform": "dashboard.stepSelectPlatform",
+  "queue-package": "dashboard.stepQueuePackage",
+  "record-completion": "dashboard.stepRecordCompletion",
+};
+
+function localizedFieldLabel(value) {
+  const raw = String(value || "");
+  const key = FIELD_COPY_KEYS[raw.toLowerCase()];
+  return key ? t(key) : raw.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function localizedStatus(status) {
+  const value = String(status || "");
+  const key = STATUS_COPY_KEYS[value.toLowerCase()];
+  return key ? t(key) : formatFieldLabel(value);
 }
 
 function applyTranslations() {
@@ -521,7 +866,8 @@ async function loadAll() {
     templateResult,
     categoryMappingResult,
     auditResult,
-    analytics,
+    haiTokens,
+    dashboard,
   ] = await Promise.all([
     api("/platforms"),
     apiWithMeta(listingQueryPath()),
@@ -530,7 +876,8 @@ async function loadAll() {
     apiWithMeta(templateQueryPath()),
     apiWithMeta(mappingQueryPath()),
     api("/audit-events?limit=8"),
-    api("/analytics"),
+    api("/hai/tokens"),
+    api("/dashboard"),
   ]);
   state.platforms = platforms;
   state.listings = listingResult.data;
@@ -543,10 +890,14 @@ async function loadAll() {
   state.templateQuery.total = Number(templateResult.headers.get("X-Total-Count") || state.templates.length);
   state.categoryMappings = categoryMappingResult.data;
   state.auditEvents = auditResult;
+  state.haiTokens = haiTokens;
   state.mappingQuery.total = Number(
     categoryMappingResult.headers.get("X-Total-Count") || state.categoryMappings.length
   );
-  state.analytics = analytics;
+  state.analytics = dashboard.analytics;
+  state.actionCenter = dashboard.action_center;
+  state.recentListings = dashboard.recent_listings;
+  state.latestJobs = dashboard.latest_jobs;
   if (state.selectedListingId && !state.listings.some((listing) => listing.id === state.selectedListingId)) {
     selectListing(null);
   }
@@ -555,14 +906,72 @@ async function loadAll() {
   scheduleJobPolling();
 }
 
+async function loadRequestedListing() {
+  const requestedId = Number(new URLSearchParams(window.location.search).get("listing"));
+  if (!Number.isInteger(requestedId) || requestedId < 1) return;
+  let listing = state.listings.find((item) => item.id === requestedId);
+  if (!listing) {
+    listing = await api(`/listings/${requestedId}`);
+    state.listings = [listing, ...state.listings.filter((item) => item.id !== requestedId)];
+  }
+  selectListing(requestedId);
+  show("listings");
+  renderListings();
+}
+
+async function loadListingPage() {
+  const result = await apiWithMeta(listingQueryPath());
+  state.listings = result.data;
+  state.listingQuery.total = Number(result.headers.get("X-Total-Count") || state.listings.length);
+  if (state.selectedListingId && !state.listings.some((listing) => listing.id === state.selectedListingId)) {
+    selectListing(null);
+  }
+  if (!state.selectedListingId && state.listings.length) selectListing(state.listings[0].id, { resetReview: false });
+  renderListings();
+}
+
+async function loadJobPage() {
+  const result = await apiWithMeta(jobQueryPath());
+  state.jobs = result.data;
+  state.jobQuery.total = Number(result.headers.get("X-Total-Count") || state.jobs.length);
+  renderJobs();
+}
+
+async function loadAccountPage() {
+  const result = await apiWithMeta(accountQueryPath());
+  state.accounts = result.data;
+  state.accountQuery.total = Number(result.headers.get("X-Total-Count") || state.accounts.length);
+  renderAccounts();
+}
+
+async function loadTemplatePage() {
+  const result = await apiWithMeta(templateQueryPath());
+  state.templates = result.data;
+  state.templateQuery.total = Number(result.headers.get("X-Total-Count") || state.templates.length);
+  renderSettings();
+}
+
+async function loadMappingPage() {
+  const result = await apiWithMeta(mappingQueryPath());
+  state.categoryMappings = result.data;
+  state.mappingQuery.total = Number(result.headers.get("X-Total-Count") || state.categoryMappings.length);
+  renderSettings();
+}
+
 async function refreshJobsOnly() {
   if (!state.token || state.jobPolling.inFlight) return;
   state.jobPolling.inFlight = true;
   try {
-    const [jobResult, analytics] = await Promise.all([apiWithMeta(jobQueryPath()), api("/analytics")]);
+    const [jobResult, dashboard] = await Promise.all([
+      apiWithMeta(jobQueryPath()),
+      api("/dashboard"),
+    ]);
     state.jobs = jobResult.data;
     state.jobQuery.total = Number(jobResult.headers.get("X-Total-Count") || state.jobs.length);
-    state.analytics = analytics;
+    state.analytics = dashboard.analytics;
+    state.actionCenter = dashboard.action_center;
+    state.recentListings = dashboard.recent_listings;
+    state.latestJobs = dashboard.latest_jobs;
     state.jobPolling.lastUpdatedAt = new Date();
     renderDashboard();
     renderJobs();
@@ -591,11 +1000,11 @@ function renderJobPollingStatus() {
   const toggle = $("#jobPollingToggle");
   const status = $("#jobPollingStatus");
   if (!toggle || !status) return;
-  toggle.textContent = state.jobPolling.enabled ? "Pause live refresh" : "Resume live refresh";
+  toggle.textContent = t(state.jobPolling.enabled ? "queue.pause" : "queue.resume");
   const updated = state.jobPolling.lastUpdatedAt
-    ? `Updated ${state.jobPolling.lastUpdatedAt.toLocaleTimeString()}`
-    : "Waiting for first refresh";
-  status.textContent = state.jobPolling.enabled ? `Live refresh on - ${updated}` : "Live refresh paused";
+    ? `${t("queue.updated")} ${state.jobPolling.lastUpdatedAt.toLocaleTimeString(state.locale)}`
+    : t("queue.waiting");
+  status.textContent = state.jobPolling.enabled ? `${t("queue.liveOn")} - ${updated}` : t("queue.livePaused");
 }
 
 function render() {
@@ -607,45 +1016,75 @@ function render() {
 }
 
 function renderDashboard() {
-  $("#metricListings").textContent = state.listings.length;
-  $("#metricReady").textContent = state.listings.filter((l) => l.platform_mappings.some((m) => m.status === "draft")).length;
-  $("#metricAction").textContent = state.jobs.filter((j) => j.status === "needs_user_action").length;
-  $("#metricFailed").textContent = state.jobs.filter((j) => j.status === "failed").length;
+  const summary = state.analytics?.summary || {};
+  $("#metricListings").textContent = summary.listings_total || 0;
+  $("#metricReady").textContent = summary.ready_listings || 0;
+  $("#metricAction").textContent = summary.needs_action_jobs || 0;
+  $("#metricFailed").textContent = summary.failed_jobs || 0;
   renderAnalytics();
-  $("#recentListings").innerHTML = state.listings.slice(0, 5).map(listingItemHtml).join("") || `<p class="muted">No listings yet.</p>`;
-  $("#latestJobs").innerHTML = state.jobs.slice(0, 5).map(jobItemHtml).join("") || `<p class="muted">No jobs yet.</p>`;
+  renderActionCenter();
+  $("#recentListings").innerHTML = state.recentListings.map(listingItemHtml).join("") || `<p class="muted">${escapeHtml(t("dashboard.noListings"))}</p>`;
+  $("#latestJobs").innerHTML = state.latestJobs.map(jobItemHtml).join("") || `<p class="muted">${escapeHtml(t("dashboard.noJobs"))}</p>`;
+}
+
+function renderActionCenter() {
+  const center = state.actionCenter;
+  if (!center) {
+    $("#onboardingSteps").innerHTML = `<p class="muted">${escapeHtml(t("dashboard.loadingActions"))}</p>`;
+    $("#actionCenterList").innerHTML = "";
+    return;
+  }
+  $("#onboardingSteps").innerHTML = (center.onboarding_steps || []).map((step) => `
+    <button type="button" class="onboarding-step ${step.complete ? "complete" : ""}" data-action-view="${escapeHtml(step.target_view)}">
+      <span aria-hidden="true">${escapeHtml(t(step.complete ? "action.done" : "action.next"))}</span>
+      <span>${escapeHtml(t(ONBOARDING_STEP_COPY_KEYS[step.id]) || step.label)}</span>
+    </button>
+  `).join("");
+  $("#actionCenterList").innerHTML = (center.reminders || []).map((item) => `
+    <article class="action-item ${escapeHtml(item.severity)}">
+      <div class="pane-head">
+        <strong>${escapeHtml(item.title)}</strong>
+        <span class="${statusClass(item.severity)}">${escapeHtml(localizedStatus(item.severity))}</span>
+      </div>
+      <p>${escapeHtml(item.detail)}</p>
+      <div class="recovery-row">
+        <span>${escapeHtml(item.next_action)}</span>
+        <button type="button" class="ghost" data-action-view="${escapeHtml(item.target_view)}" data-action-resource="${escapeHtml(item.resource_type || "")}" data-action-resource-id="${escapeHtml(item.resource_id || "")}">${escapeHtml(t("action.open"))}</button>
+      </div>
+    </article>
+  `).join("") || `<p class="muted">${escapeHtml(t("dashboard.noOutstandingActions"))}</p>`;
 }
 
 function renderAnalytics() {
   const analytics = state.analytics;
   if (!analytics) {
-    $("#analyticsSummary").innerHTML = `<p class="muted">No insights yet.</p>`;
+    $("#analyticsSummary").innerHTML = `<p class="muted">${escapeHtml(t("dashboard.noInsights"))}</p>`;
     $("#analyticsDetails").innerHTML = "";
     return;
   }
   const summary = analytics.summary || {};
   const quality = analytics.quality || {};
   $("#analyticsSummary").innerHTML = [
-    analyticsMetricHtml("Quality", `${summary.average_quality_score || 0}/100`),
-    analyticsMetricHtml("Inventory value", money(summary.inventory_value_cents || 0)),
-    analyticsMetricHtml("Avg price", money(summary.average_price_cents || 0)),
-    analyticsMetricHtml("Missing images", quality.listings_missing_images || 0),
+    analyticsMetricHtml(t("dashboard.quality"), `${summary.average_quality_score || 0}/100`),
+    analyticsMetricHtml(t("dashboard.inventoryValue"), money(summary.inventory_value_cents || 0)),
+    analyticsMetricHtml(t("dashboard.averagePrice"), money(summary.average_price_cents || 0)),
+    analyticsMetricHtml(t("dashboard.missingImages"), quality.listings_missing_images || 0),
   ].join("");
   $("#analyticsDetails").innerHTML = `
     <div>
-      <strong>Quality grades</strong>
+      <strong>${escapeHtml(t("dashboard.qualityGrades"))}</strong>
       ${analyticsBarsHtml(quality.grade_counts || {})}
     </div>
     <div>
-      <strong>Selected platforms</strong>
+      <strong>${escapeHtml(t("dashboard.selectedPlatforms"))}</strong>
       ${analyticsBarsHtml(analytics.selected_platforms || {})}
     </div>
     <div>
-      <strong>Job outcomes</strong>
+      <strong>${escapeHtml(t("dashboard.jobOutcomes"))}</strong>
       ${analyticsBarsHtml(analytics.job_statuses || {})}
     </div>
     <div>
-      <strong>Common fixes</strong>
+      <strong>${escapeHtml(t("dashboard.commonFixes"))}</strong>
       ${analyticsIssueListHtml(quality.top_issue_fields || [])}
     </div>
   `;
@@ -662,14 +1101,14 @@ function analyticsMetricHtml(label, value) {
 
 function analyticsBarsHtml(values) {
   const entries = Object.entries(values);
-  if (!entries.length) return `<p class="muted">No data</p>`;
+  if (!entries.length) return `<p class="muted">${escapeHtml(t("dashboard.noData"))}</p>`;
   const max = Math.max(...entries.map(([, count]) => Number(count) || 0), 1);
   return `
     <div class="analytics-bars">
       ${entries.map(([label, count]) => `
         <div class="analytics-bar-row">
-          <span>${escapeHtml(formatFieldLabel(label))}</span>
-          <div><i style="width: ${Math.max(8, (Number(count) / max) * 100)}%"></i></div>
+          <span>${escapeHtml(localizedStatus(label))}</span>
+          <svg viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect width="${Math.max(0, (Number(count) / max) * 100)}" height="8" rx="4"></rect></svg>
           <strong>${Number(count)}</strong>
         </div>
       `).join("")}
@@ -678,11 +1117,11 @@ function analyticsBarsHtml(values) {
 }
 
 function analyticsIssueListHtml(items) {
-  if (!items.length) return `<p class="muted">No recurring fixes</p>`;
+  if (!items.length) return `<p class="muted">${escapeHtml(t("dashboard.noRecurringFixes"))}</p>`;
   return `
     <div class="analytics-issues">
       ${items.map((item) => `
-        <span>${escapeHtml(formatFieldLabel(item.field))}: ${Number(item.count)}</span>
+        <span>${escapeHtml(localizedFieldLabel(item.field))}: ${Number(item.count)}</span>
       `).join("")}
     </div>
   `;
@@ -691,9 +1130,9 @@ function analyticsIssueListHtml(items) {
 function listingItemHtml(listing) {
   return `
     <article class="list-item ${listing.id === state.selectedListingId ? "selected" : ""}" data-listing-id="${listing.id}">
-      <strong>${escapeHtml(listing.title || "Untitled listing")}</strong>
-      <span class="muted">${escapeHtml(listing.category || "No category")} · ${money(listing.price_cents || 0)}</span>
-      <span class="${statusClass(listing.status)}">${escapeHtml(listing.status)}</span>
+      <strong>${escapeHtml(listing.title || t("listing.untitled"))}</strong>
+      <span class="muted">${escapeHtml(listing.category || t("listing.noCategory"))} · ${money(listing.price_cents || 0)}</span>
+      <span class="${statusClass(listing.status)}">${escapeHtml(localizedStatus(listing.status))}</span>
     </article>
   `;
 }
@@ -703,9 +1142,9 @@ function jobItemHtml(job) {
     <article class="list-item" data-job-id="${job.id}">
       <div class="pane-head">
         <strong>${escapeHtml(job.platform)}</strong>
-        <span class="${statusClass(job.status)}">${escapeHtml(job.status)}</span>
+        <span class="${statusClass(job.status)}">${escapeHtml(localizedStatus(job.status))}</span>
       </div>
-      <span class="muted">Listing #${job.listing_id} · Attempt ${job.attempts}/${job.max_attempts}</span>
+      <span class="muted">${escapeHtml(t("listing.identifier"))} #${job.listing_id} · ${escapeHtml(t("listing.attempt"))} ${job.attempts}/${job.max_attempts}</span>
     </article>
   `;
 }
@@ -719,7 +1158,7 @@ function renderListings() {
   $("#listingPageInfo").textContent = `${start}-${end} of ${state.listingQuery.total}`;
   $("#listingPrevPage").disabled = state.listingQuery.offset === 0;
   $("#listingNextPage").disabled = state.listingQuery.offset + state.listingQuery.limit >= state.listingQuery.total;
-  $("#listingList").innerHTML = state.listings.map(listingItemHtml).join("") || `<p class="muted">No listings yet.</p>`;
+  $("#listingList").innerHTML = state.listings.map(listingItemHtml).join("") || `<p class="muted">${escapeHtml(t("dashboard.noListings"))}</p>`;
   const listing = selectedListing();
   $("#listingEditor").classList.toggle("hidden", !listing);
   if (!listing) return;
@@ -755,7 +1194,7 @@ function renderQualityAssistant() {
   const result = state.qualityResult;
   const panel = $("#qualityAssistant");
   if (!result) {
-    panel.innerHTML = `<p class="muted">Not checked</p>`;
+    panel.innerHTML = `<p class="muted">${escapeHtml(t("quality.notChecked"))}</p>`;
     return;
   }
   const issues = result.issues || [];
@@ -763,8 +1202,9 @@ function renderQualityAssistant() {
   panel.innerHTML = `
     <div class="quality-score">
       <strong>${Number(result.score || 0)}</strong>
-      <span class="${statusClass(result.grade)}">${escapeHtml(formatFieldLabel(result.grade))}</span>
+        <span class="${statusClass(result.grade)}">${escapeHtml(localizedStatus(result.grade))}</span>
       <p>${escapeHtml(result.summary)}</p>
+      <small class="muted">Provider: ${escapeHtml(result.provider)} · deterministic · no external data sent</small>
     </div>
     <div class="quality-checklist">
       ${Object.entries(result.checklist || {}).map(([field, passed]) => `
@@ -784,17 +1224,85 @@ function renderQualityAssistant() {
   `;
 }
 
+function deliveryOptionsFromForm(form) {
+  const parsed = parseDeliveryOptions(form.delivery_options.value);
+  const options = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? { ...parsed }
+    : parsed == null ? {} : { note: String(parsed) };
+  if (form.pickup_allowed.checked) options.pickup = true;
+  else delete options.pickup;
+  if (form.shipping_allowed.checked) options.shipping = true;
+  else delete options.shipping;
+  return options;
+}
+
+function listingFormPayload(form) {
+  return {
+    title: form.title.value,
+    price_cents: Math.round(Number(form.price.value || 0) * 100),
+    condition: form.condition.value,
+    category: form.category.value,
+    location: form.location.value,
+    brand: form.brand.value,
+    model: form.model.value,
+    color: form.color.value,
+    material: form.material.value,
+    category_attributes: parseDeliveryOptions(form.category_attributes.value),
+    weight_grams: Math.round(Number(form.weight_grams.value || 0)),
+    shipping_cost_cents: Math.round(Number(form.shipping_cost.value || 0) * 100),
+    pickup_allowed: form.pickup_allowed.checked,
+    shipping_allowed: form.shipping_allowed.checked,
+    tags: form.tags.value.split(",").map((tag) => tag.trim()).filter(Boolean),
+    description: form.description.value,
+    delivery_options: deliveryOptionsFromForm(form),
+    dimensions: parseDeliveryOptions(form.dimensions.value),
+    notes: form.notes.value,
+    internal_notes: form.internal_notes.value,
+    status: "draft",
+  };
+}
+
+function scheduleListingAutosave() {
+  const listing = selectedListing();
+  if (!listing || state.autosave.inFlight) return;
+  if (state.autosave.timerId) clearTimeout(state.autosave.timerId);
+  $("#editorMessage").textContent = "Unsaved changes";
+  state.autosave.timerId = setTimeout(autosaveSelectedListing, 1200);
+}
+
+async function autosaveSelectedListing() {
+  const listing = selectedListing();
+  if (!listing || state.autosave.inFlight) return;
+  state.autosave.timerId = null;
+  state.autosave.inFlight = true;
+  $("#editorMessage").textContent = "Autosaving...";
+  try {
+    await api(`/listings/${listing.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(listingFormPayload($("#listingForm"))),
+    });
+    markSelectedListingMutated();
+    $("#editorMessage").textContent = "Saved automatically";
+    await loadAll();
+  } catch (error) {
+    showAppError(error, "Autosave failed; your fields remain on screen");
+    $("#editorMessage").textContent = "Autosave failed - use Save to retry";
+  } finally {
+    state.autosave.inFlight = false;
+  }
+}
+
 function qualityIssueHtml(issue) {
   return `
     <article class="quality-item">
       <div class="pane-head">
         <strong>${escapeHtml(formatFieldLabel(issue.field))}</strong>
-        <span class="${statusClass(issue.severity)}">${escapeHtml(issue.severity)}</span>
+        <span class="${statusClass(issue.severity)}">${escapeHtml(localizedStatus(issue.severity))}</span>
       </div>
       <p>${escapeHtml(issue.message)}</p>
       <div class="recovery-row">
         <span>${escapeHtml(issue.action)}</span>
-        <button type="button" class="ghost" data-focus-quality="${escapeHtml(issue.field)}">Fix</button>
+        <button type="button" class="ghost" data-focus-quality="${escapeHtml(issue.field)}">${escapeHtml(t("action.fix"))}</button>
       </div>
     </article>
   `;
@@ -819,14 +1327,18 @@ function renderListingTemplateOptions() {
     const variant = template.variant && template.variant !== "default" ? ` - ${template.variant}` : "";
     return `<option value="${template.id}">${escapeHtml(template.name)}${escapeHtml(variant)}${escapeHtml(platform)}</option>`;
   }).join("");
-  $("#listingTemplateSelect").innerHTML = `<option value="">Choose template</option>${options}`;
+  $("#listingTemplateSelect").innerHTML = `<option value="">${escapeHtml(t("templates.choose"))}</option>${options}`;
 }
 
 function renderImages(listing) {
+  state.imageRenderGeneration += 1;
+  const generation = state.imageRenderGeneration;
+  state.imageObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  state.imageObjectUrls = [];
   const images = listing.images || [];
   $("#imageList").innerHTML = images.map((image, index) => `
     <article class="image-tile">
-      <img src="/uploads/${listing.id}/${image.storage_path.split(/[\\\\/]/).pop()}" alt="${escapeHtml(image.filename)}" />
+      <img data-image-content="${image.id}" alt="${escapeHtml(image.filename)}" />
       <strong>${escapeHtml(image.filename)}</strong>
       <div class="image-actions">
         <button class="ghost" data-move-image="${image.id}" data-direction="-1" ${index === 0 ? "disabled" : ""}>Up</button>
@@ -834,7 +1346,26 @@ function renderImages(listing) {
         <button class="ghost" data-delete-image="${image.id}">Delete</button>
       </div>
     </article>
-  `).join("") || `<p class="muted">No images uploaded.</p>`;
+  `).join("") || `<p class="muted">${escapeHtml(t("images.noUploaded"))}</p>`;
+  void hydrateListingImages(listing, generation);
+}
+
+async function hydrateListingImages(listing, generation) {
+  await Promise.all((listing.images || []).map(async (image) => {
+    const headers = state.token ? { Authorization: `Bearer ${state.token}` } : {};
+    try {
+      const response = await fetch(`/api/listings/${listing.id}/images/${image.id}/content`, { headers });
+      if (!response.ok) return;
+      const blob = await response.blob();
+      if (generation !== state.imageRenderGeneration || listing.id !== state.selectedListingId) return;
+      const imageUrl = URL.createObjectURL(blob);
+      state.imageObjectUrls.push(imageUrl);
+      const node = document.querySelector(`[data-image-content="${image.id}"]`);
+      if (node) node.src = imageUrl;
+    } catch {
+      // Metadata remains usable if an image object is temporarily unavailable.
+    }
+  }));
 }
 
 function renderPlatforms(listing) {
@@ -844,20 +1375,20 @@ function renderPlatforms(listing) {
     const mapping = mappings.get(platform.key);
     const checked = state.selectedPlatforms.has(platform.key) ? "checked" : "";
     const override = mapping?.overrides?.description || "";
-    const errors = mapping?.validation_errors?.length ? `Missing: ${mapping.validation_errors.join(", ")}` : "Ready for validation";
+    const errors = mapping?.validation_errors?.length ? `${t("review.missing")}: ${mapping.validation_errors.join(", ")}` : t("platform.readyForValidation");
     const capabilities = platform.capabilities || {};
     const complianceNotes = platform.compliance_notes || [];
     return `
       <article class="platform-card">
         <label><input type="checkbox" data-platform="${platform.key}" ${checked} /> ${escapeHtml(platform.name)}</label>
-        <span class="${statusClass(mapping?.status || "draft")}">${escapeHtml(mapping?.status || platform.automation_mode)}</span>
+        <span class="${statusClass(mapping?.status || "draft")}">${escapeHtml(localizedStatus(mapping?.status || platform.automation_mode))}</span>
         <div class="capability-strip">
-          ${capabilityChipHtml(`${(capabilities.prepared_fields || []).length} prepared fields`)}
-          ${capabilityChipHtml(capabilities.requires_user_final_submission ? "manual submit" : "API submit")}
-          ${capabilities.official_api_candidate ? capabilityChipHtml("API candidate") : ""}
+          ${capabilityChipHtml(`${(capabilities.prepared_fields || []).length} ${t("platform.preparedFields")}`)}
+          ${capabilityChipHtml(t(capabilities.requires_user_final_submission ? "platform.manualSubmit" : "platform.apiSubmit"))}
+          ${capabilities.official_api_candidate ? capabilityChipHtml(t("platform.apiCandidate")) : ""}
         </div>
         ${complianceNotesHtml(complianceNotes)}
-        <textarea data-platform-description="${platform.key}" placeholder="Platform description variant">${escapeHtml(override)}</textarea>
+        <textarea data-platform-description="${platform.key}" placeholder="${escapeHtml(t("review.platformDescription"))}">${escapeHtml(override)}</textarea>
         <small class="muted">${escapeHtml(errors)}</small>
       </article>
     `;
@@ -873,7 +1404,7 @@ function complianceNotesHtml(notes) {
   if (!notes?.length) return "";
   return `
     <div class="compliance-panel">
-      <strong>Compliance</strong>
+      <strong>${escapeHtml(t("review.compliance"))}</strong>
       <ul>${notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>
     </div>
   `;
@@ -893,7 +1424,7 @@ function renderPrepublishReview(listing) {
   review.classList.remove("hidden");
   review.innerHTML = `
     <div class="pane-head">
-      <h3>Prepublish review</h3>
+      <h3>${escapeHtml(t("review.prepublish"))}</h3>
       <span class="muted">Listing #${listing.id} - revision ${listing.revision || 1}</span>
     </div>
     <div class="review-grid">
@@ -911,10 +1442,10 @@ function reviewCardHtml(platformKey) {
       <article class="review-card">
         <div class="pane-head">
           <strong>${escapeHtml(platform.name)}</strong>
-          <span class="status">not checked</span>
+          <span class="status">${escapeHtml(t("review.notChecked"))}</span>
         </div>
-        <p class="muted">Run validation to build the copy-ready posting package.</p>
-        ${platform.posting_url ? `<a href="${escapeHtml(platform.posting_url)}" target="_blank" rel="noreferrer">Open platform</a>` : ""}
+        <p class="muted">${escapeHtml(t("review.runValidation"))}</p>
+        ${platform.posting_url ? `<a href="${escapeHtml(platform.posting_url)}" target="_blank" rel="noreferrer">${escapeHtml(t("review.openPlatform"))}</a>` : ""}
         ${complianceNotesHtml(notes)}
       </article>
     `;
@@ -927,19 +1458,19 @@ function reviewCardHtml(platformKey) {
     <article class="review-card">
       <div class="pane-head">
         <strong>${escapeHtml(platform.name)}</strong>
-        <span class="${statusClass(validation.ready ? "ready" : "needs_user_action")}">${validation.ready ? "ready" : "needs action"}</span>
+        <span class="${statusClass(validation.ready ? "ready" : "needs_user_action")}">${escapeHtml(t(validation.ready ? "status.ready" : "status.needsUserAction"))}</span>
       </div>
-      ${platform.posting_url ? `<a href="${escapeHtml(platform.posting_url)}" target="_blank" rel="noreferrer">Open platform</a>` : ""}
+      ${platform.posting_url ? `<a href="${escapeHtml(platform.posting_url)}" target="_blank" rel="noreferrer">${escapeHtml(t("review.openPlatform"))}</a>` : ""}
       ${missing.length ? `
-        <p class="review-alert">Missing: ${escapeHtml(missing.join(", "))}</p>
+        <p class="review-alert">${escapeHtml(t("review.missing"))}: ${escapeHtml(missing.join(", "))}</p>
         <div class="recovery-list">
           ${missing.map((field) => missingFieldRecoveryHtml(field)).join("")}
         </div>
-      ` : `<p class="muted">Required fields are present.</p>`}
+      ` : `<p class="muted">${escapeHtml(t("review.requiredPresent"))}</p>`}
       ${warnings.length ? `<ul class="review-notes">${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>` : ""}
       ${complianceNotesHtml(notes)}
       <div class="review-actions">
-        <button type="button" class="ghost" data-copy-package="${platformKey}">Copy package</button>
+        <button type="button" class="ghost" data-copy-package="${platformKey}">${escapeHtml(t("action.copyPackage"))}</button>
       </div>
       <div class="field-list">
         ${fields.map(([field, value]) => `
@@ -948,16 +1479,16 @@ function reviewCardHtml(platformKey) {
               <strong>${escapeHtml(formatFieldLabel(field))}</strong>
               <span>${escapeHtml(formatFieldValue(value))}</span>
             </div>
-            <button type="button" class="ghost" data-copy-field="${platformKey}" data-copy-name="${escapeHtml(field)}">Copy</button>
+            <button type="button" class="ghost" data-copy-field="${platformKey}" data-copy-name="${escapeHtml(field)}">${escapeHtml(t("action.copy"))}</button>
           </div>
-        `).join("") || `<p class="muted">No mapped fields returned.</p>`}
+        `).join("") || `<p class="muted">${escapeHtml(t("review.noMappedFields"))}</p>`}
       </div>
     </article>
   `;
 }
 
 function formatFieldLabel(value) {
-  return String(value).replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return localizedFieldLabel(value);
 }
 
 function formatFieldValue(value) {
@@ -978,7 +1509,7 @@ function missingFieldRecoveryHtml(field) {
   return `
     <div class="recovery-row">
       <span>${escapeHtml(missingFieldHint(field))}</span>
-      <button type="button" class="ghost" data-focus-missing="${escapeHtml(field)}">Fix</button>
+      <button type="button" class="ghost" data-focus-missing="${escapeHtml(field)}">${escapeHtml(t("action.fix"))}</button>
     </div>
   `;
 }
@@ -991,7 +1522,7 @@ function missingFieldHint(field) {
     condition: "Choose the item condition.",
     category: "Choose the source category or add a platform mapping.",
     location: "Add the pickup or shipping location.",
-    delivery_options: "Fill delivery options or pickup/shipping flags.",
+    delivery_options: t("hint.deliveryOptionsMissing"),
     images: "Upload at least one item image.",
   };
   return hints[field] || `Review ${formatFieldLabel(field)}.`;
@@ -1068,7 +1599,7 @@ async function copyText(text) {
 
 function renderJobs() {
   const platformOptions = state.platforms.map((platform) => `<option value="${platform.key}">${escapeHtml(platform.name)}</option>`).join("");
-  $("#jobPlatformFilter").innerHTML = `<option value="">All platforms</option>${platformOptions}`;
+  $("#jobPlatformFilter").innerHTML = `<option value="">${escapeHtml(t("filters.allPlatforms"))}</option>${platformOptions}`;
   $("#jobPlatformFilter").value = state.jobQuery.platform;
   $("#jobStatusFilter").value = state.jobQuery.status;
   $("#jobSort").value = state.jobQuery.sort;
@@ -1077,15 +1608,15 @@ function renderJobs() {
   $("#jobPageInfo").textContent = `${start}-${end} of ${state.jobQuery.total}`;
   $("#jobPrevPage").disabled = state.jobQuery.offset === 0;
   $("#jobNextPage").disabled = state.jobQuery.offset + state.jobQuery.limit >= state.jobQuery.total;
-  $("#jobList").innerHTML = state.jobs.map(jobItemHtml).join("") || `<p class="muted">No assisted packages queued.</p>`;
+  $("#jobList").innerHTML = state.jobs.map(jobItemHtml).join("") || `<p class="muted">${escapeHtml(t("empty.assistedPackages"))}</p>`;
 }
 
 function renderAccounts() {
   const platformOptions = state.platforms.map((platform) => `<option value="${platform.key}">${escapeHtml(platform.name)}</option>`).join("");
   $("#accountPlatform").innerHTML = platformOptions;
-  $("#templatePlatform").innerHTML = `<option value="">All platforms</option>${platformOptions}`;
+  $("#templatePlatform").innerHTML = `<option value="">${escapeHtml(t("filters.allPlatforms"))}</option>${platformOptions}`;
   $("#mappingPlatform").innerHTML = platformOptions;
-  $("#accountPlatformFilter").innerHTML = `<option value="">All platforms</option>${platformOptions}`;
+  $("#accountPlatformFilter").innerHTML = `<option value="">${escapeHtml(t("filters.allPlatforms"))}</option>${platformOptions}`;
   $("#accountPlatformFilter").value = state.accountQuery.platform;
   $("#accountStatusFilter").value = state.accountQuery.status;
   $("#accountSort").value = state.accountQuery.sort;
@@ -1099,19 +1630,19 @@ function renderAccounts() {
       <div class="pane-head">
         <strong>${escapeHtml(account.display_name)}</strong>
         <div class="row compact-actions">
-          <button class="ghost" data-edit-account="${account.id}">Edit</button>
-          <button class="ghost" data-delete-account="${account.id}">Delete</button>
+          <button class="ghost" data-edit-account="${account.id}">${escapeHtml(t("action.edit"))}</button>
+          <button class="ghost" data-delete-account="${account.id}">${escapeHtml(t("action.delete"))}</button>
         </div>
       </div>
-      <span class="muted">${escapeHtml(account.platform)} · ${escapeHtml(account.mode)}</span>
-      <span class="${statusClass(account.status)}">${escapeHtml(account.status)}</span>
+      <span class="muted">${escapeHtml(account.platform)} · ${escapeHtml(localizedStatus(account.mode))}</span>
+      <span class="${statusClass(account.status)}">${escapeHtml(localizedStatus(account.status))}</span>
     </article>
-  `).join("") || `<p class="muted">No platform accounts.</p>`;
+  `).join("") || `<p class="muted">${escapeHtml(t("empty.platformAccounts"))}</p>`;
 }
 
 function renderSettings() {
   const platformOptions = state.platforms.map((platform) => `<option value="${platform.key}">${escapeHtml(platform.name)}</option>`).join("");
-  $("#templatePlatformFilter").innerHTML = `<option value="">All platforms</option>${platformOptions}`;
+  $("#templatePlatformFilter").innerHTML = `<option value="">${escapeHtml(t("filters.allPlatforms"))}</option>${platformOptions}`;
   $("#templatePlatformFilter").value = state.templateQuery.platform;
   $("#templateVariantFilter").value = state.templateQuery.variant;
   $("#templateSearch").value = state.templateQuery.search;
@@ -1122,7 +1653,7 @@ function renderSettings() {
   $("#templatePrevPage").disabled = state.templateQuery.offset === 0;
   $("#templateNextPage").disabled = state.templateQuery.offset + state.templateQuery.limit >= state.templateQuery.total;
 
-  $("#mappingPlatformFilter").innerHTML = `<option value="">All platforms</option>${platformOptions}`;
+  $("#mappingPlatformFilter").innerHTML = `<option value="">${escapeHtml(t("filters.allPlatforms"))}</option>${platformOptions}`;
   $("#mappingPlatformFilter").value = state.mappingQuery.platform;
   $("#mappingSourceFilter").value = state.mappingQuery.sourceCategory;
   $("#mappingSort").value = state.mappingQuery.sort;
@@ -1137,26 +1668,26 @@ function renderSettings() {
       <div class="pane-head">
         <strong>${escapeHtml(template.name)}</strong>
         <div class="row compact-actions">
-          <button class="ghost" data-edit-template="${template.id}">Edit</button>
-          <button class="ghost" data-delete-template="${template.id}">Delete</button>
+          <button class="ghost" data-edit-template="${template.id}">${escapeHtml(t("action.edit"))}</button>
+          <button class="ghost" data-delete-template="${template.id}">${escapeHtml(t("action.delete"))}</button>
         </div>
       </div>
-      <span class="muted">${escapeHtml(template.variant || "default")} - ${escapeHtml(template.platform || "All platforms")}</span>
+      <span class="muted">${escapeHtml(template.variant || t("templates.default"))} - ${escapeHtml(template.platform || t("filters.allPlatforms"))}</span>
       <p>${escapeHtml(template.body.slice(0, 160))}</p>
     </article>
-  `).join("") || `<p class="muted">No templates saved.</p>`;
+  `).join("") || `<p class="muted">${escapeHtml(t("templates.noSaved"))}</p>`;
   $("#categoryMappingList").innerHTML = state.categoryMappings.map((mapping) => `
     <article class="list-item">
       <div class="pane-head">
         <strong>${escapeHtml(mapping.source_category)}</strong>
         <div class="row compact-actions">
-          <button class="ghost" data-edit-category-mapping="${mapping.id}">Edit</button>
-          <button class="ghost" data-delete-category-mapping="${mapping.id}">Delete</button>
+          <button class="ghost" data-edit-category-mapping="${mapping.id}">${escapeHtml(t("action.edit"))}</button>
+          <button class="ghost" data-delete-category-mapping="${mapping.id}">${escapeHtml(t("action.delete"))}</button>
         </div>
       </div>
       <span class="muted">${escapeHtml(mapping.platform)} -> ${escapeHtml(mapping.platform_category)}</span>
     </article>
-  `).join("") || `<p class="muted">No category mappings saved.</p>`;
+  `).join("") || `<p class="muted">${escapeHtml(t("mappings.noSaved"))}</p>`;
 
   $("#auditEventList").innerHTML = state.auditEvents.map((event) => `
     <article class="list-item">
@@ -1167,6 +1698,32 @@ function renderSettings() {
       <pre>${escapeHtml(JSON.stringify(event.event_data || {}, null, 2))}</pre>
     </article>
   `).join("") || `<p class="muted">No privacy activity yet.</p>`;
+
+  $("#haiTokenList").innerHTML = state.haiTokens.map((token) => `
+    <article class="list-item">
+      <div class="pane-head">
+        <div>
+          <strong>${escapeHtml(token.name)}</strong>
+          <span class="muted">Read only - expires ${escapeHtml(formatDateTime(token.expires_at))}</span>
+        </div>
+        <button type="button" class="ghost" data-revoke-hai-token="${token.id}">Revoke</button>
+      </div>
+      <span class="muted">${token.last_used_at ? `Last used ${escapeHtml(formatDateTime(token.last_used_at))}` : "Not used yet"}</span>
+    </article>
+  `).join("") || `<p class="muted">No active HAI connections.</p>`;
+
+  const tokenOnce = $("#haiTokenOnce");
+  if (state.newHaiToken) {
+    tokenOnce.classList.remove("hidden");
+    tokenOnce.innerHTML = `
+      <strong>Copy this token now. It will not be shown again.</strong>
+      <code>${escapeHtml(state.newHaiToken)}</code>
+      <button type="button" class="ghost" id="copyHaiTokenButton">Copy token</button>
+    `;
+  } else {
+    tokenOnce.textContent = "";
+    tokenOnce.classList.add("hidden");
+  }
 }
 
 function renderDiagnostics(result) {
@@ -1174,8 +1731,8 @@ function renderDiagnostics(result) {
   $("#diagnosticsOutput").classList.remove("muted");
   $("#diagnosticsOutput").innerHTML = `
     <div class="pane-head">
-      <strong>Status: ${escapeHtml(result.status)}</strong>
-      <span class="${statusClass(result.status)}">${escapeHtml(result.doctor?.status || result.status)}</span>
+      <strong>${escapeHtml(t("label.status"))}: ${escapeHtml(localizedStatus(result.status))}</strong>
+      <span class="${statusClass(result.status)}">${escapeHtml(localizedStatus(result.doctor?.status || result.status))}</span>
     </div>
     <p class="muted">${Number(result.listings || 0)} listings · ${Number(result.jobs || 0)} jobs · ${(result.platforms || []).length} platforms</p>
     <div class="diagnostic-checks">
@@ -1183,7 +1740,7 @@ function renderDiagnostics(result) {
         <article class="diagnostic-check">
           <div class="pane-head">
             <strong>${escapeHtml(check.name)}</strong>
-            <span class="${statusClass(check.status)}">${escapeHtml(check.status)}</span>
+            <span class="${statusClass(check.status)}">${escapeHtml(localizedStatus(check.status))}</span>
           </div>
           <p>${escapeHtml(check.message)}</p>
         </article>
@@ -1234,10 +1791,45 @@ window.addEventListener("unhandledrejection", (event) => {
   showAppError(event.reason, "Something went wrong");
 });
 
-async function boot() {
+async function authApi(path, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    return await api(path, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new ApiError(t("auth.timeout"), { retryable: true });
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runAuthAction(action) {
+  if (state.authPending) return;
+  state.authPending = true;
+  const controls = document.querySelectorAll("#authForm input, #authForm button, #logoutButton");
+  controls.forEach((node) => { node.disabled = true; });
+  $("#authForm").setAttribute("aria-busy", "true");
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    state.authPending = false;
+    controls.forEach((node) => { node.disabled = false; });
+    $("#authForm").setAttribute("aria-busy", "false");
+  };
+  try {
+    await action(release);
+  } finally {
+    release();
+  }
+}
+
+async function boot(onAuthenticated = () => {}) {
+  const bootToken = state.token;
   applyTranslations();
   try {
-    state.localization = await api("/localization", { headers: {} });
+    state.localization = await authApi("/localization", { headers: {} });
     const supported = new Set((state.localization.supported_locales || []).map((locale) => locale.code));
     if (!supported.has(state.locale)) state.locale = state.localization.default_locale || "en";
     applyTranslations();
@@ -1246,74 +1838,94 @@ async function boot() {
   }
 
   try {
-    const health = await api("/health", { headers: {} });
+    const health = await authApi("/health", { headers: {} });
     $("#healthBadge").textContent = health.status;
   } catch {
     $("#healthBadge").textContent = t("status.offline");
   }
 
-  if (!state.token) return;
+  if (!bootToken || state.token !== bootToken) return;
   try {
-    state.user = await api("/auth/me");
+    const user = await authApi("/auth/me");
+    if (state.token !== bootToken) return;
+    state.user = user;
     $("#userEmail").textContent = state.user.email;
+    $("#retrySessionButton").classList.add("hidden");
+    $("#authError").textContent = "";
     $("#authView").classList.add("hidden");
     $("#shell").classList.remove("hidden");
-  } catch {
-    localStorage.removeItem("autoposterToken");
-    state.token = null;
+    onAuthenticated();
+  } catch (error) {
+    if (state.token !== bootToken) return;
+    if (error.status === 401 || error.status === 403) {
+      localStorage.removeItem("autoposterToken");
+      state.token = null;
+      state.user = null;
+      $("#authError").textContent = error.message;
+      $("#retrySessionButton").classList.add("hidden");
+    } else {
+      $("#authError").textContent = t("auth.sessionCheckFailed");
+      $("#retrySessionButton").classList.remove("hidden");
+    }
+    $("#authView").classList.remove("hidden");
+    $("#shell").classList.add("hidden");
     return;
   }
 
   try {
     await loadAll();
+    await loadRequestedListing();
   } catch (error) {
     showAppError(error);
   }
 }
 
-$("#authForm").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  $("#authError").textContent = "";
-  try {
-    const payload = {
-      email: $("#authEmail").value,
-      password: $("#authPassword").value,
-      name: $("#authName").value,
-    };
-    const data = await api("/auth/login", { method: "POST", body: JSON.stringify(payload) });
-    state.token = data.token;
-    localStorage.setItem("autoposterToken", data.token);
-    await boot();
-  } catch (error) {
-    $("#authError").textContent = error.message;
-  }
-});
-
-$("#registerButton").addEventListener("click", async () => {
-  $("#authError").textContent = "";
-  try {
-    const data = await api("/auth/register", {
-      method: "POST",
-      body: JSON.stringify({
-        email: $("#authEmail").value,
-        password: $("#authPassword").value,
-        name: $("#authName").value,
-      }),
-    });
-    state.token = data.token;
-    localStorage.setItem("autoposterToken", data.token);
-    await boot();
-  } catch (error) {
-    $("#authError").textContent = error.message;
-  }
-});
-
-$("#logoutButton").addEventListener("click", () => {
-  api("/auth/logout", { method: "POST" }).finally(() => {
-    localStorage.removeItem("autoposterToken");
-    window.location.reload();
+async function submitAuth(mode) {
+  if (state.authPending || !$("#authForm").reportValidity()) return;
+  await runAuthAction(async (release) => {
+    $("#authError").textContent = "";
+    $("#retrySessionButton").classList.add("hidden");
+    try {
+      const data = await authApi(`/auth/${mode}`, {
+        method: "POST",
+        body: JSON.stringify({
+          email: $("#authEmail").value,
+          password: $("#authPassword").value,
+          name: $("#authName").value,
+        }),
+      });
+      state.token = data.token;
+      localStorage.setItem("autoposterToken", data.token);
+      $("#authPassword").value = "";
+      await boot(release);
+    } catch (error) {
+      $("#authError").textContent = error.message;
+    }
   });
+}
+
+$("#authForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  return submitAuth("login");
 });
+
+$("#registerButton").addEventListener("click", () => submitAuth("register"));
+$("#retrySessionButton").addEventListener("click", () => runAuthAction(boot));
+
+$("#logoutButton").addEventListener("click", () => runAuthAction(async () => {
+  try {
+    await authApi("/auth/logout", { method: "POST" });
+  } catch (error) {
+    if (error.status !== 401) {
+      showAppError(error, "Sign out failed. Please retry.");
+      return;
+    }
+  }
+  state.token = null;
+  state.user = null;
+  localStorage.removeItem("autoposterToken");
+  window.location.reload();
+}));
 
 document.querySelectorAll(".nav").forEach((node) => node.addEventListener("click", () => show(node.dataset.view)));
 
@@ -1347,92 +1959,92 @@ $("#listingSearch").addEventListener("input", (event) => {
   listingSearchTimer = setTimeout(async () => {
     state.listingQuery.search = event.target.value;
     state.listingQuery.offset = 0;
-    await loadAll();
+    await loadListingPage();
   }, 250);
 });
 
 $("#listingStatusFilter").addEventListener("change", async (event) => {
   state.listingQuery.status = event.target.value;
   state.listingQuery.offset = 0;
-  await loadAll();
+  await loadListingPage();
 });
 
 $("#listingSort").addEventListener("change", async (event) => {
   state.listingQuery.sort = event.target.value;
   state.listingQuery.offset = 0;
-  await loadAll();
+  await loadListingPage();
 });
 
 $("#listingPrevPage").addEventListener("click", async () => {
   state.listingQuery.offset = Math.max(0, state.listingQuery.offset - state.listingQuery.limit);
-  await loadAll();
+  await loadListingPage();
 });
 
 $("#listingNextPage").addEventListener("click", async () => {
   const nextOffset = state.listingQuery.offset + state.listingQuery.limit;
   if (nextOffset >= state.listingQuery.total) return;
   state.listingQuery.offset = nextOffset;
-  await loadAll();
+  await loadListingPage();
 });
 
 $("#jobPlatformFilter").addEventListener("change", async (event) => {
   state.jobQuery.platform = event.target.value;
   state.jobQuery.offset = 0;
-  await loadAll();
+  await loadJobPage();
 });
 
 $("#jobStatusFilter").addEventListener("change", async (event) => {
   state.jobQuery.status = event.target.value;
   state.jobQuery.offset = 0;
-  await loadAll();
+  await loadJobPage();
 });
 
 $("#jobSort").addEventListener("change", async (event) => {
   state.jobQuery.sort = event.target.value;
   state.jobQuery.offset = 0;
-  await loadAll();
+  await loadJobPage();
 });
 
 $("#jobPrevPage").addEventListener("click", async () => {
   state.jobQuery.offset = Math.max(0, state.jobQuery.offset - state.jobQuery.limit);
-  await loadAll();
+  await loadJobPage();
 });
 
 $("#jobNextPage").addEventListener("click", async () => {
   const nextOffset = state.jobQuery.offset + state.jobQuery.limit;
   if (nextOffset >= state.jobQuery.total) return;
   state.jobQuery.offset = nextOffset;
-  await loadAll();
+  await loadJobPage();
 });
 
 $("#accountPlatformFilter").addEventListener("change", async (event) => {
   state.accountQuery.platform = event.target.value;
   state.accountQuery.offset = 0;
-  await loadAll();
+  await loadAccountPage();
 });
 
 $("#accountStatusFilter").addEventListener("change", async (event) => {
   state.accountQuery.status = event.target.value;
   state.accountQuery.offset = 0;
-  await loadAll();
+  await loadAccountPage();
 });
 
 $("#accountSort").addEventListener("change", async (event) => {
   state.accountQuery.sort = event.target.value;
   state.accountQuery.offset = 0;
-  await loadAll();
+  await loadAccountPage();
 });
 
 $("#accountPrevPage").addEventListener("click", async () => {
   state.accountQuery.offset = Math.max(0, state.accountQuery.offset - state.accountQuery.limit);
-  await loadAll();
+  await loadAccountPage();
 });
 
 $("#accountNextPage").addEventListener("click", async () => {
   const nextOffset = state.accountQuery.offset + state.accountQuery.limit;
   if (nextOffset >= state.accountQuery.total) return;
   state.accountQuery.offset = nextOffset;
-  await loadAll();
+  await loadAccountPage();
 });
 
 $("#templateSearch").addEventListener("input", (event) => {
@@ -1440,14 +2052,14 @@ $("#templateSearch").addEventListener("input", (event) => {
   templateSearchTimer = setTimeout(async () => {
     state.templateQuery.search = event.target.value;
     state.templateQuery.offset = 0;
-    await loadAll();
+    await loadTemplatePage();
   }, 250);
 });
 
 $("#templatePlatformFilter").addEventListener("change", async (event) => {
   state.templateQuery.platform = event.target.value;
   state.templateQuery.offset = 0;
-  await loadAll();
+  await loadTemplatePage();
 });
 
 $("#templateVariantFilter").addEventListener("input", (event) => {
@@ -1455,26 +2067,26 @@ $("#templateVariantFilter").addEventListener("input", (event) => {
   templateSearchTimer = setTimeout(async () => {
     state.templateQuery.variant = event.target.value;
     state.templateQuery.offset = 0;
-    await loadAll();
+    await loadTemplatePage();
   }, 250);
 });
 
 $("#templateSort").addEventListener("change", async (event) => {
   state.templateQuery.sort = event.target.value;
   state.templateQuery.offset = 0;
-  await loadAll();
+  await loadTemplatePage();
 });
 
 $("#templatePrevPage").addEventListener("click", async () => {
   state.templateQuery.offset = Math.max(0, state.templateQuery.offset - state.templateQuery.limit);
-  await loadAll();
+  await loadTemplatePage();
 });
 
 $("#templateNextPage").addEventListener("click", async () => {
   const nextOffset = state.templateQuery.offset + state.templateQuery.limit;
   if (nextOffset >= state.templateQuery.total) return;
   state.templateQuery.offset = nextOffset;
-  await loadAll();
+  await loadTemplatePage();
 });
 
 $("#mappingSourceFilter").addEventListener("input", (event) => {
@@ -1482,32 +2094,32 @@ $("#mappingSourceFilter").addEventListener("input", (event) => {
   mappingSearchTimer = setTimeout(async () => {
     state.mappingQuery.sourceCategory = event.target.value;
     state.mappingQuery.offset = 0;
-    await loadAll();
+    await loadMappingPage();
   }, 250);
 });
 
 $("#mappingPlatformFilter").addEventListener("change", async (event) => {
   state.mappingQuery.platform = event.target.value;
   state.mappingQuery.offset = 0;
-  await loadAll();
+  await loadMappingPage();
 });
 
 $("#mappingSort").addEventListener("change", async (event) => {
   state.mappingQuery.sort = event.target.value;
   state.mappingQuery.offset = 0;
-  await loadAll();
+  await loadMappingPage();
 });
 
 $("#mappingPrevPage").addEventListener("click", async () => {
   state.mappingQuery.offset = Math.max(0, state.mappingQuery.offset - state.mappingQuery.limit);
-  await loadAll();
+  await loadMappingPage();
 });
 
 $("#mappingNextPage").addEventListener("click", async () => {
   const nextOffset = state.mappingQuery.offset + state.mappingQuery.limit;
   if (nextOffset >= state.mappingQuery.total) return;
   state.mappingQuery.offset = nextOffset;
-  await loadAll();
+  await loadMappingPage();
 });
 
 $("#listingList").addEventListener("click", (event) => {
@@ -1525,36 +2137,31 @@ $("#recentListings").addEventListener("click", (event) => {
   renderListings();
 });
 
+$("#dashboardView").addEventListener("click", (event) => {
+  const target = event.target.closest("[data-action-view]");
+  if (!target) return;
+  const resourceType = target.dataset.actionResource;
+  const resourceId = Number(target.dataset.actionResourceId || 0);
+  if (resourceType === "listing" && resourceId) selectListing(resourceId);
+  show(target.dataset.actionView);
+  render();
+});
+
+$("#listingForm").addEventListener("input", scheduleListingAutosave);
+$("#listingForm").addEventListener("change", scheduleListingAutosave);
+
 $("#listingForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const listing = selectedListing();
   if (!listing) return;
   const form = event.currentTarget;
+  if (state.autosave.timerId) {
+    clearTimeout(state.autosave.timerId);
+    state.autosave.timerId = null;
+  }
   await api(`/listings/${listing.id}`, {
     method: "PATCH",
-    body: JSON.stringify({
-      title: form.title.value,
-      price_cents: Math.round(Number(form.price.value || 0) * 100),
-      condition: form.condition.value,
-      category: form.category.value,
-      location: form.location.value,
-      brand: form.brand.value,
-      model: form.model.value,
-      color: form.color.value,
-      material: form.material.value,
-      category_attributes: parseDeliveryOptions(form.category_attributes.value),
-      weight_grams: Math.round(Number(form.weight_grams.value || 0)),
-      shipping_cost_cents: Math.round(Number(form.shipping_cost.value || 0) * 100),
-      pickup_allowed: form.pickup_allowed.checked,
-      shipping_allowed: form.shipping_allowed.checked,
-      tags: form.tags.value.split(",").map((tag) => tag.trim()).filter(Boolean),
-      description: form.description.value,
-      delivery_options: parseDeliveryOptions(form.delivery_options.value),
-      dimensions: parseDeliveryOptions(form.dimensions.value),
-      notes: form.notes.value,
-      internal_notes: form.internal_notes.value,
-      status: "draft",
-    }),
+    body: JSON.stringify(listingFormPayload(form)),
   });
   await savePlatformOverrides();
   markSelectedListingMutated();
@@ -1569,6 +2176,7 @@ $("#applyTemplateButton").addEventListener("click", () => {
   const description = $("#listingForm").description;
   description.value = [description.value.trim(), template.body.trim()].filter(Boolean).join("\n\n");
   $("#editorMessage").textContent = "Template applied";
+  scheduleListingAutosave();
 });
 
 $("#duplicateButton").addEventListener("click", async () => {
@@ -1742,7 +2350,7 @@ $("#jobList").addEventListener("click", (event) => {
       <h3>${escapeHtml(job.platform)} job #${job.id}</h3>
       <button class="ghost" id="retryJobButton">Retry</button>
     </div>
-    <p><span class="${statusClass(job.status)}">${escapeHtml(job.status)}</span></p>
+    <p><span class="${statusClass(job.status)}">${escapeHtml(localizedStatus(job.status))}</span></p>
     <p class="muted">${escapeHtml(job.error_message || job.result?.posting_url || "")}</p>
     <p class="retry-guidance">${escapeHtml(jobRetryGuidance(job))}</p>
     ${manualCompletionHtml(job)}
@@ -1925,6 +2533,49 @@ $("#categoryMappingList").addEventListener("click", async (event) => {
   await loadAll();
 });
 
+$("#haiTokenForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const created = await api("/hai/tokens", {
+    method: "POST",
+    body: JSON.stringify({
+      name: $("#haiTokenName").value,
+      expires_days: Number($("#haiTokenExpiry").value),
+    }),
+  });
+  state.newHaiToken = created.token;
+  state.haiTokens = [created, ...state.haiTokens];
+  renderSettings();
+});
+
+$("#exportHaiFeedButton").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const message = $("#haiExportMessage");
+  button.disabled = true;
+  message.textContent = t("settings.haiPreparing");
+  try {
+    await downloadApiFile("/hai/export", "autoposter-hai-feed.json");
+    message.textContent = t("settings.haiReady");
+  } catch (error) {
+    message.textContent = `${t("settings.haiFailed")} ${error instanceof Error ? error.message : ""}`.trim();
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("#haiTokenList").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-revoke-hai-token]");
+  if (!button) return;
+  await api(`/hai/tokens/${button.dataset.revokeHaiToken}`, { method: "DELETE" });
+  state.haiTokens = state.haiTokens.filter((token) => token.id !== Number(button.dataset.revokeHaiToken));
+  renderSettings();
+});
+
+$("#haiTokenOnce").addEventListener("click", async (event) => {
+  if (!event.target.closest("#copyHaiTokenButton") || !state.newHaiToken) return;
+  await copyText(state.newHaiToken);
+  event.target.textContent = "Copied";
+});
+
 $("#exportDataButton").addEventListener("click", async () => {
   const bundle = await api("/export");
   const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
@@ -2000,4 +2651,5 @@ $("#deleteMyDataButton").addEventListener("click", async () => {
   window.location.reload();
 });
 
-boot();
+if (state.token) runAuthAction(boot);
+else boot();
