@@ -1,4 +1,5 @@
 import asyncio
+import csv
 import io
 import json
 import uuid
@@ -310,6 +311,23 @@ def test_listing_csv_export_and_import_round_trip():
         assert "listings_csv_imported" in actions
     finally:
         db.close()
+
+
+def test_listing_csv_export_handles_large_output_with_bounded_spool():
+    headers = auth_headers("csv-large-export")
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.email.like("csv-large-export-%")).one()
+        db.add_all(
+            Listing(owner_id=user.id, title=f"Large export {index}", description="x" * 70_000)
+            for index in range(64)
+        )
+        db.commit()
+
+    response = client.get("/api/export/listings.csv", headers=headers)
+
+    assert response.status_code == 200, response.text[:500]
+    assert len(response.content) > 4 * 1024 * 1024
+    assert sum(1 for _ in csv.reader(io.StringIO(response.text))) == 65
 
 
 def test_listing_csv_export_neutralizes_spreadsheet_formulas():

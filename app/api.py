@@ -1,13 +1,15 @@
 import csv
 import io
 import json
+import tempfile
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.adapters import get_adapter, list_platforms
@@ -1183,21 +1185,46 @@ def export_data(user: User = Depends(get_current_user), db: Session = Depends(ge
 
 @router.get("/export/listings.csv", tags=["Data portability"])
 def export_listings_csv(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    listings = (
-        db.query(Listing)
-        .filter(Listing.owner_id == user.id)
-        .order_by(Listing.created_at.asc())
-        .all()
-    )
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=LISTING_CSV_FIELDS, lineterminator="\n")
-    writer.writeheader()
-    for listing in listings:
-        writer.writerow(_listing_csv_row(listing))
-    record_audit_event(db, user, "listings_csv_exported", {"listings": len(listings)})
-    db.commit()
-    return Response(
-        content=output.getvalue(),
+    listing_filter = Listing.owner_id == user.id
+    listing_count = db.query(func.count(Listing.id)).filter(listing_filter).scalar() or 0
+
+    spool = tempfile.SpooledTemporaryFile(max_size=4 * 1024 * 1024, mode="w+b")
+    try:
+        output = io.StringIO(newline="")
+        writer = csv.DictWriter(output, fieldnames=LISTING_CSV_FIELDS, lineterminator="\n")
+        writer.writeheader()
+        spool.write(output.getvalue().encode("utf-8"))
+
+        result = db.execute(
+            select(Listing)
+            .where(listing_filter)
+            .order_by(Listing.created_at.asc(), Listing.id.asc())
+            .execution_options(stream_results=True, yield_per=250)
+        )
+        try:
+            for listing in result.scalars():
+                output.seek(0)
+                output.truncate(0)
+                writer.writerow(_listing_csv_row(listing))
+                spool.write(output.getvalue().encode("utf-8"))
+        finally:
+            result.close()
+        spool.seek(0)
+        record_audit_event(db, user, "listings_csv_exported", {"listings": listing_count})
+        db.commit()
+    except Exception:
+        spool.close()
+        raise
+
+    def csv_chunks():
+        try:
+            while chunk := spool.read(64 * 1024):
+                yield chunk
+        finally:
+            spool.close()
+
+    return StreamingResponse(
+        content=csv_chunks(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="autoposter-listings.csv"'},
     )
