@@ -67,7 +67,7 @@ checks can distinguish this launch from another service or cached response.
 | `DELETE` | `/api/listings/{listing_id}` | Delete a listing. |
 | `POST` | `/api/listings/{listing_id}/duplicate` | Duplicate a listing. |
 | `POST` | `/api/listings/{listing_id}/images` | Upload a validated image. |
-| `GET` | `/api/listings/{listing_id}/images/{image_id}/content` | Read private image content from local or S3 storage as the owner. |
+| `GET` | `/api/listings/{listing_id}/images/{image_id}/content` | Stream private image content in 64 KiB chunks from local or S3 storage as the owner; close storage resources after delivery. |
 | `PATCH` | `/api/listings/{listing_id}/images/order` | Reorder uploaded images. |
 | `DELETE` | `/api/listings/{listing_id}/images/{image_id}` | Delete an image. |
 

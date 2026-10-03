@@ -1,4 +1,5 @@
 import hashlib
+import os
 import re
 import uuid
 from collections.abc import Callable
@@ -38,6 +39,18 @@ class ValidatedUpload:
     extension: str
 
 
+class ReadableBody(Protocol):
+    def read(self, amount: int = -1) -> bytes: ...
+
+    def close(self) -> None: ...
+
+
+@dataclass(frozen=True)
+class StoredRead:
+    body: ReadableBody
+    content_length: int | None
+
+
 class StorageBackend(Protocol):
     def listing_image_path(self, listing_id: int, filename: str) -> str:
         raise NotImplementedError
@@ -52,6 +65,9 @@ class StorageBackend(Protocol):
         raise NotImplementedError
 
     def read_bytes(self, storage_path: str) -> bytes | None:
+        raise NotImplementedError
+
+    def open_read(self, storage_path: str) -> StoredRead | None:
         raise NotImplementedError
 
 
@@ -87,14 +103,34 @@ class LocalStorage:
         target = self.read_local_file(storage_path)
         return target.read_bytes() if target else None
 
+    def open_read(self, storage_path: str) -> StoredRead | None:
+        target = self.read_local_file(storage_path)
+        if target is None or not target.is_file():
+            return None
+        try:
+            body = target.open("rb")
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise HTTPException(status_code=503, detail="Image storage is temporarily unavailable") from exc
+        try:
+            content_length = os.fstat(body.fileno()).st_size
+        except OSError as exc:
+            body.close()
+            raise HTTPException(status_code=503, detail="Image storage is temporarily unavailable") from exc
+        return StoredRead(body=body, content_length=content_length)
+
 
 class S3Storage:
     def __init__(self, settings: Settings):
         try:
             import boto3
             from botocore.config import Config
+            from botocore.exceptions import BotoCoreError, ClientError
         except ImportError as exc:  # pragma: no cover - dependency is present in supported installs
             raise RuntimeError("boto3 is required when STORAGE_BACKEND=s3") from exc
+        self._boto_core_error = BotoCoreError
+        self._client_error = ClientError
         self.bucket = settings.s3_bucket
         self.prefix = settings.s3_key_prefix.strip("/")
         self.client = boto3.client(
@@ -128,20 +164,51 @@ class S3Storage:
         bucket, key = parsed
         if bucket != self.bucket or (self.prefix and not key.startswith(f"{self.prefix}/")):
             raise ValueError("Storage cleanup target is outside the configured bucket/prefix")
-        self.client.delete_object(Bucket=bucket, Key=key)
+        self.client.delete_object(Bucket=self.bucket, Key=key)
 
     def read_local_file(self, storage_path: str) -> Path | None:
         return None
 
     def read_bytes(self, storage_path: str) -> bytes | None:
+        stored_read = self.open_read(storage_path)
+        if stored_read is None:
+            return None
+        try:
+            return stored_read.body.read()
+        finally:
+            stored_read.body.close()
+
+    def open_read(self, storage_path: str) -> StoredRead | None:
+        key = self._owned_key(storage_path)
+        if key is None:
+            return None
+        try:
+            response = self.client.get_object(Bucket=self.bucket, Key=key)
+        except self._client_error as exc:
+            error_code = exc.response.get("Error", {}).get("Code")
+            if error_code in {"NoSuchKey", "404", "NotFound"}:
+                return None
+            raise HTTPException(status_code=503, detail="Image storage is temporarily unavailable") from exc
+        except self._boto_core_error as exc:
+            raise HTTPException(status_code=503, detail="Image storage is temporarily unavailable") from exc
+        body = response["Body"]
+        try:
+            content_length = response.get("ContentLength")
+            if content_length is not None:
+                content_length = int(content_length)
+        except (TypeError, ValueError):
+            body.close()
+            raise HTTPException(status_code=503, detail="Image storage returned invalid metadata") from None
+        return StoredRead(body=body, content_length=content_length)
+
+    def _owned_key(self, storage_path: str) -> str | None:
         parsed = parse_s3_uri(storage_path)
         if not parsed:
             return None
         bucket, key = parsed
-        if bucket != self.bucket:
+        if bucket != self.bucket or (self.prefix and not key.startswith(f"{self.prefix}/")):
             return None
-        response = self.client.get_object(Bucket=bucket, Key=key)
-        return response["Body"].read()
+        return key
 
     def _key(self, listing_id: int, filename: str) -> str:
         key = f"{listing_id}/{filename}"
@@ -279,6 +346,10 @@ def local_storage_path(storage_path: str, settings: Settings | None = None) -> P
 
 def stored_file_bytes(storage_path: str, settings: Settings | None = None) -> bytes | None:
     return get_storage(settings).read_bytes(storage_path)
+
+
+def open_stored_file(storage_path: str, settings: Settings | None = None) -> StoredRead | None:
+    return get_storage(settings).open_read(storage_path)
 
 
 def parse_s3_uri(storage_path: str) -> tuple[str, str] | None:

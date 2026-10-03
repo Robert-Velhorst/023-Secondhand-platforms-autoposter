@@ -25,7 +25,7 @@ Uploaded listing images are validated before storage and are represented in the 
 - optional `S3_ENDPOINT_URL` for S3-compatible providers
 - optional `S3_KEY_PREFIX`, defaulting to `uploads`
 
-Stored S3 paths use `s3://bucket/key` internally. Raw object data is not included in JSON exports. The owner-authenticated `GET /api/listings/{listing_id}/images/{image_id}/content` endpoint reads either backend. The separate image ZIP export includes local files directly; S3-backed images are listed in the manifest as `object_storage_not_exportable` so operators can export them from object storage using provider tooling.
+Stored S3 paths use `s3://bucket/key` internally. Reads are constrained to the configured bucket and key prefix. Raw object data is not included in JSON exports. The owner-authenticated `GET /api/listings/{listing_id}/images/{image_id}/content` endpoint streams local or S3 content in 64 KiB chunks, closes its storage stream after delivery, and releases the database connection before a potentially slow download. The separate image ZIP export includes local files directly; S3-backed images are listed in the manifest as `object_storage_not_exportable` so operators can export them from object storage using provider tooling.
 
 ## Deletion and recovery
 

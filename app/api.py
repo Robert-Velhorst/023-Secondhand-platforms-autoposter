@@ -78,6 +78,7 @@ from app.services.token_secret_cleanup import cleanup_token_secrets_after_commit
 from app.storage import (
     ValidatedUpload,
     local_storage_path,
+    open_stored_file,
     read_validated_image_sync,
     safe_filename,
     store_validated_image,
@@ -343,20 +344,45 @@ def get_image_content(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    listing = _load_listing(db, user.id, listing_id)
-    image = next((item for item in listing.images if item.id == image_id), None)
+    image = (
+        db.query(ListingImage)
+        .join(Listing, Listing.id == ListingImage.listing_id)
+        .filter(
+            Listing.id == listing_id,
+            Listing.owner_id == user.id,
+            ListingImage.id == image_id,
+        )
+        .one_or_none()
+    )
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
-    content = stored_file_bytes(image.storage_path)
-    if content is None:
+    stored_read = open_stored_file(image.storage_path)
+    if stored_read is None:
         raise HTTPException(status_code=404, detail="Image content is unavailable")
-    return Response(
-        content=content,
-        media_type=image.content_type,
-        headers={
-            "Cache-Control": "private, max-age=300",
-            "Content-Disposition": f'inline; filename="{safe_filename(image.filename)}"',
-        },
+
+    content_type = image.content_type
+    headers = {
+        "Cache-Control": "private, max-age=300",
+        "Content-Disposition": f'inline; filename="{safe_filename(image.filename)}"',
+    }
+    if stored_read.content_length is not None:
+        headers["Content-Length"] = str(stored_read.content_length)
+
+    # Release the database connection before a potentially slow client download.
+    db.close()
+
+    def image_chunks():
+        try:
+            while chunk := stored_read.body.read(64 * 1024):
+                yield chunk
+        finally:
+            stored_read.body.close()
+
+    return StreamingResponse(
+        content=image_chunks(),
+        media_type=content_type,
+        headers=headers,
+        background=BackgroundTask(stored_read.body.close),
     )
 
 
