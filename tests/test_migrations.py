@@ -14,11 +14,17 @@ from app import models  # noqa: F401
 from app.database import Base
 
 
+def _set_alembic_url(config: Config, url: str) -> None:
+    # Alembic stores options in ConfigParser; percent-encoded Windows drive
+    # letters from SQLAlchemy URLs must be escaped for interpolation.
+    config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
+
+
 def test_migration_keeps_existing_application_loggers_enabled(tmp_path):
     logger = logging.getLogger("autoposter.migration_logging_regression")
     assert logger.disabled is False
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", f"sqlite:///{(tmp_path / 'logging.db').as_posix()}")
+    _set_alembic_url(config, f"sqlite:///{(tmp_path / 'logging.db').as_posix()}")
     command.upgrade(config, "head")
     assert logger.disabled is False, "Running migrations must not disable application recovery logs"
 
@@ -26,7 +32,7 @@ def test_migration_keeps_existing_application_loggers_enabled(tmp_path):
 def test_claim_token_migration_preserves_existing_jobs(tmp_path):
     engine = create_engine(f"sqlite:///{(tmp_path / 'claim-upgrade.db').as_posix()}")
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", str(engine.url))
+    _set_alembic_url(config, str(engine.url))
     try:
         command.upgrade(config, "head")
         command.downgrade(config, "20260809_0013")
@@ -74,7 +80,7 @@ def test_alembic_cli_uses_database_url_environment(tmp_path):
 def test_alembic_migration_runs_from_empty_database(tmp_path):
     db_path = tmp_path / "migration-test.db"
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", f"sqlite:///{db_path.as_posix()}")
+    _set_alembic_url(config, f"sqlite:///{db_path.as_posix()}")
 
     command.upgrade(config, "head")
 
@@ -180,7 +186,7 @@ def test_model_schema_renders_for_postgresql_dialect():
 def test_token_secret_cleanup_migration_refuses_to_drop_pending_erasure(tmp_path):
     engine = create_engine(f"sqlite:///{(tmp_path / 'token-cleanup-downgrade.db').as_posix()}")
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", str(engine.url))
+    _set_alembic_url(config, str(engine.url))
     try:
         command.upgrade(config, "head")
         with engine.begin() as connection:
