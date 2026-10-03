@@ -65,6 +65,16 @@ def test_listing_form_has_debounced_autosave_with_visible_recovery_copy():
         assert fragment in script
 
 
+def test_pickup_and_shipping_choices_populate_marketplace_delivery_options():
+    script = frontend_script()
+
+    assert "function deliveryOptionsFromForm(form)" in script
+    assert "if (form.pickup_allowed.checked) options.pickup = true;" in script
+    assert "if (form.shipping_allowed.checked) options.shipping = true;" in script
+    assert "delivery_options: deliveryOptionsFromForm(form)" in script
+    assert "hint.deliveryOptionsMissing" in script
+
+
 def test_dashboard_renders_owner_scoped_action_center():
     script = frontend_script()
 

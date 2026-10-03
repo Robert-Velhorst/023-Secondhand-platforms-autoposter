@@ -908,3 +908,22 @@ It is not yet a final client launch release. Remaining external gates are target
 PostgreSQL migration proof, production secret/CORS/storage confirmation, API and worker process
 evidence, backup/restore proof, edge rate-limit evidence, a real-user walkthrough, manual keyboard/
 zoom/screen-reader QA, acceptance of assisted marketplace posting, and named final signoff.
+
+## Windows standalone UI and delivery-data regression — 2026-10-03
+
+Target: current PR source plus the uncommitted delivery-form correction, launched through the
+standalone Python launcher on Windows 11 with a new `.tmp` data directory and loopback-only port
+18763. The standalone launcher applied every migration through `20261001_0017`; API health reported
+`ok`, and browser registration created an isolated synthetic account.
+
+- Through the rendered interface, created and saved a listing, changed condition and price, ran the
+  deterministic quality assistant, selected Marktplaats, and opened prepublish review.
+- Reproduced a mismatch: pickup was checked and quality recognized a delivery method, but the
+  publisher validator still reported `delivery_options` missing because the editor submitted `{}`.
+- The editor now derives `delivery_options.pickup` and `delivery_options.shipping` from those
+  checkboxes and explains that behavior in English and Dutch. Saving and revalidating the same
+  listing advanced its revision and removed `delivery_options` from the missing-field list; the
+  intentionally image-less listing still correctly reports only `images` as missing.
+- This was an agent-run local smoke walkthrough, not a real non-technical user session. No image was
+  uploaded, no marketplace site was opened, and no job was queued. It does not satisfy manual
+  accessibility QA or client acceptance.

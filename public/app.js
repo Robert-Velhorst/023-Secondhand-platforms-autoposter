@@ -144,6 +144,8 @@ const COPY_CATALOG = {
     "label.template": "Template",
     "label.description": "Description",
     "label.deliveryOptions": "Delivery options",
+    "hint.deliveryOptions": "Pickup and shipping selections are included automatically; add extra details only if needed.",
+    "hint.deliveryOptionsMissing": "Choose pickup and/or shipping above, or add delivery details.",
     "label.dimensions": "Dimensions",
     "label.notes": "Notes",
     "label.internalNotes": "Internal notes",
@@ -258,6 +260,8 @@ const COPY_CATALOG = {
     "label.template": "Sjabloon",
     "label.description": "Beschrijving",
     "label.deliveryOptions": "Leveringsopties",
+    "hint.deliveryOptions": "Ophalen en verzenden worden automatisch opgenomen; voeg alleen extra details toe als dat nodig is.",
+    "hint.deliveryOptionsMissing": "Kies hierboven ophalen en/of verzenden, of voeg bezorggegevens toe.",
     "label.dimensions": "Afmetingen",
     "label.notes": "Notities",
     "label.internalNotes": "Interne notities",
@@ -921,6 +925,18 @@ function renderQualityAssistant() {
   `;
 }
 
+function deliveryOptionsFromForm(form) {
+  const parsed = parseDeliveryOptions(form.delivery_options.value);
+  const options = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? { ...parsed }
+    : parsed == null ? {} : { note: String(parsed) };
+  if (form.pickup_allowed.checked) options.pickup = true;
+  else delete options.pickup;
+  if (form.shipping_allowed.checked) options.shipping = true;
+  else delete options.shipping;
+  return options;
+}
+
 function listingFormPayload(form) {
   return {
     title: form.title.value,
@@ -939,7 +955,7 @@ function listingFormPayload(form) {
     shipping_allowed: form.shipping_allowed.checked,
     tags: form.tags.value.split(",").map((tag) => tag.trim()).filter(Boolean),
     description: form.description.value,
-    delivery_options: parseDeliveryOptions(form.delivery_options.value),
+    delivery_options: deliveryOptionsFromForm(form),
     dimensions: parseDeliveryOptions(form.dimensions.value),
     notes: form.notes.value,
     internal_notes: form.internal_notes.value,
@@ -1207,7 +1223,7 @@ function missingFieldHint(field) {
     condition: "Choose the item condition.",
     category: "Choose the source category or add a platform mapping.",
     location: "Add the pickup or shipping location.",
-    delivery_options: "Fill delivery options or pickup/shipping flags.",
+    delivery_options: t("hint.deliveryOptionsMissing"),
     images: "Upload at least one item image.",
   };
   return hints[field] || `Review ${formatFieldLabel(field)}.`;
