@@ -46,22 +46,33 @@ mode retains its previous Uvicorn graceful-drain policy.
 
 ### Current package check — 2026-10-03
 
-The latest local Windows 11 build was produced from source commit `c08885f`
-using the hash-locked build environment, Python 3.13.14, and PyInstaller
-6.22.0. The 43,219,729-byte executable has SHA-256
-`744b0f4f5924cf77cf6b9debe7a5b41642fe230e6bf524b75ccd66ee64b67851`. PyInstaller
-used isolated `dist` and work paths so the existing ignored executable was not
-overwritten. On a fresh isolated data directory and loopback-only port 18766,
-the package migrated through `20261001_0017`; API and worker health returned
-`ok`. A synthetic account, HAI token, and listing were created through the
-packaged API; an oversized HAI record returned HTTP 413 with the expected
-content-limit message, and the discovery manifest exposed the 50-record and
-5-MiB page limits. Ctrl+C logged graceful Uvicorn shutdown; afterward no
-packaged process or listener remained. The enclosing shell session returned
-exit code 1, so its final exit status is unresolved. No ngrok tunnel,
-marketplace, real user, or production environment was involved. This is a
-local package/runtime check, not a signed release or production/live-ngrok
-acceptance.
+The latest local Windows 11 build was produced from source commit `d5b576e`
+(`d5b576e96d235260e71d8b7194659cf421a81c0d`) using the hash-locked build
+environment, Python 3.13.14, and PyInstaller 6.22.0. The 43,224,224-byte
+executable has SHA-256
+`79d1f3964996fdee721b0a62685be13ac255c4f653b5f2744eb40e5b595c9ed1`. PyInstaller
+used new isolated `dist` and work paths, leaving the existing ignored package
+and earlier smoke-test data untouched. On a new disposable data directory and
+loopback-only port 18768, the package migrated through `20261001_0017`; API and
+worker health both returned `ok`. A synthetic account and listing were created
+through the packaged API. A synthetic image upload and subsequent content
+download both returned HTTP 200, with the exact 68 uploaded bytes and matching
+`Content-Length`. This exercised the packaged image-content streaming path.
+For cleanup, the supervisor was forcibly stopped and its exact API and worker
+child processes were then stopped; a follow-up check found no packaged process
+or listener on port 18768. Graceful shutdown was not verified by this run. No
+ngrok tunnel, marketplace, real user, or production environment was involved.
+This is a local package/runtime check, not a signed release or
+production/live-ngrok acceptance.
+
+The earlier same-day build from `c08885f` was 43,219,729 bytes with SHA-256
+`744b0f4f5924cf77cf6b9debe7a5b41642fe230e6bf524b75ccd66ee64b67851`. On fresh
+data at loopback-only port 18766, it reached the same migration head, passed
+API/worker health, and exercised the HAI page limits and oversized-record
+rejection. Ctrl+C logged graceful Uvicorn shutdown, but the enclosing shell
+returned exit code 1, leaving that shell's final status unresolved. This
+historical check also involved no ngrok tunnel, marketplace, real user, or
+production environment.
 
 The earlier exact-PR-head UI smoke from `4ebc28a` (43,219,620 bytes,
 `eaffff430bfe0526c51b64bf0061534bbee306220b19921d90fba66db2cd1c53`) and the
