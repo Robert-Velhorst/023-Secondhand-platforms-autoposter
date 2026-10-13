@@ -3,5 +3,5 @@
 selenium==4.27.1
 spacy==3.8.3; python_version < "3.14"
 python-decouple==3.8
-requests==2.32.3
+requests==2.33.0
 lastpass-python==0.3.2
