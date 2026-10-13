@@ -47,3 +47,10 @@ def test_frontend_surfaces_platform_compliance_notes():
     assert "platform.compliance_notes" in script
     assert "Compliance" in script
     assert ".compliance-panel" in styles
+
+
+def test_delivery_options_explains_that_basic_delivery_choices_are_automatic():
+    content = public_text()
+
+    assert "Pickup and shipping selections are included automatically" in content
+    assert "Ophalen en verzenden worden automatisch opgenomen" in content

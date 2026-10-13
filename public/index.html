@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Secondhand Platforms Autoposter</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -18,8 +19,9 @@
             <div class="row">
               <button type="submit" data-mode="login" data-i18n="auth.signIn">Sign in</button>
               <button type="button" id="registerButton" data-i18n="auth.createAccount">Create account</button>
+              <button type="button" id="retrySessionButton" class="ghost hidden" data-i18n="auth.retrySession">Retry session check</button>
             </div>
-            <p class="error" id="authError"></p>
+            <p class="error" id="authError" role="status" aria-live="polite"></p>
           </form>
         </div>
       </section>
@@ -66,6 +68,14 @@
               <article><strong id="metricAction">0</strong><span data-i18n="metric.needAction">Need action</span></article>
               <article><strong id="metricFailed">0</strong><span data-i18n="metric.failed">Failed</span></article>
             </div>
+            <section class="action-center-panel">
+              <div class="pane-head">
+                <h3 data-i18n="dashboard.actionCenter">Getting started and action center</h3>
+                <span class="muted" data-i18n="dashboard.derivedLocal">Derived locally</span>
+              </div>
+              <div id="onboardingSteps" class="onboarding-steps"></div>
+              <div id="actionCenterList" class="list"></div>
+            </section>
             <section class="analytics-panel">
               <div class="pane-head">
                 <h3 data-i18n="dashboard.insights">Insights</h3>
@@ -98,20 +108,20 @@
                   <div class="tool-grid">
                     <label data-i18n-label="label.status">Status
                       <select id="listingStatusFilter">
-                        <option value="">All</option>
-                        <option value="draft">Draft</option>
-                        <option value="ready">Ready</option>
-                        <option value="published">Published</option>
-                        <option value="archived">Archived</option>
+                        <option value="" data-i18n="filters.all">All</option>
+                        <option value="draft" data-i18n="status.draft">Draft</option>
+                        <option value="ready" data-i18n="status.ready">Ready</option>
+                        <option value="published" data-i18n="status.published">Published</option>
+                        <option value="archived" data-i18n="status.archived">Archived</option>
                       </select>
                     </label>
                     <label data-i18n-label="label.sort">Sort
                       <select id="listingSort">
-                        <option value="-updated_at">Newest updated</option>
-                        <option value="updated_at">Oldest updated</option>
-                        <option value="title">Title A-Z</option>
-                        <option value="-price_cents">Highest price</option>
-                        <option value="price_cents">Lowest price</option>
+                        <option value="-updated_at" data-i18n="sort.newestUpdated">Newest updated</option>
+                        <option value="updated_at" data-i18n="sort.oldestUpdated">Oldest updated</option>
+                        <option value="title" data-i18n="sort.titleAZ">Title A-Z</option>
+                        <option value="-price_cents" data-i18n="sort.highestPrice">Highest price</option>
+                        <option value="price_cents" data-i18n="sort.lowestPrice">Lowest price</option>
                       </select>
                     </label>
                   </div>
@@ -130,14 +140,14 @@
                     <label data-i18n-label="label.price">Price<input name="price" type="number" min="0" step="0.01" /></label>
                     <label data-i18n-label="label.condition">Condition
                       <select name="condition">
-                        <option value="new">New</option>
-                        <option value="as_new">As new</option>
-                        <option value="good">Good</option>
-                        <option value="used">Used</option>
-                        <option value="fair">Fair</option>
-                        <option value="damaged">Damaged</option>
-                        <option value="for_parts">For parts</option>
-                        <option value="other">Other</option>
+                        <option value="new" data-i18n="condition.new">New</option>
+                        <option value="as_new" data-i18n="condition.asNew">As new</option>
+                        <option value="good" data-i18n="condition.good">Good</option>
+                        <option value="used" data-i18n="condition.used">Used</option>
+                        <option value="fair" data-i18n="condition.fair">Fair</option>
+                        <option value="damaged" data-i18n="condition.damaged">Damaged</option>
+                        <option value="for_parts" data-i18n="condition.forParts">For parts</option>
+                        <option value="other" data-i18n="condition.other">Other</option>
                       </select>
                     </label>
                     <label data-i18n-label="label.category">Category<input name="category" /></label>
@@ -158,10 +168,10 @@
                   </div>
                   <div class="template-apply-row">
                     <label data-i18n-label="label.template">Template<select id="listingTemplateSelect"><option value="">Choose template</option></select></label>
-                    <button type="button" id="applyTemplateButton" class="ghost">Apply template</button>
+                    <button type="button" id="applyTemplateButton" class="ghost" data-i18n="templates.apply">Apply template</button>
                   </div>
                   <label data-i18n-label="label.description">Description<textarea name="description" rows="7"></textarea></label>
-                  <label data-i18n-label="label.deliveryOptions">Delivery options<textarea name="delivery_options" rows="3"></textarea></label>
+                  <label data-i18n-label="label.deliveryOptions">Delivery options<textarea name="delivery_options" rows="3"></textarea><small data-i18n="hint.deliveryOptions">Pickup and shipping selections are included automatically; add extra details only if needed.</small></label>
                   <label data-i18n-label="label.dimensions">Dimensions<textarea name="dimensions" rows="3"></textarea></label>
                   <label data-i18n-label="label.notes">Notes<textarea name="notes" rows="3"></textarea></label>
                   <label data-i18n-label="label.internalNotes">Internal notes<textarea name="internal_notes" rows="3"></textarea></label>
@@ -213,26 +223,26 @@
             </div>
             <div class="query-tools">
               <div class="tool-grid">
-                <label data-i18n-label="label.platform">Platform<select id="jobPlatformFilter"><option value="">All platforms</option></select></label>
+                <label data-i18n-label="label.platform">Platform<select id="jobPlatformFilter"><option value="" data-i18n="filters.allPlatforms">All platforms</option></select></label>
                 <label data-i18n-label="label.status">Status
                   <select id="jobStatusFilter">
-                    <option value="">All statuses</option>
-                    <option value="queued">Queued</option>
-                    <option value="processing">Processing</option>
-                    <option value="needs_user_action">Needs action</option>
-                    <option value="completed">Completed</option>
-                    <option value="failed">Failed</option>
+                    <option value="" data-i18n="filters.allStatuses">All statuses</option>
+                    <option value="queued" data-i18n="status.queued">Queued</option>
+                    <option value="processing" data-i18n="status.processing">Processing</option>
+                    <option value="needs_user_action" data-i18n="status.needsUserAction">Needs action</option>
+                    <option value="completed" data-i18n="status.completed">Completed</option>
+                    <option value="failed" data-i18n="status.failed">Failed</option>
                   </select>
                 </label>
               </div>
               <div class="tool-grid">
                 <label data-i18n-label="label.sort">Sort
                   <select id="jobSort">
-                    <option value="-created_at">Newest</option>
-                    <option value="created_at">Oldest</option>
-                    <option value="platform">Platform A-Z</option>
-                    <option value="status">Status A-Z</option>
-                    <option value="-finished_at">Recently finished</option>
+                    <option value="-created_at" data-i18n="sort.newest">Newest</option>
+                    <option value="created_at" data-i18n="sort.oldest">Oldest</option>
+                    <option value="platform" data-i18n="sort.platformAZ">Platform A-Z</option>
+                    <option value="status" data-i18n="sort.statusAZ">Status A-Z</option>
+                    <option value="-finished_at" data-i18n="sort.recentlyFinished">Recently finished</option>
                   </select>
                 </label>
                 <div class="row pager-row">
@@ -252,25 +262,25 @@
                 <h3 data-i18n="accounts.title">Platform accounts</h3>
                 <div class="query-tools">
                   <div class="tool-grid">
-                    <label data-i18n-label="label.platform">Platform<select id="accountPlatformFilter"><option value="">All platforms</option></select></label>
+                    <label data-i18n-label="label.platform">Platform<select id="accountPlatformFilter"><option value="" data-i18n="filters.allPlatforms">All platforms</option></select></label>
                     <label data-i18n-label="label.status">Status
                       <select id="accountStatusFilter">
-                        <option value="">All statuses</option>
-                        <option value="needs_setup">Needs setup</option>
-                        <option value="needs_token_exchange">Needs token exchange</option>
-                        <option value="ready">Ready</option>
-                        <option value="connected">Connected</option>
-                        <option value="disabled">Disabled</option>
+                        <option value="" data-i18n="filters.allStatuses">All statuses</option>
+                        <option value="needs_setup" data-i18n="status.needsSetup">Needs setup</option>
+                        <option value="needs_token_exchange" data-i18n="status.needsTokenExchange">Needs token exchange</option>
+                        <option value="ready" data-i18n="status.ready">Ready</option>
+                        <option value="connected" data-i18n="status.connected">Connected</option>
+                        <option value="disabled" data-i18n="status.disabled">Disabled</option>
                       </select>
                     </label>
                   </div>
                   <label data-i18n-label="label.sort">Sort
                     <select id="accountSort">
-                      <option value="-created_at">Newest</option>
-                      <option value="created_at">Oldest</option>
-                      <option value="display_name">Name A-Z</option>
-                      <option value="platform">Platform A-Z</option>
-                      <option value="status">Status A-Z</option>
+                      <option value="-created_at" data-i18n="sort.newest">Newest</option>
+                      <option value="created_at" data-i18n="sort.oldest">Oldest</option>
+                      <option value="display_name" data-i18n="sort.nameAZ">Name A-Z</option>
+                      <option value="platform" data-i18n="sort.platformAZ">Platform A-Z</option>
+                      <option value="status" data-i18n="sort.statusAZ">Status A-Z</option>
                     </select>
                   </label>
                   <div class="row pager-row">
@@ -287,11 +297,11 @@
                   <label data-i18n-label="accounts.displayName">Display name<input id="accountName" required /></label>
                   <label data-i18n-label="label.status">Status
                     <select id="accountStatus">
-                      <option value="needs_setup">Needs setup</option>
-                      <option value="needs_token_exchange">Needs token exchange</option>
-                      <option value="ready">Ready</option>
-                      <option value="connected">Connected</option>
-                      <option value="disabled">Disabled</option>
+                      <option value="needs_setup" data-i18n="status.needsSetup">Needs setup</option>
+                      <option value="needs_token_exchange" data-i18n="status.needsTokenExchange">Needs token exchange</option>
+                      <option value="ready" data-i18n="status.ready">Ready</option>
+                      <option value="connected" data-i18n="status.connected">Connected</option>
+                      <option value="disabled" data-i18n="status.disabled">Disabled</option>
                     </select>
                   </label>
                   <div class="row compact-actions">
@@ -310,18 +320,18 @@
                 <div class="query-tools">
                   <label data-i18n-label="listings.search">Search<input id="templateSearch" placeholder="template name or variant" /></label>
                   <div class="tool-grid">
-                    <label data-i18n-label="label.platform">Platform<select id="templatePlatformFilter"><option value="">All platforms</option></select></label>
+                    <label data-i18n-label="label.platform">Platform<select id="templatePlatformFilter"><option value="" data-i18n="filters.allPlatforms">All platforms</option></select></label>
                     <label data-i18n-label="templates.variant">Variant<input id="templateVariantFilter" placeholder="default, short, seasonal" /></label>
                   </div>
                   <div class="tool-grid">
                     <label data-i18n-label="label.sort">Sort
                       <select id="templateSort">
-                        <option value="name">Name A-Z</option>
-                        <option value="-name">Name Z-A</option>
-                        <option value="variant">Variant A-Z</option>
-                        <option value="platform">Platform A-Z</option>
-                        <option value="-created_at">Newest</option>
-                        <option value="created_at">Oldest</option>
+                        <option value="name" data-i18n="sort.nameAZ">Name A-Z</option>
+                        <option value="-name" data-i18n="sort.nameZA">Name Z-A</option>
+                        <option value="variant" data-i18n="sort.variantAZ">Variant A-Z</option>
+                        <option value="platform" data-i18n="sort.platformAZ">Platform A-Z</option>
+                        <option value="-created_at" data-i18n="sort.newest">Newest</option>
+                        <option value="created_at" data-i18n="sort.oldest">Oldest</option>
                       </select>
                     </label>
                   </div>
@@ -337,14 +347,14 @@
                 <div class="query-tools">
                   <label data-i18n-label="listings.search">Search<input id="mappingSourceFilter" placeholder="source category" /></label>
                   <div class="tool-grid">
-                    <label data-i18n-label="label.platform">Platform<select id="mappingPlatformFilter"><option value="">All platforms</option></select></label>
+                    <label data-i18n-label="label.platform">Platform<select id="mappingPlatformFilter"><option value="" data-i18n="filters.allPlatforms">All platforms</option></select></label>
                     <label data-i18n-label="label.sort">Sort
                       <select id="mappingSort">
-                        <option value="source_category">Source A-Z</option>
-                        <option value="-source_category">Source Z-A</option>
-                        <option value="platform">Platform A-Z</option>
-                        <option value="platform_category">Target A-Z</option>
-                        <option value="-created_at">Newest</option>
+                        <option value="source_category" data-i18n="sort.sourceAZ">Source A-Z</option>
+                        <option value="-source_category" data-i18n="sort.sourceZA">Source Z-A</option>
+                        <option value="platform" data-i18n="sort.platformAZ">Platform A-Z</option>
+                        <option value="platform_category" data-i18n="sort.targetAZ">Target A-Z</option>
+                        <option value="-created_at" data-i18n="sort.newest">Newest</option>
                       </select>
                     </label>
                   </div>
@@ -366,6 +376,28 @@
                   <p id="dataPortabilityMessage" class="muted"></p>
                 </div>
                 <div class="section-line"></div>
+                <h3 data-i18n="settings.hai">HAI connection</h3>
+                <div class="list hai-connector-panel">
+                  <p class="muted" data-i18n="settings.haiHelp">Download a listing file for HAI's local JSON feed. Connector tokens below are for a custom authenticated adapter; HAI's current HTTP reader cannot use them directly.</p>
+                  <button id="exportHaiFeedButton" type="button" data-i18n="settings.haiDownload">Download HAI feed</button>
+                  <p class="muted" data-i18n="settings.haiDownloadHelp">Contains your current listing text and safe metadata, without private notes or image files. Maximum 5 MiB; oversized exports fail without a partial file. Importing requires HAI operator setup. This is not automatic sync and does not delete previously imported HAI records.</p>
+                  <p id="haiExportMessage" role="status" aria-live="polite"></p>
+                  <form id="haiTokenForm" class="hai-token-form">
+                    <label data-i18n-label="settings.haiName">Connection name<input id="haiTokenName" value="Local HAI" maxlength="120" required /></label>
+                    <label data-i18n-label="settings.haiExpiry">Expires after
+                      <select id="haiTokenExpiry">
+                        <option value="30">30 days</option>
+                        <option value="90" selected>90 days</option>
+                        <option value="180">180 days</option>
+                        <option value="365">365 days</option>
+                      </select>
+                    </label>
+                    <button type="submit" data-i18n="settings.haiCreate">Create read-only token</button>
+                  </form>
+                  <div id="haiTokenOnce" class="hai-token-once hidden" role="status" aria-live="polite"></div>
+                  <div id="haiTokenList" class="list"></div>
+                </div>
+                <div class="section-line"></div>
                 <h3 data-i18n="settings.diagnostics">Diagnostics</h3>
                 <div class="list">
                   <button id="runDiagnosticsButton" type="button" class="ghost" data-i18n="settings.runDiagnostics">Run diagnostics</button>
@@ -384,7 +416,7 @@
                 <form id="templateForm">
                   <label data-i18n-label="templates.name">Name<input id="templateName" required /></label>
                   <label data-i18n-label="templates.variant">Variant<input id="templateVariant" value="default" required /></label>
-                  <label data-i18n-label="label.platform">Platform<select id="templatePlatform"><option value="">All platforms</option></select></label>
+                  <label data-i18n-label="label.platform">Platform<select id="templatePlatform"><option value="" data-i18n="filters.allPlatforms">All platforms</option></select></label>
                   <label data-i18n-label="templates.body">Body<textarea id="templateBody" rows="8" required></textarea></label>
                   <div class="row compact-actions">
                     <button type="submit" data-i18n="templates.save">Save template</button>

@@ -25,6 +25,7 @@ This audit maps visible dashboard actions to behavior in `public/app.js` and bac
 | Load dashboard metrics and insights | `loadAll()` / `renderDashboard()` | `GET /api/listings`, `/api/jobs`, `/api/accounts`, `/api/templates`, `/api/category-mappings`, `/api/analytics` | Wired |
 | Click recent listing | `#recentListings click` | Local selection and view switch | Wired |
 | Click latest job | `#jobList click` from queue list pattern; dashboard latest jobs are display-only | Local display only | Intentional |
+| Open onboarding step or reminder | `#onboardingSteps` / `#actionCenterList click` | Owner-scoped state from `GET /api/action-center`, then local navigation | Wired |
 
 ## Listings
 
@@ -35,6 +36,7 @@ This audit maps visible dashboard actions to behavior in `public/app.js` and bac
 | Search/filter/sort/page listings | query control handlers | `GET /api/listings` with query parameters | Wired |
 | Select listing | `#listingList click` | Local selection | Wired |
 | Save listing | `#listingForm submit` | `PATCH /api/listings/{id}` and platform override saves | Wired |
+| Autosave listing fields | listing form `input` / `change`, 1.2 second debounce | `PATCH /api/listings/{id}` with visible pending, saving, saved, or recovery state | Wired |
 | Apply template | `#applyTemplateButton click` | Local description update before save | Wired |
 | Duplicate listing | `#duplicateButton click` | `POST /api/listings/{id}/duplicate` | Wired |
 | Delete listing | `#deleteListingButton click` | `DELETE /api/listings/{id}` | Wired |

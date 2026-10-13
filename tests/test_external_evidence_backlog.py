@@ -4,7 +4,7 @@ from tests.test_requirements_traceability import phase_statuses
 
 
 def test_external_evidence_backlog_matches_partial_phases():
-    matrix = phase_statuses("docs/COMPLETION_MATRIX.md")
+    matrix = phase_statuses()
     expected_partial_phases = {phase for phase, status in matrix.items() if status == "Partial"}
     content = Path("docs/EXTERNAL_EVIDENCE_BACKLOG.md").read_text(encoding="utf-8")
 

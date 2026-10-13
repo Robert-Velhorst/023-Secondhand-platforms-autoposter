@@ -4,6 +4,16 @@ The repository still retains pre-existing Selenium/browser automation scripts un
 
 Optional dependencies for these scripts live in `requirements-legacy.txt`.
 
+The historical configuration example is retained separately at
+[`legacy/selenium/.env.example`](../legacy/selenium/.env.example). It is reference
+material, not web-app configuration or evidence that those scripts work today.
+The root `.env.example` contains only current application settings and can be
+copied for development without deleting a legacy section. Existing `.env` files
+are not rewritten automatically: remove legacy-only keys from the web-app
+configuration yourself, preserving any needed historical values separately.
+Do not weaken strict settings validation to accommodate legacy values or run
+legacy automation as part of verifying the new application's setup.
+
 ## Rules
 
 - Do not run legacy scripts in production app startup.

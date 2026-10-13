@@ -1,8 +1,4 @@
-import os
 from pathlib import Path
-
-os.environ["DATABASE_URL"] = "sqlite:///./data/test_autoposter.db"
-os.environ["PLATFORM_RATE_LIMIT_SECONDS"] = "0"
 
 from fastapi.testclient import TestClient
 

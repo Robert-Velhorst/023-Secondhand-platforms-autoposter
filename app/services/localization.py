@@ -14,7 +14,7 @@ def localization_metadata(settings: Settings) -> dict:
             {
                 "code": locale,
                 "name": LANGUAGE_NAMES.get(locale, locale),
-                "complete": locale in {"en", "nl"},
+                "complete": locale == "en",
             }
             for locale in locales
         ],

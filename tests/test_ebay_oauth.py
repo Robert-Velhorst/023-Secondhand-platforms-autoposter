@@ -1,6 +1,7 @@
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+import pytest
 
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine
@@ -40,6 +41,27 @@ class MemoryTokenSecretStore:
 
     def write_json(self, secret_ref, payload):
         self.payloads[secret_ref] = payload
+
+    def delete_json(self, secret_ref):
+        self.payloads.pop(secret_ref, None)
+
+
+def start_configured_ebay_oauth(monkeypatch):
+    configure_ebay_oauth(monkeypatch)
+    monkeypatch.setenv("EBAY_OAUTH_CLIENT_SECRET", "sandbox-client-secret")
+    get_settings.cache_clear()
+    headers = auth_headers()
+    start_response = client.post("/api/accounts/ebay/oauth/start", headers=headers)
+    assert start_response.status_code == 200, start_response.text
+    state = parse_qs(urlparse(start_response.json()["authorization_url"]).query)["state"][0]
+    return headers, state
+
+
+def successful_token_exchange(url, data, auth, headers, timeout):
+    return httpx.Response(
+        200,
+        json={"access_token": "access-token-secret", "refresh_token": "refresh-token-secret"},
+    )
 
 
 def test_ebay_oauth_start_fails_closed_without_config():
@@ -104,7 +126,7 @@ def test_ebay_oauth_callback_consumes_state_without_storing_tokens(monkeypatch):
         oauth_state = db.query(PlatformOAuthState).one()
         assert oauth_state.consumed_at is not None
         stored_account = db.query(PlatformAccount).one()
-        assert stored_account.secret_ref == "vault://platform-tokens/ebay/user-1"
+        assert stored_account.secret_ref.startswith("vault://platform-tokens/ebay/user-1/consent-")
         assert "authorization-code-from-ebay" not in str(stored_account.connection_data)
     finally:
         db.close()
@@ -156,14 +178,14 @@ def test_ebay_oauth_callback_can_exchange_and_store_tokens_without_exposing_them
         )
 
         assert account.status == "connected"
-        assert account.secret_ref == "vault://platform-tokens/ebay/user-1"
+        assert account.secret_ref.startswith("vault://platform-tokens/ebay/user-1/consent-")
         assert store.payloads[account.secret_ref]["access_token"] == "access-token-secret"
         serialized = str(account.connection_data)
         assert "access-token-secret" not in serialized
         assert "refresh-token-secret" not in serialized
         assert "sandbox-client-secret" not in serialized
         assert "authorization-code-from-ebay" not in serialized
-        assert "vault://platform-tokens/ebay/user-1" not in serialized
+        assert account.secret_ref not in serialized
         assert account.connection_data["oauth"]["token_exchange"] == "stored"
         assert account.connection_data["oauth"]["access_token_expires_in"] == 7200
     finally:
@@ -175,8 +197,61 @@ def test_ebay_oauth_callback_can_exchange_and_store_tokens_without_exposing_them
     assert "access-token-secret" not in serialized_response
     assert "refresh-token-secret" not in serialized_response
     assert "sandbox-client-secret" not in serialized_response
-    assert "vault://platform-tokens/ebay/user-1" not in serialized_response
+    assert account.secret_ref not in serialized_response
     assert response.json()[0]["status"] == "connected"
+
+
+def test_ebay_oauth_callback_removes_new_token_when_account_commit_fails(monkeypatch):
+    _, state = start_configured_ebay_oauth(monkeypatch)
+    store = MemoryTokenSecretStore()
+    with SessionLocal() as db:
+        def fail_commit():
+            raise RuntimeError("simulated commit failure")
+
+        monkeypatch.setattr(db, "commit", fail_commit)
+        with pytest.raises(RuntimeError, match="simulated commit failure"):
+            consume_ebay_authorization_callback(
+                db,
+                state,
+                "authorization-code-from-ebay",
+                get_settings(),
+                http_post=successful_token_exchange,
+                secret_store=store,
+            )
+        assert store.payloads == {}
+
+    with SessionLocal() as db:
+        assert db.query(PlatformAccount).count() == 0
+        oauth_state = db.query(PlatformOAuthState).one()
+        assert oauth_state.consumed_at is None
+
+
+def test_ebay_oauth_callback_preserves_token_when_commit_outcome_is_uncertain(monkeypatch):
+    _, state = start_configured_ebay_oauth(monkeypatch)
+    store = MemoryTokenSecretStore()
+    with SessionLocal() as db:
+        original_commit = db.commit
+
+        def commit_then_raise():
+            original_commit()
+            raise RuntimeError("simulated lost commit acknowledgement")
+
+        monkeypatch.setattr(db, "commit", commit_then_raise)
+        with pytest.raises(RuntimeError, match="lost commit acknowledgement"):
+            consume_ebay_authorization_callback(
+                db,
+                state,
+                "authorization-code-from-ebay",
+                get_settings(),
+                http_post=successful_token_exchange,
+                secret_store=store,
+            )
+        assert len(store.payloads) == 1
+
+    with SessionLocal() as db:
+        account = db.query(PlatformAccount).one()
+        assert account.secret_ref in store.payloads
+        assert account.status == "connected"
 
 
 def test_ebay_token_refresh_and_inventory_probe_use_secret_store(monkeypatch):
@@ -185,7 +260,7 @@ def test_ebay_token_refresh_and_inventory_probe_use_secret_store(monkeypatch):
     get_settings.cache_clear()
     store = MemoryTokenSecretStore()
     store.write_json(
-        "vault://platform-tokens/ebay/user-1",
+        "vault://platform-tokens/ebay/user-1/consent-test",
         {
             "access_token": "old-access-token",
             "refresh_token": "refresh-token-secret",
@@ -205,15 +280,15 @@ def test_ebay_token_refresh_and_inventory_probe_use_secret_store(monkeypatch):
         return httpx.Response(200, json={"access_token": "new-access-token", "expires_in": 7200})
 
     refresh_summary = refresh_ebay_access_token(
-        "vault://platform-tokens/ebay/user-1",
+        "vault://platform-tokens/ebay/user-1/consent-test",
         settings=get_settings(),
         http_post=fake_post,
         secret_store=store,
     )
 
     assert refresh_summary["token_refresh"] == "stored"
-    assert store.payloads["vault://platform-tokens/ebay/user-1"]["access_token"] == "new-access-token"
-    assert store.payloads["vault://platform-tokens/ebay/user-1"]["refresh_token"] == "refresh-token-secret"
+    assert store.payloads["vault://platform-tokens/ebay/user-1/consent-test"]["access_token"] == "new-access-token"
+    assert store.payloads["vault://platform-tokens/ebay/user-1/consent-test"]["refresh_token"] == "refresh-token-secret"
 
     def fake_get(url, headers, params, timeout):
         assert url == "https://api.sandbox.ebay.com/sell/inventory/v1/inventory_item"
@@ -223,7 +298,7 @@ def test_ebay_token_refresh_and_inventory_probe_use_secret_store(monkeypatch):
         return httpx.Response(200, json={"inventoryItems": []})
 
     probe = verify_ebay_inventory_api_access(
-        "vault://platform-tokens/ebay/user-1",
+        "vault://platform-tokens/ebay/user-1/consent-test",
         settings=get_settings(),
         http_get=fake_get,
         secret_store=store,

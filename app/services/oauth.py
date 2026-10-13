@@ -1,3 +1,4 @@
+import logging
 import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -12,9 +13,11 @@ from app.config import Settings
 from app.models import PlatformAccount, PlatformOAuthState, User
 from app.security import hash_token
 from app.services.secrets import TokenSecretStore, get_token_secret_store
+from app.services.token_secret_cleanup import cleanup_token_secrets_after_commit, queue_token_secret_deletions
 
 HttpPost = Callable[..., httpx.Response]
 HttpGet = Callable[..., httpx.Response]
+logger = logging.getLogger("autoposter.oauth")
 
 
 def create_ebay_authorization_url(db: Session, user: User, settings: Settings) -> tuple[str, datetime]:
@@ -67,6 +70,7 @@ def consume_ebay_authorization_callback(
             PlatformOAuthState.platform == "ebay",
             PlatformOAuthState.state_hash == hash_token(state),
         )
+        .with_for_update()
         .one_or_none()
     )
     if not oauth_state:
@@ -81,7 +85,9 @@ def consume_ebay_authorization_callback(
         raise HTTPException(status_code=400, detail="eBay OAuth state has expired")
 
     oauth_state.consumed_at = datetime.now(UTC)
-    secret_ref = f"{settings.ebay_token_secret_ref_prefix}/user-{oauth_state.user_id}"
+    secret_ref = (
+        f"{settings.ebay_token_secret_ref_prefix}/user-{oauth_state.user_id}/consent-{oauth_state.state_hash}"
+    )
     account = (
         db.query(PlatformAccount)
         .filter(
@@ -101,15 +107,20 @@ def consume_ebay_authorization_callback(
             "authorized_at": oauth_state.consumed_at.isoformat(),
         }
     }
+    token_store = secret_store
+    token_secret_written = False
     if settings.ebay_oauth_token_exchange_configured:
+        token_store = token_store or get_token_secret_store(settings)
         token_summary = exchange_ebay_authorization_code(
             code,
             secret_ref=secret_ref,
             settings=settings,
             http_post=http_post,
-            secret_store=secret_store,
+            secret_store=token_store,
         )
         connection_data["oauth"].update(token_summary)
+        token_secret_written = token_summary.get("token_exchange") == "stored"
+    old_secret_ref = account.secret_ref if account else None
     if account:
         account.mode = "official_api"
         account.status = _oauth_account_status(connection_data)
@@ -126,8 +137,33 @@ def consume_ebay_authorization_callback(
             secret_ref=secret_ref,
         )
         db.add(account)
-    db.commit()
+    cleanup_ids = queue_token_secret_deletions(
+        db, [old_secret_ref] if old_secret_ref and old_secret_ref != secret_ref else []
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        if token_secret_written and token_store:
+            try:
+                committed_account = (
+                    db.query(PlatformAccount.id)
+                    .filter(PlatformAccount.secret_ref == secret_ref)
+                    .first()
+                )
+            except Exception as check_error:
+                # A commit exception can be an uncertain outcome; preserve the
+                # token unless a fresh query proves no account references it.
+                logger.warning("eBay OAuth token cleanup deferred (%s)", type(check_error).__name__[:80])
+            else:
+                if committed_account is None:
+                    try:
+                        token_store.delete_json(secret_ref)
+                    except Exception as cleanup_error:
+                        logger.warning("eBay OAuth token cleanup deferred (%s)", type(cleanup_error).__name__[:80])
+        raise
     db.refresh(account)
+    cleanup_token_secrets_after_commit(cleanup_ids)
     return account
 
 

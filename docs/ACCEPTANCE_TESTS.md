@@ -4,7 +4,9 @@ Date: 2026-07-12
 
 ## Scope
 
-The local acceptance suite covers the product's core seller workflow through the API. Browser execution remains tracked separately under end-to-end workflow and browser QA phases.
+The local acceptance suite covers the product's core seller workflow through the API. Executed
+browser evidence for registration, onboarding, listing creation, autosave, action-center refresh,
+and mobile layout is recorded in `docs/BROWSER_ACCESSIBILITY_QA.md`.
 
 ## Automated Acceptance Flow
 

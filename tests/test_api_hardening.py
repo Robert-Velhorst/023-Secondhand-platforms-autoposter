@@ -87,22 +87,25 @@ def test_openapi_routes_are_grouped_with_tags():
 
 
 def test_metrics_returns_operational_counts():
-    before = client.get("/api/metrics").json()
     headers = auth_headers()
     client.post("/api/listings", headers=headers, json={"title": "Draft metrics", "status": "draft"})
     client.post("/api/listings", headers=headers, json={"title": "Ready metrics", "status": "ready"})
 
-    response = client.get("/api/metrics")
+    response = client.get("/api/metrics", headers=headers)
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["users_total"] == before["users_total"] + 1
-    assert payload["listings_total"] == before["listings_total"] + 2
-    assert payload["publishing_jobs_total"] == before["publishing_jobs_total"]
-    assert payload["platform_accounts_total"] == before["platform_accounts_total"]
-    assert payload["listing_statuses"]["draft"] == before["listing_statuses"].get("draft", 0) + 1
-    assert payload["listing_statuses"]["ready"] == before["listing_statuses"].get("ready", 0) + 1
-    assert payload["publishing_job_statuses"] == before["publishing_job_statuses"]
+    assert "users_total" not in payload
+    assert payload["listings_total"] == 2
+    assert payload["publishing_jobs_total"] == 0
+    assert payload["platform_accounts_total"] == 0
+    assert payload["listing_statuses"] == {"draft": 1, "ready": 1}
+    assert payload["publishing_job_statuses"] == {}
+
+
+def test_metrics_and_diagnostics_require_authentication():
+    assert client.get("/api/metrics").status_code == 401
+    assert client.get("/api/diagnostics").status_code == 401
 
 
 def test_localization_metadata_is_public_and_explicit_about_catalog_status():
@@ -114,7 +117,7 @@ def test_localization_metadata_is_public_and_explicit_about_catalog_status():
     assert payload["fallback_locale"] == "en"
     assert payload["ui_catalog_status"] == "frontend_catalog_with_english_fallback"
     assert {locale["code"] for locale in payload["supported_locales"]} >= {"en", "nl"}
-    assert any(locale["code"] == "nl" and locale["complete"] is True for locale in payload["supported_locales"])
+    assert any(locale["code"] == "nl" and locale["complete"] is False for locale in payload["supported_locales"])
 
 
 def test_listings_support_pagination_filtering_and_sorting():

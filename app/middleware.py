@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.config import get_settings
 from app.rate_limit import check_api_rate_limit
@@ -24,6 +25,53 @@ CONTENT_SECURITY_POLICY = (
     "frame-ancestors 'none'; "
     "form-action 'self'"
 )
+IMPORT_BODY_LIMIT_BYTES = 10 * 1024 * 1024
+
+
+class _ImportBodyTooLarge(HTTPException):
+    def __init__(self) -> None:
+        super().__init__(status_code=413, detail="JSON import exceeds the 10 MiB request limit.")
+
+
+class ImportBodyLimitMiddleware:
+    """Enforce the JSON import byte cap even when the request is streamed."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope.get("method") != "POST" or scope.get("path") != "/api/import":
+            await self.app(scope, receive, send)
+            return
+
+        content_length = next(
+            (value for key, value in scope.get("headers", []) if key.lower() == b"content-length"),
+            None,
+        )
+        try:
+            too_large = content_length is not None and int(content_length) > IMPORT_BODY_LIMIT_BYTES
+        except ValueError:
+            too_large = True
+        if too_large:
+            await self.app(scope, self._rejecting_receive, send)
+            return
+
+        received = 0
+
+        async def limited_receive() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > IMPORT_BODY_LIMIT_BYTES:
+                    raise _ImportBodyTooLarge
+            return message
+
+        await self.app(scope, limited_receive, send)
+
+    @staticmethod
+    async def _rejecting_receive() -> Message:
+        raise _ImportBodyTooLarge
 
 
 def error_response(
@@ -54,6 +102,7 @@ def error_response(
 
 
 def setup_middleware(app: FastAPI) -> None:
+    app.add_middleware(ImportBodyLimitMiddleware)
     @app.middleware("http")
     async def request_id_and_security_headers(
         request: Request, call_next: Callable[[Request], Response]
@@ -167,11 +216,9 @@ def api_retry_after(request: Request) -> int | None:
     if request.url.path == "/api/health":
         return None
     settings = get_settings()
-    authorization = request.headers.get("Authorization", "")
     client_host = request.client.host if request.client else "unknown"
-    identifier = authorization or f"ip:{client_host}"
     return check_api_rate_limit(
-        identifier,
+        f"ip:{client_host}",
         settings.api_rate_limit_requests,
         settings.api_rate_limit_window_seconds,
     )

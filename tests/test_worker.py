@@ -318,10 +318,12 @@ def test_worker_recovers_stale_running_jobs(monkeypatch):
 
 
 def test_fresh_running_jobs_are_not_recovered():
+    headers = auth_headers()
+    listing_id = create_ready_listing(headers)
     db = SessionLocal()
     try:
         job = PublishingJob(
-            listing_id=1,
+            listing_id=listing_id,
             platform="marktplaats",
             status="running",
             idempotency_key=f"fresh-running-{uuid.uuid4().hex}",

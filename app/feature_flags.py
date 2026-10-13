@@ -42,9 +42,9 @@ def build_feature_flags(settings: FeatureFlagSettings) -> tuple[FeatureFlag, ...
             name="inline_job_processing",
             env_var="JOB_PROCESS_INLINE",
             enabled=settings.job_process_inline,
-            production_allowed=True,
+            production_allowed=False,
             description="Process publish jobs inside the API request instead of only through the worker.",
-            production_error="JOB_PROCESS_INLINE should be reviewed for production worker deployments",
+            production_error="JOB_PROCESS_INLINE must be false in production; run a separate worker process",
         ),
     )
 
