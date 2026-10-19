@@ -57,7 +57,7 @@ Example request, using a placeholder token:
 curl -H "Authorization: Bearer hai_REPLACE_ME" "https://autoposter.example/api/hai/records?limit=50"
 ```
 
-For local Windows use, the source URL is `http://127.0.0.1:8000` from that Windows host. Inside another machine or container, `127.0.0.1` refers to that machine/container, not the Autoposter host. A reviewed network route is required. Managed ngrok lifecycle controls have local verification, but a public tunnel still needs explicit approval and target access-policy acceptance; see the [ngrok guide](WINDOWS_STANDALONE.md#ngrok).
+For local Windows use, the source URL is `http://127.0.0.1:8000` from that Windows host. Inside another machine or container, `127.0.0.1` refers to that machine/container, not the Autoposter host. A reviewed network route is required. Ngrok tunneling has been removed; remote access is available only after a reviewed Hetzner deployment. See the [deployment target](../DEPLOYMENT_TARGET.md).
 
 ## End-to-End Acceptance Still Required
 

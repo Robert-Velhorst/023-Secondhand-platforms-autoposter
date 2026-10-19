@@ -42,9 +42,7 @@ worker: a healthy unrelated worker cannot satisfy this query. Filtered responses
 also return `worker_id`; unfiltered responses retain the aggregate shape. A
 malformed ID returns 422; no fresh matching worker or an operator pause returns
 503. This is diagnostic information, not user authentication or permission to
-process jobs. The managed ngrok API adds `X-Autoposter-Instance` and
-`Cache-Control: no-store` to both health and worker-status responses so startup
-checks can distinguish this launch from another service or cached response.
+process jobs. These readiness endpoints are diagnostic information, not user authentication or permission to process jobs.
 
 ## Authentication
 
