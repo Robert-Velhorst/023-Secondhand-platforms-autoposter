@@ -1,4 +1,6 @@
-# Windows 11 Standalone And Ngrok
+# Windows 11 Standalone
+
+> **Current status:** Ngrok support has been removed. This document retains dated historical verification evidence only; its old ngrok mentions do not describe current code or operating instructions. The standalone profile is local-only. Hetzner is the production target, and no migration is claimed until the full deployment and rollback path is verified.
 
 ## Build
 
@@ -22,7 +24,7 @@ Start `SecondhandAutoposter.exe`, or run the source launcher during development:
 
 The launcher binds only to `127.0.0.1`, migrates the local database before startup, creates a persistent random secret, starts the API and worker separately, and opens the browser after health succeeds. Data is stored under `%LOCALAPPDATA%\SecondhandAutoposter` by default. Override that location with `AUTOPOSTER_DATA_DIR` for a controlled backup location.
 
-The standalone profile uses SQLite and local image storage. It is intended for one Windows operator; multi-user production deployments should use PostgreSQL and the production Compose definition. Use a free local port and stop previous instances before running migrations against the same data directory. The revised ngrok lifecycle has local regression evidence, but still needs real-agent and access-policy acceptance; a reserved URL is not private access control.
+The standalone profile uses SQLite and local image storage. It is intended for one Windows operator; multi-user production deployments should use PostgreSQL and the production Compose definition. Use a free local port and stop previous instances before running migrations against the same data directory. Ngrok support has been removed. This standalone profile is local-only; remote deployment is targeted at Hetzner.
 
 ### Startup ownership and shutdown
 
@@ -32,15 +34,7 @@ On Windows, the worker starts suspended, is assigned to a private Job Object, an
 
 The data lock covers cooperating launchers using the same directory. It cannot stop an older build, a separately started API/worker, another application, or a different data directory sharing the same configured database. Stop those processes before upgrading. Keep `.launcher.lock` in place: deleting it is not a safe unlock procedure. Windows can briefly delay releasing locks after a crash; retry startup after the prior processes have stopped. See [Microsoft's file-lock lifecycle documentation](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-lockfile).
 
-The revised `start-ngrok.ps1` delegates to this launcher. In tunnel mode it first
-owns the port and data lock, then starts owned ngrok, worker, and API process
-trees. The separate API child receives the already-owned socket through an
-owned stdin pipe (Windows socket sharing targets the actual interpreter PID,
-not an assumed bootloader PID). The supervisor holds data ownership until all
-request threads have been terminated with their process tree. If the API server
-returns while request threads survive, a stop marker triggers cleanup; failure
-to write that marker forces the dedicated API interpreter to exit. Normal local
-mode retains its previous Uvicorn graceful-drain policy.
+Historical tunnel implementation (retired): the former `start-ngrok.ps1` delegated to the launcher and owned the tunnel, worker, API process tree, and data lock. The API child received the already-owned socket through an owned stdin pipe. The code and wrapper described here have been removed; these lifecycle details are retained only as dated engineering history.
 
 ## Verified Portable Build
 
@@ -232,52 +226,6 @@ The 2026-09-05 worker-recovery build has SHA-256 `68bab4a5d1e371e4a1fd91b8ce367f
 
 The finalized 2026-08-09 local build produced a 43,670,075-byte executable with SHA-256 `6f791859c6bb70101e85b0c5c3ab417f5e962b12b2e52869b1c2df75bcfa1ed2`. A clean-directory runtime test reached Alembic head `20260809_0013`, reported a healthy API and worker, and created the expected database and secret; an exact-source rebuild passed the same API/worker smoke. One-file startup took about 99–130 seconds on this Windows host while Windows extracted/scanned it; later behavior depends on the machine and security software.
 
-## Ngrok
+## Remote access status
 
-**Starting ngrok is an explicit public action.** Local tests use a substitute
-agent and do not open a public tunnel. The revised implementation addresses the
-earlier port-ownership, process-selection, shared-log, worker-readiness, and
-PowerShell-environment gaps. Neither these tests nor older successful public
-health checks prove acceptance of the revised path against the real provider.
-
-After operator approval and installing/authenticating ngrok:
-
-```powershell
-.\scripts\start-ngrok.ps1
-```
-
-The wrapper prefers `dist/SecondhandAutoposter.exe`; **rebuild it after a source
-update**, or pass `-FromSource` to select `.venv/Scripts/python.exe`. Other options
-are `-Domain your-domain.ngrok.app`, `-Port 8010`, `-NgrokPath "C:\Tools\ngrok.exe"`,
-and `-NoBrowser`. Caller environment values and working directory are preserved.
-
-`-VerifyOnly` opens the endpoint, checks both local/public API health **and this
-launch's exact worker heartbeat**, then tears down the owned session. HTTP
-responses must have the generated instance marker and matching worker ID. It
-does not accept another worker's recent heartbeat as startup proof. The marker
-is not a credential. The public-origin profile forces bearer authentication,
-restrictive CORS, no development auto-login, explicit migrations, and a separate
-worker. Account registration remains available: review edge access controls
-before exposing sensitive data.
-
-Agent arguments disable inspection and pooling. Logs are isolated under
-`AUTOPOSTER_DATA_DIR/runtime/ngrok-<unique-id>/`, rotating at approximately 64 KiB
-with three backups. Malformed endpoint values, a changed/unexpected endpoint,
-log EOF, and read/write/close failures stop the run with fixed lifecycle errors.
-Logs are not served by the app; OS permissions and retention across runs still
-need operator management. Do not share raw logs without reviewing their content.
-
-After initial HTTP readiness, monitoring checks process/log liveness, not
-continuous public connectivity or heartbeat freshness. Ctrl+C, process death,
-or a failed readiness/logging check cleans up the owned session. Forced cleanup
-can interrupt requests and jobs; check state before retrying. Endpoint discovery
-has a 30-second deadline, API bootstrap and readiness each have 180 seconds;
-these do not bound every migration, DNS, or OS failure. Thread-cleanup failures
-are reported, not silently accepted.
-
-Do not enable pooling to work around `ERR_NGROK_334`; resolve the endpoint
-conflict through an authorised operator. A reserved address is not private
-access, and a temporary tunnel is not production hosting. Sleeping, shutting
-down, or disconnecting the Windows host makes the app unavailable. See the
-[README ngrok section](../Readme.md#access-through-ngrok) for the complete
-operational boundary.
+Ngrok scripts and launcher options have been retired and removed from the source tree. Historical ngrok references earlier in this document describe old verification evidence only; they are not current operating instructions. The standalone profile is local-only. Hetzner is the production target, and no migration or cutover is claimed until the running service, data, secrets, security controls, backups, DNS/TLS, monitoring, and rollback have been verified. See [deployment target](../DEPLOYMENT_TARGET.md).

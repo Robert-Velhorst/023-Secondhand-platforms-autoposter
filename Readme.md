@@ -12,7 +12,7 @@ This README describes the **`agent/production-launch-hardening` review branch**,
 
 The repository's current GitHub owner is **Robert-Velhorst**. The original `Noodzakelijk-Online/023-Secondhand-platforms-autoposter` link resolves to this repository. Proposed changes, older PR descriptions, and generated executables are not interchangeable with the source revision you checked out. Rebuild after updating source; an older executable does not gain new launcher controls merely because its PowerShell wrapper changed.
 
-In plain language: the local app prepares and organises listings; people still publish them. Windows packaging, a manual HAI file handoff, and managed tunnel lifecycle controls have local verification records. Production launch, live acceptance of the revised ngrok path, automatic HAI synchronization, and acceptance in the target HAI installation remain unfinished milestones. The `1.0.0-rc.1` version string is not launch approval or proof of a downloadable signed release.
+In plain language: the local app prepares and organises listings; people still publish them. Windows packaging and a manual HAI file handoff have local verification records. Ngrok support has been removed. Production deployment is targeted at Hetzner and remains unverified; automatic HAI synchronization and acceptance in the target HAI installation are also unfinished. The `1.0.0-rc.1` version string is not launch approval or proof of a downloadable signed release.
 
 ## Contents
 
@@ -27,7 +27,6 @@ In plain language: the local app prepares and organises listings; people still p
 - [Windows 11 standalone use](#windows-11-standalone-use)
 - [Local development setup](#local-development-setup)
 - [Docker setup](#docker-setup)
-- [Access through ngrok](#access-through-ngrok)
 - [HAI connector](#hai-connector)
 - [Architecture](#architecture)
 - [Performance and resource use](#performance-and-resource-use)
@@ -96,13 +95,13 @@ No. All five registered marketplace adapters prepare assisted packages. Final su
 
 ### Can I use it without internet or from another device?
 
-With the app running on your computer, SQLite and local storage keep listing preparation local; the quality assistant does not need an external AI service. Marketplace visits, ngrok, remote PostgreSQL/S3 storage, and remote integrations require their respective network connections. This is not an offline browser app: if its API is stopped or unreachable, the page cannot save work.
+With the app running on your computer, SQLite and local storage keep listing preparation local; the quality assistant does not need an external AI service. Marketplace visits, remote PostgreSQL/S3 storage, and remote integrations require their respective network connections. This is not an offline browser app: if its API is stopped or unreachable, the page cannot save work.
 
-`127.0.0.1` means **this device**, not your other computer or phone. Another device needs an operator-approved reachable deployment. A tunnel forwards traffic to the running Windows app; it does not move the app into cloud hosting or keep it running while the computer sleeps, shuts down, or loses connectivity. The committed ngrok helper has the [safety limitations below](#access-through-ngrok).
+`127.0.0.1` means **this device**, not your other computer or phone. The standalone app is local-only. Ngrok support has been removed; remote access requires a reviewed Hetzner deployment. See [deployment target](DEPLOYMENT_TARGET.md).
 
 ### Is there a subscription, AI bill, or marketplace fee?
 
-There is no billing/subscription implementation or external AI requirement in this app. That is not a free-use licence or a promise of zero operating cost. Hosting, storage, backups, a tunnel account, and marketplace placement can have separate charges under your chosen providers. The app does not purchase marketplace extras for you. Repository licensing is [not yet specified](#license-and-third-party-services).
+There is no billing/subscription implementation or external AI requirement in this app. That is not a free-use licence or a promise of zero operating cost. Hosting, storage, backups, and marketplace placement can have separate charges under your chosen providers. The app does not purchase marketplace extras for you. Repository licensing is [not yet specified](#license-and-third-party-services).
 
 ### Who can see my data?
 
@@ -206,7 +205,6 @@ Marketplace names and links identify destinations selected by the user. They do 
 | Python from source | Developers and local review | SQLite by default; PostgreSQL optional | Inline by default or separate process | Fastest path for development and debugging |
 | Docker Compose | Repeatable local environments | SQLite by default; optional local PostgreSQL profile | Separate container | Edit `.env` to select PostgreSQL and disable inline processing when testing worker behaviour |
 | Production Compose | A supplied staging/production host | External PostgreSQL required | Separate container | Migration-gated and requires persistent uploads plus production secrets |
-| ngrok over standalone | Operator-approved remote review of one Windows instance | Local SQLite | Separate owned worker; startup checks its exact heartbeat locally and through the public URL | Lifecycle controls are locally tested; live-provider and access-control acceptance remain open |
 
 ## Windows 11 standalone use
 
@@ -247,9 +245,9 @@ $env:AUTOPOSTER_DATA_DIR = "D:\AutoposterData"
 .\dist\SecondhandAutoposter.exe
 ```
 
-The standalone profile is designed for one Windows operator using SQLite and local image storage. It is not a substitute for a multi-user PostgreSQL production deployment. See [Windows standalone and ngrok](docs/WINDOWS_STANDALONE.md).
+The standalone profile is designed for one Windows operator using SQLite and local image storage. It is not a substitute for a multi-user PostgreSQL production deployment. See [Windows standalone](docs/WINDOWS_STANDALONE.md).
 
-An occupied port or a data directory held by another current launcher causes startup to fail before secrets, migrations, workers, or a tunnel are started. After a forced shutdown, Windows may briefly retain the file lock; retry after the old processes have stopped. Do not delete `.launcher.lock` to bypass it. The lock coordinates this launcher, not older versions, direct worker/API commands, other applications, or two different data directories configured to share one database. Upgrades still require a backup and all older API/worker processes stopped. Local build evidence does not establish Windows code-signing, SmartScreen reputation, an installer, or automatic updates. The ngrok wrapper now delegates lifecycle ownership to the current launcher.
+An occupied port or a data directory held by another current launcher causes startup to fail before secrets, migrations, or workers are started. After a forced shutdown, Windows may briefly retain the file lock; retry after the old processes have stopped. Do not delete `.launcher.lock` to bypass it. The lock coordinates this launcher, not older versions, direct worker/API commands, other applications, or two different data directories configured to share one database. Upgrades still require a backup and all older API/worker processes stopped. Local build evidence does not establish Windows code-signing, SmartScreen reputation, an installer, or automatic updates. Ngrok tunneling is not supported; remote deployment is targeted at Hetzner.
 
 ## Local development setup
 
@@ -258,11 +256,11 @@ An occupied port or a data directory held by another current launcher causes sta
 - Python 3.12 is the supported application/CI target.
 - Git.
 - A modern browser.
-- Optional: Docker Desktop, PostgreSQL, ngrok, and Python 3.13 for Windows packaging.
+- Optional: Docker Desktop, PostgreSQL, and Python 3.13 for Windows packaging.
 
 ### Choose and record the version
 
-The review branch can advance. After cloning and entering the repository directory, run `git rev-parse HEAD` to record what you actually obtained, and inspect that revision's verification evidence. Commit `33882913d272f1352b782a7066dd6caeac6eca24` is a historical comparison point, **not** the current managed-ngrok implementation. Do not switch versions in a working installation without checking schema compatibility, stopping processes, and backing up its data.
+The review branch can advance. After cloning and entering the repository directory, run `git rev-parse HEAD` to record what you actually obtained, and inspect that revision's verification evidence. Commit `33882913d272f1352b782a7066dd6caeac6eca24` is a historical comparison point, not current deployment guidance. Do not switch versions in a working installation without checking schema compatibility, stopping processes, and backing up its data.
 
 ### Windows PowerShell
 
@@ -347,48 +345,9 @@ docker compose --profile postgres up --build -d autoposter worker
 
 Continue past `pg_isready` only after it reports that PostgreSQL is accepting connections; repeat the check if it is still starting. For an existing stack, stop API and worker and back up data before migrating. The local Compose PostgreSQL password is a development value. Do not reuse it outside an isolated local environment. Compose publishes ports on the host; apply host firewall restrictions and do not expose this development stack to the internet.
 
-## Access through ngrok
+## Remote deployment
 
-> **Explicit internet exposure, not cloud hosting or production approval.** The revised launcher owns the port and data lock before starting ngrok, and supervises its own tunnel, API, and worker processes. These controls were tested locally with a substitute agent, real sockets, real API/worker processes, and failure injection. That is not live-provider or public-access-policy acceptance.
-
-A reserved domain does not make the app private. Account registration is available; CORS is a browser-origin control, not a firewall or invitation-only registration. Have an operator approve access controls, exposure duration, and data sensitivity. Keep credentials in the operator's ngrok configuration, not the repository.
-
-With ngrok installed/authenticated and the **current rebuilt** executable or Python environment prepared:
-
-```powershell
-.\scripts\start-ngrok.ps1
-```
-
-For a reserved domain:
-
-```powershell
-.\scripts\start-ngrok.ps1 -Domain "your-domain.ngrok.app"
-```
-
-For the script's non-interactive health drill (subject to the same lifecycle limitations):
-
-```powershell
-.\scripts\start-ngrok.ps1 -VerifyOnly
-```
-
-`-VerifyOnly` checks startup readiness and tears down this run; it still opens a real public endpoint. Use `-FromSource` to bypass an existing executable, `-NoBrowser` to avoid opening a tab, `-Port 8010` for another port, or `-NgrokPath "C:\Tools\ngrok.exe"` for an explicit agent path. Arguments preserve paths with spaces. The wrapper preserves the caller's environment and working directory.
-
-The managed lifecycle provides:
-
-- Exclusive IPv4 loopback binding and an OS data-directory lock **before exposure**. An occupied port or locked directory stops startup before ngrok runs.
-- Separate owned ngrok, API, and worker process trees. Windows uses kill-on-close Job Objects; cleanup does not select unrelated processes by executable name. The supervisor retains its socket and data lock until child cleanup finishes.
-- Per-run logs under `AUTOPOSTER_DATA_DIR/runtime/ngrok-<unique-id>/`. A log rotates at approximately 64 KiB with three backups; oversized records are omitted rather than parsed in fragments. Failed or ended log observation fails the run. Logs are not served by the app; local filesystem access and cross-run retention remain operator responsibilities.
-- Inspection and endpoint pooling disabled with `--inspect=false --pooling-enabled=false`; HTTPS-origin validation and matching the reported endpoint to the requested domain, when supplied.
-- Standalone mode, bearer authentication, development auto-login off, explicit migrations, separate job processing, and CORS restricted to the observed public origin.
-- Local **and public** `/api/health` and `/api/worker-status?worker_id=...` checks. Both must carry this launch's instance marker; the worker response must identify this launch's fresh heartbeat. Another worker or app cannot satisfy readiness. The marker is diagnostic, not an authentication token.
-
-After readiness, supervision checks process and log-observation liveness; it does **not** continuously retest public HTTP availability or heartbeat freshness. Process death, failed logging, readiness failure, or Ctrl+C tears down the owned session. In tunnel mode, API termination stops unfinished request threads before releasing data ownership. This is forced termination, not a guarantee that requests/jobs completed; inspect state before retrying consequential operations. Ordinary local mode retains its existing API graceful-drain behavior.
-
-Endpoint discovery has a 30-second deadline; API socket bootstrap and startup readiness each have a 180-second deadline. These are not a universal bound for migrations, OS cleanup, DNS resolution, or all infrastructure failures. A failed shutdown is reported rather than counted as successful verification. See [Windows lifecycle details](docs/WINDOWS_STANDALONE.md) and the [verification report](docs/FINAL_VERIFICATION_REPORT.md).
-
-If ngrok reports `ERR_NGROK_334`, that endpoint is already online. Stop the conflicting endpoint in the ngrok account or provide another reserved domain/tunnel slot. Do not enable pooling as an improvised fix: it may route one public address to unrelated local services.
-
-Treat an ngrok URL as internet exposure. Use a strong account password, do not enable development auto-login, revoke the tunnel after review, and do not describe a temporary standalone tunnel as a production deployment.
+Ngrok tunneling has been removed. The standalone Windows profile is local-only. Hetzner is the production deployment target; the service must not be considered migrated until the host, data and database, secrets, security controls, backups, DNS/TLS, monitoring, and rollback have been verified. See [deployment target](DEPLOYMENT_TARGET.md).
 
 ## HAI connector
 
@@ -465,7 +424,6 @@ flowchart LR
 | `app/services/` | Jobs, quality, analytics, audit, OAuth, localisation, worker health, and operator controls |
 | `app/worker.py` | Due-job processing loop and heartbeat recording |
 | `app/launcher.py` | Windows standalone migration, API, worker, browser, and local-data lifecycle |
-| `app/ngrok.py` | Owned tunnel process, isolated bounded logs, origin checks, and per-instance API/worker startup verification |
 | `migrations/` | Alembic schema history |
 | `tests/` | API, ownership, state, frontend-contract, deployment, migration, accessibility, and release-gate coverage |
 
@@ -862,7 +820,7 @@ The latest API rate-limit resource checkpoint passed **485 tests with one POSIX-
 
 The newer upload/CSV responsiveness checkpoint passed **475 tests with one POSIX-only skip in 117.81 seconds on Windows on 2026-09-13** (476 cases), plus Ruff and compilation. Nine new cases cover event-loop isolation, async image helpers, exact CSV size boundaries, and encoding/parser errors without partial imports. See the [current verification record](docs/FINAL_VERIFICATION_REPORT.md#upload-and-csv-event-loop-isolation--2026-09-13). The earlier checkpoints below retain their original evidence; none is production acceptance or a saturated-load guarantee.
 
-The latest image-write recovery checkpoint passed **466 tests with one POSIX-only skip in 114.71 seconds on Windows on 2026-09-13**, along with Ruff, compilation, and an isolated-database doctor check at head `20260913_0015`. The suite collects 467 cases. Coverage includes API behaviour, authentication, owner isolation, publishing-account checks, uploads/storage, listing revisions, adapters, job states/rate limits, concurrent enqueue/claims/retries, stale recovery, claim-fenced results, bounded database reads, migrations, deployment configuration, HAI feeds/downloads, frontend contracts, diagnostics, and release gates. Cleanup tests cover rollback safety, shared files, committed deletion during storage failures, a fresh worker process, crash recovery, concurrent claims, fenced acknowledgments, storage-path boundaries, and pending-work-safe migration rollback. Image-write tests additionally cover partial writes, uncertain commits, same-database recovery, unavailable recovery storage, complete duplication details, missing-image conflicts, and title bounds. A migration regression prevents Alembic from disabling existing application loggers. The HAI regressions cover source-link privacy and monotonic change identifiers for safe consumer replay. Clean-install tests copy the unedited environment example and exercise migrations, real API/worker startup, registration, and a persisted listing. The 41 ngrok-specific cases include occupied resources, exact-worker identity, malformed/oversized logs, EOF/I/O failures, wrapper environment preservation, and shutdown with unfinished or blocked requests. The Windows owner-crash and PowerShell-wrapper cases are skipped on other operating systems; the POSIX connection-reuse case is skipped on Windows. Scripted accessibility/browser-related cases do not replace manual acceptance. The verification report records historical results and an earlier launcher-test startup failure whose cause remains unconfirmed; its targeted and full-suite reruns passed, and startup diagnostics were improved without relaxing the test.
+The latest image-write recovery checkpoint passed **466 tests with one POSIX-only skip in 114.71 seconds on Windows on 2026-09-13**, along with Ruff, compilation, and an isolated-database doctor check at head `20260913_0015`. The suite collects 467 cases. Coverage includes API behaviour, authentication, owner isolation, publishing-account checks, uploads/storage, listing revisions, adapters, job states/rate limits, concurrent enqueue/claims/retries, stale recovery, claim-fenced results, bounded database reads, migrations, deployment configuration, HAI feeds/downloads, frontend contracts, diagnostics, and release gates. Cleanup tests cover rollback safety, shared files, committed deletion during storage failures, a fresh worker process, crash recovery, concurrent claims, fenced acknowledgments, storage-path boundaries, and pending-work-safe migration rollback. Image-write tests additionally cover partial writes, uncertain commits, same-database recovery, unavailable recovery storage, complete duplication details, missing-image conflicts, and title bounds. A migration regression prevents Alembic from disabling existing application loggers. The HAI regressions cover source-link privacy and monotonic change identifiers for safe consumer replay. Clean-install tests copy the unedited environment example and exercise migrations, real API/worker startup, registration, and a persisted listing. The historical suite had 41 ngrok-specific cases for occupied resources, exact-worker identity, malformed/oversized logs, EOF/I/O failures, wrapper environment preservation, and shutdown with unfinished or blocked requests; those cases and the tunnel implementation have now been retired. The Windows owner-crash and PowerShell-wrapper cases are skipped on other operating systems; the POSIX connection-reuse case is skipped on Windows. Scripted accessibility/browser-related cases do not replace manual acceptance. The verification report records historical results and an earlier launcher-test startup failure whose cause remains unconfirmed; its targeted and full-suite reruns passed, and startup diagnostics were improved without relaxing the test.
 
 Pytest creates a separate database, upload directory, and secret directory for each process before importing the application. It ignores inherited deployment/storage values and removes its own fixtures after a successful run; failed fixtures remain under `.tmp/test-runs/` for diagnosis. See [Testing strategy](docs/TESTING_STRATEGY.md) for the isolation contract and explicit PostgreSQL integration checks.
 
@@ -884,7 +842,7 @@ GitHub Actions runs the verification gate on pushes and pull requests to `main`.
 
 For the latest recorded evidence, see [Final verification report](docs/FINAL_VERIFICATION_REPORT.md). Browser and accessibility records must be refreshed after UI-affecting changes; static or scripted checks do not replace a real keyboard, zoom, and screen-reader walkthrough.
 
-The historical `3388291` baseline was rechecked on GitHub on 2026-09-13: [verification run 33999316498](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/33999316498) and [supply-chain run 33999316535](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/33999316535) both completed successfully. Verification recorded 368 passed and one Windows-only skip on Linux, plus 61 PostgreSQL job-safety passes. Those 61 checks rerun a subset against a different database; they are not 61 additional distinct product tests. They do not verify the later ngrok patch; each revision requires its own evidence.
+The historical `3388291` baseline was rechecked on GitHub on 2026-09-13: [verification run 33999316498](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/33999316498) and [supply-chain run 33999316535](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/actions/runs/33999316535) both completed successfully. Verification recorded 368 passed and one Windows-only skip on Linux, plus 61 PostgreSQL job-safety passes. Those 61 checks rerun a subset against a different database; they are not 61 additional distinct product tests. Historical test results do not establish the current source revision.
 
 On **2026-10-01**, rerunning the release gate reported **77 missing evidence fields** (36 release, 29 walkthrough, 12 acceptance). This is the current evidence-template count, not the complete count of outstanding engineering tasks. No target deployment, live ngrok session, installed HAI registration, marketplace submission, or human acceptance was performed as part of this README update.
 
@@ -916,7 +874,6 @@ python -m app.support_bundle --output .tmp\autoposter-support.zip
 | Worker is paused | Persistent emergency stop is active | Inspect the recorded reason; resume only after the incident is resolved |
 | Autosave failed | Visible form changes were not persisted | Keep the page open, inspect the request ID/connectivity, and use **Save** to retry |
 | Migration mismatch | Database is behind Alembic head | Back up first, stop all API and worker processes, then run `alembic upgrade head` with the intended database configuration |
-| ngrok reports `ERR_NGROK_334` | The requested endpoint is already online | Stop the conflicting endpoint or allocate another domain; do not pool unrelated services |
 | Image metadata exists but bytes do not load | Storage object/path is missing or inaccessible | Stop destructive cleanup, inspect storage credentials/mounts, and reconcile against backups |
 
 See [Troubleshooting](docs/TROUBLESHOOTING.md) for the maintained error catalogue.
@@ -932,7 +889,7 @@ See [Troubleshooting](docs/TROUBLESHOOTING.md) for the maintained error catalogu
 ├── public/                      Browser UI (plain HTML, CSS, JavaScript)
 ├── migrations/                 Alembic migrations
 ├── tests/                      Automated product, security, UI-contract, and release tests
-├── scripts/                    Verification, browser evidence, release gates, Windows/ngrok tools
+├── scripts/                    Verification, browser evidence, release gates, Windows packaging
 ├── packaging/                  PyInstaller specification
 ├── docs/                       Product, technical, operational, security, and acceptance records
 ├── legacy/                     Quarantined historical Selenium/manual scripts
@@ -982,7 +939,7 @@ An assisted adapter must return `needs_user_action`. Changing to `official_api` 
 
 ### Installation and operation
 
-- [Windows standalone and ngrok](docs/WINDOWS_STANDALONE.md)
+- [Windows standalone](docs/WINDOWS_STANDALONE.md)
 - [Operator runbook](docs/OPERATOR_RUNBOOK.md)
 - [Backup, restore, and disaster recovery](docs/BACKUP_RESTORE.md)
 - [Image storage](docs/IMAGE_STORAGE.md)
@@ -1019,11 +976,11 @@ The `docs/` directory also contains detailed audit history, design reviews, task
 
 There are both **unfinished implementation/integration tasks** and **external evidence/signoff requirements**. Filling out the evidence templates does not fix code gaps, and fixing code cannot supply a person's acceptance.
 
-The launch owner must agree the intended product scope. Safe ngrok exposure is required before offering the tunnel route; automatic HAI synchronization needs a compatible consumer before it can be promised. Official marketplace publishing is future work unless it is explicitly made part of the accepted launch scope. An assisted/manual release must say so clearly; it must not be sold as fully automated publishing.
+The launch owner must agree the intended product scope. Ngrok and other tunnels are not supported. The Hetzner migration, including infrastructure, data and database migration, DNS/TLS, secrets, monitoring, backups, and rollback, must be verified before production use. Automatic HAI synchronization needs a compatible consumer before it can be promised. Official marketplace publishing is future work unless explicitly accepted. An assisted/manual release must say so clearly; it must not be sold as fully automated publishing.
 
 | Remaining work | Responsibility and completion proof |
 | --- | --- |
-| Revised ngrok path acceptance | Operator: real-agent compatibility, public access policy, target-machine lifecycle checks, and live local/public API plus exact-worker readiness evidence; local adversarial tests are implemented |
+| Hetzner migration acceptance | Operator: verify the target host, application, data and database, secrets, security controls, DNS/TLS, monitoring, backups, rollback, and live acceptance before cutover |
 | Actual HAI ingestion | Integrator and HAI operator: compatible authenticated transport/format, paging and deletion policy, real create/update/delete ingestion evidence |
 | Long-running/external publishing guarantees | Developers and future provider integrator: lease renewal, provider idempotency and ambiguous-outcome reconciliation before enabling official publishing |
 | Production environment and human acceptance | Deployment/acceptance owner: the evidence below, including accepted scope and risks |
@@ -1052,7 +1009,7 @@ Run `python scripts/release_gate.py --json` for the machine-readable missing-evi
 
 No repository-level `LICENSE` file is currently present. Do not assume permission to copy, redistribute, sublicense, or commercially reuse the code beyond rights you already have; the repository owner should add an explicit licence before third-party distribution or contribution.
 
-Marktplaats, Koopplein, Nextdoor, eBay, Tweedehands, ngrok, PostgreSQL, S3 providers, and other named services retain their own terms, privacy policies, trademarks, technical restrictions, and account requirements. This repository does not grant provider authorisation. The deployment/acceptance owner must review current dependency licences, marketplace terms, data-processing obligations, storage region/retention, and official API permissions before launch.
+Marktplaats, Koopplein, Nextdoor, eBay, Tweedehands, PostgreSQL, S3 providers, and other named services retain their own terms, privacy policies, trademarks, technical restrictions, and account requirements. This repository does not grant provider authorisation. The deployment/acceptance owner must review current dependency licences, marketplace terms, data-processing obligations, storage region/retention, and official API permissions before launch.
 
 ---
 
