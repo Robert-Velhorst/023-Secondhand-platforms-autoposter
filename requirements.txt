@@ -6,6 +6,6 @@ psycopg[binary]>=3.2,<4.0
 argon2-cffi>=25.1,<26.0
 pydantic-settings==2.7.1
 python-multipart==0.0.32
-email-validator==2.2.0
+email-validator==2.3.0
 httpx>=0.28,<1.0
 boto3>=1.43.111,<2.0
