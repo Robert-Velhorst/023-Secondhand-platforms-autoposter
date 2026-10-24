@@ -4,6 +4,9 @@
 /venv
 /.venv
 /.venv-build
+/.venv-stable
+/.autoposter-runtime
+/.qualification
 /__pycache__
 __pycache__/
 *.py[cod]

@@ -14,8 +14,10 @@ class Check:
 
 
 CHECKS = [
-    Check("lint", [sys.executable, "-m", "ruff", "check", "app", "tests", "migrations", "scripts"]),
-    Check("compile", [sys.executable, "-m", "compileall", "app", "tests", "migrations"]),
+    Check(
+        "lint", [sys.executable, "-m", "ruff", "check", "app", "tests", "migrations", "scripts", "runtime_bootstrap"]
+    ),
+    Check("compile", [sys.executable, "-m", "compileall", "app", "tests", "migrations", "runtime_bootstrap"]),
     Check("tests", [sys.executable, "-m", "pytest"]),
     Check("doctor", [sys.executable, "-m", "app.doctor", "--json"]),
 ]
