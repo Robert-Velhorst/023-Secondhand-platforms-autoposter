@@ -15,26 +15,26 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.15.1"
           cache: pip
 
       - name: Install dependencies
-        run: python -m pip install -r requirements-dev.txt
+        run: python -m pip install --require-hashes -r requirements-dev.lock.txt
 
       - name: Run verification gate
         run: python scripts/verify.py
 
   postgres-workers:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     services:
       postgres:
@@ -55,15 +55,41 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.15.1"
           cache: pip
 
       - name: Install dependencies
-        run: python -m pip install -r requirements-dev.txt
+        run: python -m pip install --require-hashes -r requirements-dev.lock.txt
 
       - name: Verify migrated PostgreSQL job safety and concurrent workers
         run: >-
           python -m pytest -q tests/test_job_claim_safety.py tests/test_storage_cleanup_db.py tests/test_image_write_db.py tests/test_login_throttle_db.py tests/test_login_account_state.py tests/test_registration_transactions.py tests/test_logout_account_state.py tests/test_token_secret_cleanup.py
           --job-postgres-url postgresql+psycopg://postgres:disposable-ci-password@127.0.0.1:5432/autoposter_job_test_ci
+
+  windows-package:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15.1"
+          architecture: x64
+      - name: Create isolated packaging environment
+        shell: pwsh
+        run: python -m venv .venv-build
+      - name: Build hash-locked Windows executable
+        shell: pwsh
+        run: ./scripts/build-windows.ps1
+      - name: Retain candidate executable and checksum
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: autoposter-windows-python3151
+          path: |
+            dist/SecondhandAutoposter.exe
+            dist/SecondhandAutoposter.exe.sha256
+          if-no-files-found: error

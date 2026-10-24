@@ -4,6 +4,7 @@
 /venv
 /.venv
 /.venv-build
+/.venv-stable
 /__pycache__
 __pycache__/
 *.py[cod]
