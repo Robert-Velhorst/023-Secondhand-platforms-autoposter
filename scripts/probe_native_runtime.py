@@ -8,12 +8,16 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit
 
 from app.sqlite_runtime import runtime_evidence
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--image", action="store_true")
+parser.add_argument("--postgres-ci", action="store_true")
 arguments = parser.parse_args()
+if arguments.postgres_ci and not arguments.image:
+    parser.error("--postgres-ci requires --image")
 evidence = runtime_evidence()
 assert evidence["version"] == "3.54.1"
 assert tuple(sys.version_info[:3]) == (3, 15, 1)
@@ -133,4 +137,42 @@ if arguments.image:
     system_digest = hashlib.sha256(system_library.read_bytes()).hexdigest()
     assert system_digest == evidence["binary_sha256"]
     report.update(uid=os.getuid(), system_sqlite_package=package, system_sqlite_sha256=system_digest)
+    if arguments.postgres_ci:
+        # This optional connection is bound to the owned CI service and its
+        # one-day fixture certificate. Never accept an operator database URL.
+        dsn = os.environ.get("AUTOPOSTER_CI_POSTGRES_URL", "")
+        target = urlsplit(dsn)
+        expected_query = {
+            "sslmode": "verify-full",
+            "sslrootcert": "/qualification-tls/server.crt",
+            "connect_timeout": "10",
+        }
+        if (
+            target.scheme != "postgresql"
+            or target.hostname != "postgres-ci"
+            or target.port != 5432
+            or target.username != "postgres"
+            or target.password != "disposable-ci-password"
+            or target.path != "/autoposter_job_test_image_ci"
+            or target.fragment
+            or sorted(parse_qsl(target.query)) != sorted(expected_query.items())
+        ):
+            raise RuntimeError("The native CI probe requires its exact disposable TLS service")
+        with psycopg.connect(dsn, autocommit=True, options="-c default_transaction_read_only=on") as connection:
+            server = connection.execute("SELECT current_setting('server_version_num')::int").fetchone()[0]
+            tls = connection.execute(
+                "SELECT ssl, version, cipher, bits FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
+            ).fetchone()
+            assert server == 180006
+            assert tls and tls[0] is True and tls[1] == "TLSv1.3" and tls[3] >= 128
+        report["disposable_postgres"] = {
+            "server_version": server,
+            "tls_version": tls[1],
+            "cipher": tls[2],
+            "cipher_bits": tls[3],
+            "certificate_mode": "verify-full",
+            "client_implementation": psycopg.pq.__impl__,
+            "client_version": psycopg.pq.version(),
+            "read_only_probe": True,
+        }
 print(json.dumps(report, sort_keys=True))

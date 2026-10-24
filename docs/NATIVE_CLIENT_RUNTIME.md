@@ -31,9 +31,24 @@ The zero-finding raw scan gate remains unchanged.
 
 Source preparation and lock resolution are not proof that this image builds.
 Require current-head hosted build, native identity and complete scan evidence.
-The existing host-side PostgreSQL integration job still uses its binary driver;
-it does not prove PostgreSQL connectivity through this image's new C extension.
-Live deployment, database recovery and provider acceptance remain separate.
+The existing host-side PostgreSQL integration job still uses its binary driver.
+The image job additionally reuses the same eight PostgreSQL check files against
+the unchanged candidate image, its C driver and an owned PostgreSQL 18.6 service.
+Only hash-locked pure-Python pytest tools are mounted; no application or native
+packages are installed over the candidate image. Runtime runs as UID 10001 with
+read-only filesystems and bounded temporary fixtures.
+
+The service uses a one-day CI-only certificate and TLS 1.3. The native probe
+requires the exact disposable database name, service hostname, public dummy
+credential, certificate path and `verify-full` mode. It verifies the actual TLS
+session using PostgreSQL's own session metadata. The service and image run on a
+dedicated internal Docker network with no published ports or external egress.
+Its private key is outside the retained artifact directory. Neither the service
+nor fixture certificate is operator infrastructure or production PKI.
+
+This additional current-head qualification is pending until hosted evidence
+passes. Live deployment, operator database recovery and provider acceptance
+remain separate. No existing test cases are added, removed or relaxed.
 
 CPython's own SSL extension still links its SDK's OpenSSL. The new PostgreSQL
 TLS library does not update that extension or the Windows SDK. Older system

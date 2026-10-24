@@ -12,6 +12,7 @@ def main() -> int:
         "requirements-audit.lock.txt",
         "requirements-wheelbuild.lock.txt",
         "requirements-image.lock.txt",
+        "requirements-qualification.lock.txt",
     ):
         command = [
             sys.executable,

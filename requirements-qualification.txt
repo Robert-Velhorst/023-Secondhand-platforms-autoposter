@@ -1,0 +1,3 @@
+# Pure-Python tools for running the existing checks in the unchanged image.
+# Keep this pin equal to requirements-dev.txt; no application dependencies here.
+pytest==9.1.1

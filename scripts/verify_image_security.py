@@ -53,6 +53,15 @@ image_declared = {
     if line.strip() and not line.startswith("#")
 }
 assert declared == image_declared, "Image and application dependency versions diverged"
+qualification = {
+    line
+    for line in (root / "requirements-qualification.txt").read_text().splitlines()
+    if line.strip() and not line.startswith("#")
+}
+development_pytest = {
+    line for line in (root / "requirements-dev.txt").read_text().splitlines() if line.startswith("pytest==")
+}
+assert qualification == development_pytest, "CI tools must retain the existing development pytest version"
 print(
     json.dumps(
         {
