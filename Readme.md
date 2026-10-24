@@ -1,14 +1,16 @@
 # Secondhand Platforms Autoposter
 
+> **24 October 2026 dependency candidate:** current version targets, hash locks and remaining qualification gaps are recorded in [the stable dependency update](docs/STABLE_DEPENDENCIES_2026-10-24.md). Earlier verification below applies to its dated source commits, not this new candidate.
+
 Secondhand Platforms Autoposter is a self-hosted listing workspace for preparing one secondhand-product listing for several marketplaces. A seller enters the item once, adds images, checks listing quality, creates platform-specific variations, and tracks the work needed to publish it.
 
 > **Current status:** release candidate `1.0.0-rc.1`. The local listing workflow has automated verification, but the project is **not approved for a final production launch**. The implementation/integration gaps and deployment, backup, accessibility, real-user, and acceptance requirements described below remain open.
 
 > **Important:** every marketplace adapter currently uses **assisted posting**. The app prepares copy-ready data and opens the appropriate marketplace workflow; the seller still signs in, handles verification or CAPTCHA prompts, reviews fees and options, and presses the marketplace's final submit button. The app does not claim automatic publication without official API proof or explicit user confirmation.
 
-### Which version does this describe?
+### Earlier verification baseline
 
-This README describes the **`agent/production-launch-hardening` review branch**, tracked in [open draft pull request #2](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/pull/2), not an approved production release. The PR targets `main` at [`2677933`](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/commit/2677933ed17e66fa024c6ee764852ff0991c6610). On **2026-10-03**, source commit [`0f1f10a`](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/commit/0f1f10a602235a163ff59207b3a68e4e9416207e) passed the full Windows 11/Python 3.14 verification gate: Ruff, compilation, and **563 tests passed with 1 skipped**. Its GitHub `verify`, `postgres-workers`, and `dependency-audit` checks also passed. The doctor reported development-only warnings for the default secret and local SQLite migration state; no production database was contacted. Recent additions include Dutch localization of common dashboard and listing workflows, a scalar-projection analytics read path, per-container worker identity in the production healthcheck, delivery choices mapped automatically from the listing form, and Alembic URL escaping for Windows paths. See [internationalization](docs/INTERNATIONALIZATION.md), [performance basics](docs/PERFORMANCE_SCALE_BASICS.md), and the [dated verification evidence](docs/FINAL_VERIFICATION_REPORT.md#windows-sqlalchemy-and-alembic-url-compatibility-2026-10-03). The older 190-test report referred to an earlier baseline.
+The following historical record describes the **`agent/production-launch-hardening` review branch**, tracked in [historical pull request #2](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/pull/2), not an approved production release. The PR targets `main` at [`2677933`](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/commit/2677933ed17e66fa024c6ee764852ff0991c6610). On **2026-10-03**, source commit [`0f1f10a`](https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter/commit/0f1f10a602235a163ff59207b3a68e4e9416207e) passed the full Windows 11/Python 3.14 verification gate: Ruff, compilation, and **563 tests passed with 1 skipped**. Its GitHub `verify`, `postgres-workers`, and `dependency-audit` checks also passed. The doctor reported development-only warnings for the default secret and local SQLite migration state; no production database was contacted. Recent additions include Dutch localization of common dashboard and listing workflows, a scalar-projection analytics read path, per-container worker identity in the production healthcheck, delivery choices mapped automatically from the listing form, and Alembic URL escaping for Windows paths. See [internationalization](docs/INTERNATIONALIZATION.md), [performance basics](docs/PERFORMANCE_SCALE_BASICS.md), and the [dated verification evidence](docs/FINAL_VERIFICATION_REPORT.md#windows-sqlalchemy-and-alembic-url-compatibility-2026-10-03). The older 190-test report referred to an earlier baseline.
 
 The repository's current GitHub owner is **Robert-Velhorst**. The original `Noodzakelijk-Online/023-Secondhand-platforms-autoposter` link resolves to this repository. Proposed changes, older PR descriptions, and generated executables are not interchangeable with the source revision you checked out. Rebuild after updating source; an older executable does not gain new launcher controls merely because its PowerShell wrapper changed.
 
@@ -211,11 +213,11 @@ Marketplace names and links identify destinations selected by the user. They do 
 The repository contains a PyInstaller build recipe; the generated executable is intentionally ignored by Git and is not a source file. Build it on the Windows machine where it will be reviewed:
 
 ```powershell
-py -3.13 -m venv .venv-build
+py -3.15 -m venv .venv-build
 .\scripts\build-windows.ps1
 ```
 
-Run these commands from the repository root after cloning the review branch. The environment-creation command is for a **new** packaging environment; preserve an existing working `.venv-build`. The build script uses that isolated environment and expects Python 3.13 for packaging. Its automatic discovery fallback looks for a uv-managed Python 3.13 installation, so merely having another Python version on `PATH` is not sufficient. It creates:
+Run these commands from the repository root after cloning the review branch. The environment-creation command is for a **new** packaging environment; preserve an existing working `.venv-build`. The build script uses that isolated environment and requires CPython 3.15.1 win-amd64 for packaging. Its automatic discovery fallback looks for that exact uv-managed interpreter; alternatively supply `-BootstrapPython` with its executable path, so merely having another Python version on `PATH` is not sufficient. It creates:
 
 - `dist\SecondhandAutoposter.exe`
 - `dist\SecondhandAutoposter.exe.sha256`
@@ -253,10 +255,10 @@ An occupied port or a data directory held by another current launcher causes sta
 
 ### Requirements
 
-- Python 3.12 is the supported application/CI target.
+- Python 3.15.1 is the application/CI target for the current stable dependency candidate.
 - Git.
 - A modern browser.
-- Optional: Docker Desktop, PostgreSQL, and Python 3.13 for Windows packaging.
+- Optional: Docker Desktop, PostgreSQL, and CPython 3.15.1 win-amd64 for Windows packaging.
 
 ### Choose and record the version
 
@@ -267,10 +269,12 @@ The review branch can advance. After cloning and entering the repository directo
 ```powershell
 git clone --branch agent/production-launch-hardening https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter.git
 Set-Location 023-Secondhand-platforms-autoposter
-py -3.12 -m venv .venv
+py -3.15 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -r requirements-dev.txt
+python -m pip install --require-hashes -r requirements-dev.lock.txt
+python -I scripts/setup_sqlite_runtime.py
+$env:PYTHONPATH = "$PWD/runtime_bootstrap;$PWD"
 Copy-Item .env.example .env
 ```
 
@@ -290,10 +294,12 @@ Open <http://127.0.0.1:8000>.
 ```bash
 git clone --branch agent/production-launch-hardening https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter.git
 cd 023-Secondhand-platforms-autoposter
-python3.12 -m venv .venv
+python3.15 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r requirements-dev.txt
+python -m pip install --require-hashes -r requirements-dev.lock.txt
+python -I scripts/setup_sqlite_runtime.py
+export PYTHONPATH="$PWD/runtime_bootstrap:$PWD"
 cp .env.example .env
 ```
 

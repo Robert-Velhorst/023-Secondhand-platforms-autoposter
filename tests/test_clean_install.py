@@ -1,5 +1,6 @@
 """Exercise the documented source setup with a fresh, unedited environment copy."""
 
+import json
 import os
 import shutil
 import socket
@@ -14,20 +15,27 @@ import httpx
 
 from app.config import Settings
 from app.processes import owned_process
+from app.sqlite_runtime import platform_key, runtime_layout
 
 
 def test_fresh_example_supports_migrations_api_worker_and_saved_listing(tmp_path):
     root = Path(__file__).resolve().parents[1]
     checkout = tmp_path / "fresh-checkout"
     checkout.mkdir()
-    for directory in ("app", "migrations", "public"):
+    for directory in ("app", "migrations", "public", "runtime_bootstrap"):
         shutil.copytree(root / directory, checkout / directory, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     shutil.copyfile(root / "alembic.ini", checkout / "alembic.ini")
+    shutil.copyfile(root / "sqlite-runtime.json", checkout / "sqlite-runtime.json")
+    specification = json.loads((root / "sqlite-runtime.json").read_text(encoding="utf-8"))
+    # CI already provisioned and verified this immutable native profile.
+    # Carry the required installation assets into the otherwise fresh checkout.
+    native_relative = runtime_layout(specification, platform_key()).relative_to(root)
+    shutil.copytree(root / native_relative, checkout / native_relative)
     shutil.copyfile(root / ".env.example", checkout / ".env")
     env = dict(os.environ)
     for name in Settings.model_fields:
         env.pop(name.upper(), None)
-    env["PYTHONPATH"] = str(checkout)
+    env["PYTHONPATH"] = os.pathsep.join((str(checkout / "runtime_bootstrap"), str(checkout)))
 
     with owned_process(
         [sys.executable, "-m", "alembic", "upgrade", "head"], cwd=checkout, env=env,
