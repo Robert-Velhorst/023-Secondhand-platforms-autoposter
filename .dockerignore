@@ -2,6 +2,7 @@
 .github
 .venv
 .venv-build
+.venv-stable
 .tmp
 .pytest_cache
 __pycache__

@@ -72,3 +72,13 @@ Hetzner remains the deployment target under `DEPLOYMENT_TARGET.md`.
 
 Primary package metadata: `https://pypi.org/pypi/<package>/json`. Exact archive
 integrity values and selected versions are recorded in the committed locks.
+
+## First hosted result
+
+At `85dfdf1`, Supply Chain and CodeQL passed. The Windows executable build and
+PostgreSQL worker integration job passed. Main verification passed 529 cases,
+skipped one, and failed one existing fixture because it expected the older
+setup-python 7.0.0 SHA. That fixture now requires the verified 7.1.0 commit;
+immutable pin and least-privilege checks remain. The subsequent head needs its
+own CI result. These job results do not qualify the bundled SQLite upgrade,
+executable behavior, browser, provider or live deployment.
