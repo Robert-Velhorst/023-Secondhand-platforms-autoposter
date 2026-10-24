@@ -5,6 +5,8 @@
 .venv-stable
 .autoposter-runtime
 .qualification
+/build
+/dist
 .tmp
 .pytest_cache
 __pycache__

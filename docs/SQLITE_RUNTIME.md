@@ -82,6 +82,28 @@ container inventory/scan results. Other listed platform profiles, real
 operator backup/restore, browser/provider and Hetzner deployment acceptance
 remain unqualified. Earlier green CI at `3469b80` predates this native change.
 
+At `ec37aa8`, PostgreSQL integration and the frozen Windows native identity
+job passed. Application verification passed 529 cases and skipped one; the
+remaining clean-checkout fixture omitted the new runtime assets. That fixture
+now carries the verified profile, specification and early bootstrap into its
+isolated checkout. Its data/migration/API/worker assertions remain in place.
+
+The first Alpine build stopped because PyYAML 6.0.3 has no public CPython 3.15
+musl wheel. The corrected builder compiles the hash-pinned source using pip
+26.2.2, setuptools 84.2.1, wheel 0.48.0 and Cython 3.3.0, all locked with
+hashes. Ad hoc build dependency resolution is disabled. Only the installed
+runtime prefix is copied to the final image; compilers and build tools stay
+in the builder. The native LibYAML extension is required, with the stable
+Alpine `yaml` package supplying its shared library. The corrected head requires
+new CI; no passing image is claimed before that scan completes.
+
+A separate local native inventory also found OpenSSL 3.5.9 in the selected
+SDK and libpq 18.4 in the current Psycopg binary package. These remain below
+the independently checked [OpenSSL 4.1.0 release](https://github.com/openssl/openssl/releases/tag/openssl-4.1.0)
+and [PostgreSQL/libpq 18.6 target](https://www.postgresql.org/support/versioning/).
+They were inventoried without a database connection and are not upgraded by
+this SQLite change. Active native component qualification remains incomplete.
+
 The provisioning, loader and image-identity pattern was adapted from
 [Simbi's reviewed source](https://github.com/Robert-Velhorst/022-Simbi-Reach-out/commit/1af92c40c74a842d1ea4e6ee920f429e4f054e04).
 The application's recovery and operator approval boundaries remain in place.

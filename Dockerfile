@@ -1,22 +1,30 @@
 FROM python:3.15.1-alpine3.24@sha256:54448f67d7c31c39e5cdd3ea2d6382395ce142806c284425f8e897d78a0465b3 AS sqlite-builder
 WORKDIR /app
-RUN apk upgrade --no-cache && apk add --no-cache build-base ca-certificates openssl
+RUN apk upgrade --no-cache && apk add --no-cache build-base ca-certificates openssl yaml-dev
 COPY sqlite-runtime.json ./
 COPY scripts/setup_sqlite_runtime.py scripts/build_sqlite_apk.py ./scripts/
 COPY app/__init__.py app/sqlite_runtime.py ./app/
 RUN python -I scripts/setup_sqlite_runtime.py
 RUN python -I scripts/build_sqlite_apk.py
+COPY requirements-wheelbuild.lock.txt requirements.lock.txt ./
+# PyYAML has no public CPython 3.15 musl wheel. Build its hash-verified current
+# source using a locked toolchain, then copy only the installed runtime prefix.
+RUN python -I -m pip install --no-cache-dir --require-hashes -r requirements-wheelbuild.lock.txt \
+    && PYYAML_FORCE_CYTHON=1 PYYAML_FORCE_LIBYAML=1 \
+      python -I -m pip install --no-cache-dir --ignore-installed --no-build-isolation \
+      --require-hashes --prefix=/runtime -r requirements.lock.txt
 
 FROM python:3.15.1-alpine3.24@sha256:54448f67d7c31c39e5cdd3ea2d6382395ce142806c284425f8e897d78a0465b3
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/runtime_bootstrap:/app
 WORKDIR /app
-RUN apk upgrade --no-cache \
+RUN apk upgrade --no-cache && apk add --no-cache yaml \
     && addgroup -S -g 10001 autoposter && adduser -S -u 10001 -G autoposter autoposter \
     && mkdir -p /app/data/uploads /app/scripts \
     && chown -R autoposter:autoposter /app/data
 COPY requirements.lock.txt sqlite-runtime.json ./
+COPY --from=sqlite-builder /runtime/ /usr/local/
 COPY --from=sqlite-builder /app/.autoposter-runtime ./.autoposter-runtime
 COPY --from=sqlite-builder /tmp/autoposter-sqlite.apk /tmp/autoposter-sqlite.apk
 COPY --from=sqlite-builder /tmp/autoposter-package-keys /tmp/autoposter-package-keys
@@ -25,9 +33,8 @@ COPY --chown=autoposter:autoposter alembic.ini .
 COPY --chown=autoposter:autoposter migrations ./migrations
 COPY --chown=autoposter:autoposter app ./app
 COPY --chown=autoposter:autoposter public ./public
-RUN python -I -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r requirements.lock.txt \
-    && python -I -m pip uninstall -y pip \
-    && apk --keys-dir /tmp/autoposter-package-keys --no-network add /tmp/autoposter-sqlite.apk \
+RUN apk --keys-dir /tmp/autoposter-package-keys --no-network add /tmp/autoposter-sqlite.apk \
+    && python -I -m pip check && python -I -m pip uninstall -y pip \
     && rm -f /tmp/autoposter-sqlite.apk \
     && rm -rf /tmp/autoposter-package-keys /root/.cache/pip
 USER autoposter

@@ -8,6 +8,7 @@ def main() -> int:
     for requirements in (
         "requirements.lock.txt", "requirements-dev.lock.txt",
         "requirements-build.lock.txt", "requirements-audit.lock.txt",
+        "requirements-wheelbuild.lock.txt",
     ):
         command = [
             sys.executable, "-m", "pip_audit", "--requirement", requirements,

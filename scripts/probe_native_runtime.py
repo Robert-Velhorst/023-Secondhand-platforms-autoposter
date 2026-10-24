@@ -23,6 +23,10 @@ report = {
     "deployment_acceptance": False,
 }
 if arguments.image:
+    import yaml
+
+    assert yaml.__with_libyaml__, "The current PyYAML source must include the native LibYAML extension"
+    report["libyaml"] = yaml._yaml.get_version_string()
     assert os.getuid() == 10001
     package = json.loads(
         subprocess.check_output(
