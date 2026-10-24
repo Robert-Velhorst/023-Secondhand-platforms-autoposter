@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "prefix": "/opt/autoposter-native",
+  "openssl": {
+    "version": "4.1.0",
+    "url": "https://github.com/openssl/openssl/releases/download/openssl-4.1.0/openssl-4.1.0.tar.gz",
+    "sha256": "50c17baf54cb008f6ce42d50deb4b28050a1aad711636cabd4b241c7e90cc2fd",
+    "release": "https://github.com/openssl/openssl/releases/tag/openssl-4.1.0"
+  },
+  "postgresql": {
+    "version": "18.6",
+    "url": "https://ftp.postgresql.org/pub/source/v18.6/postgresql-18.6.tar.bz2",
+    "sha256": "555610c24d53e4316da5b7d3fc25c279d96856d5e0e23ee308c328c5fa881d9f",
+    "checksum_source": "https://ftp.postgresql.org/pub/source/v18.6/postgresql-18.6.tar.bz2.sha256"
+  }
+}

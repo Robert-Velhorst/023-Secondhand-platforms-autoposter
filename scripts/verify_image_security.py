@@ -39,6 +39,29 @@ for line in (root / "requirements.txt").read_text(encoding="utf-8").splitlines()
     name = re.sub(r"[-_.]+", "-", declaration[1].lower())
     assert declaration[2] in installed.get(name, set()), "Installed direct version mismatch: " + name
 assert installed.get("sqlite-libs") == {"3.54.1-r0"}
-print(json.dumps({"passed": True, "config_id": identity["config_id"],
-                  "os_packages": os_packages, "python_packages": python_packages,
-                  "reported_findings": 0, "deployment_acceptance": False}))
+assert installed.get("libpq") == {"18.6-r0"}
+assert installed.get("libcrypto4") == {"4.1.0-r0"}
+assert installed.get("libssl4") == {"4.1.0-r0"}
+assert installed.get("psycopg-c") == {"3.3.6"}
+assert not installed.get("psycopg-binary"), "The Linux image must not retain the old vendored client"
+declared = {
+    line for line in (root / "requirements.txt").read_text().splitlines() if line.strip() and not line.startswith("#")
+}
+image_declared = {
+    line.replace("psycopg[c]", "psycopg[binary]")
+    for line in (root / "requirements-image.txt").read_text().splitlines()
+    if line.strip() and not line.startswith("#")
+}
+assert declared == image_declared, "Image and application dependency versions diverged"
+print(
+    json.dumps(
+        {
+            "passed": True,
+            "config_id": identity["config_id"],
+            "os_packages": os_packages,
+            "python_packages": python_packages,
+            "reported_findings": 0,
+            "deployment_acceptance": False,
+        }
+    )
+)
