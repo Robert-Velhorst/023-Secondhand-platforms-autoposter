@@ -4,7 +4,6 @@ No database server is built, started or contacted. The selected prefix must be
 absent; this command never replaces the host SDK or system crypto libraries.
 """
 
-import ctypes
 import hashlib
 import json
 import os
@@ -102,18 +101,32 @@ def main():
         shutil.copyfile(openssl_source / "LICENSE.txt", licenses / "OpenSSL.txt")
         shutil.copyfile(postgres_source / "COPYRIGHT", licenses / "PostgreSQL.txt")
     # Version-only native calls; neither opens a socket or a database.
-    crypto = ctypes.CDLL(str(PREFIX / "lib/libcrypto.so.4"))
-    crypto.OpenSSL_version.argtypes = [ctypes.c_int]
-    crypto.OpenSSL_version.restype = ctypes.c_char_p
-    actual_ssl = crypto.OpenSSL_version(0).decode("ascii")
+    # The dynamic loader reads LD_LIBRARY_PATH at process startup. Assigning
+    # os.environ in this already-running builder cannot qualify dependencies
+    # installed afterward. Inspect them in a fresh, isolated Python process.
+    native = json.loads(
+        subprocess.check_output(
+            [
+                sys.executable,
+                "-I",
+                "-c",
+                "import ctypes,json,sys; from pathlib import Path; p=Path(sys.argv[1]); "
+                "c=ctypes.CDLL(str(p/'lib/libcrypto.so.4')); "
+                "c.OpenSSL_version.argtypes=[ctypes.c_int]; c.OpenSSL_version.restype=ctypes.c_char_p; "
+                "ctypes.CDLL(str(p/'lib/libssl.so.4')); q=ctypes.CDLL(str(p/'lib/libpq.so.5')); "
+                "q.PQlibVersion.restype=ctypes.c_int; "
+                "print(json.dumps({'openssl':c.OpenSSL_version(0).decode('ascii'),'libpq':q.PQlibVersion()}))",
+                str(PREFIX),
+            ],
+            env=environment,
+            text=True,
+            timeout=30,
+        )
+    )
+    actual_ssl = native["openssl"]
     if not actual_ssl.startswith("OpenSSL " + SPEC["openssl"]["version"] + " "):
         raise RuntimeError("Compiled OpenSSL version does not match the pinned source")
-    # Loading the dependent libssl first also proves it resolves the pinned
-    # major-4 crypto library in this builder process.
-    ctypes.CDLL(str(PREFIX / "lib/libssl.so.4"), mode=ctypes.RTLD_GLOBAL)
-    pq = ctypes.CDLL(str(PREFIX / "lib/libpq.so.5"))
-    pq.PQlibVersion.restype = ctypes.c_int
-    if pq.PQlibVersion() != 180006:
+    if native["libpq"] != 180006:
         raise RuntimeError("Compiled libpq must report PostgreSQL 18.6")
     libraries = {}
     for item in sorted((PREFIX / "lib").rglob("*")):
@@ -126,7 +139,7 @@ def main():
             {
                 "sources": SPEC,
                 "openssl": actual_ssl,
-                "libpq": pq.PQlibVersion(),
+                "libpq": native["libpq"],
                 "libraries": libraries,
                 "database_connected": False,
             },
