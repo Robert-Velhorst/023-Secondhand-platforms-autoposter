@@ -40,10 +40,10 @@ class User(Base, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    sessions: Mapped[list["UserSession"]] = relationship(
+    sessions: Mapped[list[UserSession]] = relationship(
         cascade="all, delete-orphan", back_populates="user"
     )
-    listings: Mapped[list["Listing"]] = relationship(cascade="all, delete-orphan", back_populates="owner")
+    listings: Mapped[list[Listing]] = relationship(cascade="all, delete-orphan", back_populates="owner")
 
 
 class HaiConnectorToken(Base):
@@ -132,14 +132,14 @@ class Listing(Base, TimestampMixin):
     revision: Mapped[int] = mapped_column(Integer, default=1)
 
     owner: Mapped[User] = relationship(back_populates="listings")
-    images: Mapped[list["ListingImage"]] = relationship(
+    images: Mapped[list[ListingImage]] = relationship(
         cascade="all, delete-orphan", back_populates="listing", order_by="ListingImage.position"
     )
-    platform_mappings: Mapped[list["PlatformListingMapping"]] = relationship(
+    platform_mappings: Mapped[list[PlatformListingMapping]] = relationship(
         cascade="all, delete-orphan", back_populates="listing"
     )
-    jobs: Mapped[list["PublishingJob"]] = relationship(cascade="all, delete-orphan", back_populates="listing")
-    drafts: Mapped[list["ListingDraft"]] = relationship(
+    jobs: Mapped[list[PublishingJob]] = relationship(cascade="all, delete-orphan", back_populates="listing")
+    drafts: Mapped[list[ListingDraft]] = relationship(
         cascade="all, delete-orphan", back_populates="listing"
     )
 
@@ -300,10 +300,10 @@ class PublishingJob(Base, TimestampMixin):
     result: Mapped[dict] = mapped_column(JSON, default=dict)
 
     listing: Mapped[Listing] = relationship(back_populates="jobs")
-    logs: Mapped[list["PublishingJobLog"]] = relationship(
+    logs: Mapped[list[PublishingJobLog]] = relationship(
         cascade="all, delete-orphan", back_populates="job", order_by="PublishingJobLog.created_at"
     )
-    publication_attempts: Mapped[list["PublicationAttempt"]] = relationship(
+    publication_attempts: Mapped[list[PublicationAttempt]] = relationship(
         cascade="all, delete-orphan", back_populates="job"
     )
 
