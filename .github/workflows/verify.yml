@@ -150,7 +150,7 @@ jobs:
         run: |
           docker run --rm --read-only --user "$(id -u):$(id -g)" --cap-drop ALL \
             --security-opt no-new-privileges \
-            --tmpfs /tmp:rw,noexec,nosuid,size=128m \
+            --tmpfs /tmp:rw,noexec,nosuid,size=1g \
             --mount type=bind,src="$PWD/.qualification/input",dst=/input,readonly \
             --mount type=bind,src="$PWD/.qualification/reports",dst=/reports \
             --mount type=bind,src="$PWD/.qualification/cache",dst=/cache \

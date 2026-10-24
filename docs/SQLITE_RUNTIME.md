@@ -97,6 +97,13 @@ in the builder. The native LibYAML extension is required, with the stable
 Alpine `yaml` package supplying its shared library. The corrected head requires
 new CI; no passing image is claimed before that scan completes.
 
+At `6e89621`, application, PostgreSQL and frozen Windows jobs passed. The
+container built and its restricted native/archive probes passed. Trivy then
+failed before scanning: its 129 MiB database download exceeded the scanner's
+128 MiB temporary filesystem. The scanner now has a bounded 1 GiB temporary
+filesystem. Read-only image access, dropped capabilities, hash/identity checks
+and the zero-finding policy remain unchanged. A completed scan is still required.
+
 A separate local native inventory also found OpenSSL 3.5.9 in the selected
 SDK and libpq 18.4 in the current Psycopg binary package. These remain below
 the independently checked [OpenSSL 4.1.0 release](https://github.com/openssl/openssl/releases/tag/openssl-4.1.0)
