@@ -25,6 +25,7 @@ scripts/*
 !scripts/setup_sqlite_runtime.py
 !scripts/build_sqlite_apk.py
 !scripts/build_native_client.py
+!scripts/build_python_tls.py
 !scripts/package_native_client.py
 !scripts/probe_native_runtime.py
 requirements-legacy.txt
