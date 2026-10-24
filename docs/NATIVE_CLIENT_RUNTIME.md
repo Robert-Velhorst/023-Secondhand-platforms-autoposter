@@ -50,10 +50,34 @@ This additional current-head qualification is pending until hosted evidence
 passes. Live deployment, operator database recovery and provider acceptance
 remain separate. No existing test cases are added, removed or relaxed.
 
-CPython's own SSL extension still links its SDK's OpenSSL. The new PostgreSQL
-TLS library does not update that extension or the Windows SDK. Older system
+In the previous #121 candidate, CPython's own SSL extension still linked its SDK's
+OpenSSL; the PostgreSQL TLS upgrade alone did not update that extension or the
+Windows SDK. The CPython follow-up below is separate from that historical proof. Older system
 crypto packages can also remain for other tools. Those versions and the Windows
 libpq 18.4 runtime remain explicit outstanding work for the full portfolio goal.
 
 Sources: [OpenSSL 4.1.0](https://github.com/openssl/openssl/releases/tag/openssl-4.1.0),
 [PostgreSQL 18.6 source](https://www.postgresql.org/ftp/source/v18.6/).
+
+## CPython TLS follow-up
+
+This follow-up independently rebuilds the exact CPython 3.15.1 `_ssl` and
+`_hashlib` modules from the checksum-verified official CPython archive against
+OpenSSL 4.1.0. The interpreter ABI, installed headers, module hashes and source
+identity are retained. Module replacement is atomic inside the disposable SDK,
+so already mapped extensions remain valid during the builder process. Only the
+selected modules and provenance/license enter the final image; no operator SDK
+is installed or changed.
+
+The image probe now requires Python SSL 4.1.0, usable CA roots, matching module
+hashes and the dedicated loaded library paths, in addition to the existing
+PostgreSQL 18.6 TLS path. Existing application/database cases and complete raw
+image scanning remain unchanged. The build approach was adapted from YouTube
+Automator at commit a67c432ff328bbdbb3aa10c0bc709f02699c2abd.
+
+The earlier #121 native proof does not qualify this new source. Require exact-head
+image build, runtime identity, existing cases and the complete unsuppressed scan.
+Compatibility OpenSSL 3 libraries can remain through distribution LDAP/GSSAPI;
+this does not claim every mapped native library is the latest upstream release.
+Windows, real providers, operator databases, signing and deployment remain
+separate acceptance work.

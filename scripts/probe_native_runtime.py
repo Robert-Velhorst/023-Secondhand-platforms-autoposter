@@ -77,8 +77,21 @@ if arguments.image:
         "libssl4": "4.1.0-r0",
         "libpq": "18.6-r0",
     }
-    # The CPython SDK uses its own SSL module; reporting it separately avoids
-    # conflating the new PostgreSQL TLS library with a Python SSL upgrade.
+    # Require the independently rebuilt CPython extensions as well as libpq TLS.
+    tls = json.loads(Path("/usr/share/doc/autoposter-python-tls/provenance.json").read_text(encoding="utf-8"))
+    selected = json.loads(Path("/app/native-client-runtime.json").read_text(encoding="utf-8"))
+    assert tls["source"] == selected["cpython"]
+    assert {name.split(".cpython-", 1)[0] for name in tls["modules"]} == {"_ssl", "_hashlib"}
+    for name, module in tls["modules"].items():
+        assert name.startswith(("_ssl.cpython-315-", "_hashlib.cpython-315-")) and name.endswith(".so")
+        path = Path("/usr/local/lib/python3.15/lib-dynload") / name
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == module["sha256"]
+    assert ssl.OPENSSL_VERSION.startswith("OpenSSL 4.1.0 ")
+    ca_roots = len(ssl.create_default_context().get_ca_certs())
+    assert ca_roots > 0
+    for stem in ("libssl.so.4", "libcrypto.so.4"):
+        paths = {path for path in loaded if Path(path).name.startswith(stem)}
+        assert paths and all(path.startswith(str(native_root / "lib") + "/") for path in paths)
     report.update(
         postgres_client={
             "implementation": psycopg.pq.__impl__,
@@ -89,6 +102,8 @@ if arguments.image:
             "provenance": native,
         },
         python_sdk_ssl=ssl.OPENSSL_VERSION,
+        python_tls_provenance=tls,
+        python_ca_roots=ca_roots,
     )
     assert yaml.__with_libyaml__, "The current PyYAML source must include the native LibYAML extension"
     report["libyaml"] = yaml._yaml.get_version_string()

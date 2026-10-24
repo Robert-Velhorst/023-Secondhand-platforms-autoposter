@@ -1,12 +1,14 @@
 FROM python:3.15.1-alpine3.24@sha256:54448f67d7c31c39e5cdd3ea2d6382395ce142806c284425f8e897d78a0465b3 AS sqlite-builder
 WORKDIR /app
-RUN apk upgrade --no-cache && apk add --no-cache build-base linux-headers ca-certificates openssl yaml-dev perl pkgconf bison flex krb5-dev openldap-dev
+RUN apk upgrade --no-cache && apk add --no-cache build-base linux-headers bluez-dev ca-certificates openssl yaml-dev perl pkgconf bison flex krb5-dev openldap-dev
 COPY native-client-runtime.json ./
 COPY scripts/build_native_client.py scripts/package_native_client.py ./scripts/
 RUN python -I scripts/build_native_client.py && python -I scripts/package_native_client.py
 ENV PG_CONFIG=/opt/autoposter-native/bin/pg_config \
     PATH=/opt/autoposter-native/bin:${PATH} \
     LD_LIBRARY_PATH=/opt/autoposter-native/lib
+COPY scripts/build_python_tls.py ./scripts/
+RUN AUTOPOSTER_DISPOSABLE_BUILD_SDK=1 python scripts/build_python_tls.py
 COPY sqlite-runtime.json ./
 COPY scripts/setup_sqlite_runtime.py scripts/build_sqlite_apk.py ./scripts/
 COPY app/__init__.py app/sqlite_runtime.py ./app/
@@ -33,6 +35,8 @@ RUN apk upgrade --no-cache && apk add --no-cache yaml krb5-libs libldap \
     && chown -R autoposter:autoposter /app/data
 COPY requirements.lock.txt requirements-image.txt requirements-image.lock.txt sqlite-runtime.json native-client-runtime.json ./
 COPY --from=sqlite-builder /runtime/ /usr/local/
+COPY --from=sqlite-builder /python-tls-runtime/lib-dynload/ /usr/local/lib/python3.15/lib-dynload/
+COPY --from=sqlite-builder /python-tls-runtime/provenance.json /python-tls-runtime/CPython-LICENSE /usr/share/doc/autoposter-python-tls/
 COPY --from=sqlite-builder /native-runtime/share/ /opt/autoposter-native/share/
 COPY --from=sqlite-builder /tmp/autoposter-libcrypto4.apk /tmp/autoposter-libssl4.apk /tmp/autoposter-libpq.apk /tmp/
 COPY --from=sqlite-builder /tmp/autoposter-native-package-keys /tmp/autoposter-native-package-keys
