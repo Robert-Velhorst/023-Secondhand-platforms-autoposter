@@ -36,7 +36,7 @@ def test_production_environment_template_uses_safe_required_values():
         assert value in content
 
 
-def test_ci_workflows_use_immutable_node24_action_pins_and_least_privilege():
+def test_ci_workflows_use_immutable_current_action_pins_and_least_privilege():
     workflows = [
         Path(".github/workflows/verify.yml").read_text(encoding="utf-8"),
         Path(".github/workflows/supply-chain.yml").read_text(encoding="utf-8"),
@@ -50,7 +50,7 @@ def test_ci_workflows_use_immutable_node24_action_pins_and_least_privilege():
         assert "pull_request:" in event_block
         assert "pull_request:" not in concurrency_block
         assert "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1" in content
-        assert "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0" in content
+        assert "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0" in content
         assert "permissions:\n  contents: read" in content
         assert "timeout-minutes: 15" in content
         assert "@v4" not in content
@@ -75,4 +75,7 @@ def test_container_build_context_excludes_local_state_and_runs_unprivileged():
     assert "COPY . ." not in dockerfile
     assert "COPY --chown=autoposter:autoposter app ./app" in dockerfile
     assert "USER autoposter" in dockerfile
-    assert "FROM python:3.15-slim@sha256:" in dockerfile
+    assert (
+        "FROM python:3.15.1-alpine3.24@sha256:"
+        "54448f67d7c31c39e5cdd3ea2d6382395ce142806c284425f8e897d78a0465b3"
+    ) in dockerfile

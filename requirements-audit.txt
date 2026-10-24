@@ -1,0 +1,2 @@
+# Security audit tooling; separate from application runtime.
+pip-audit==2.10.1
