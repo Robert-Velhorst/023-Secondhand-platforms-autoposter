@@ -1,6 +1,6 @@
 FROM python:3.15.1-alpine3.24@sha256:54448f67d7c31c39e5cdd3ea2d6382395ce142806c284425f8e897d78a0465b3 AS sqlite-builder
 WORKDIR /app
-RUN apk upgrade --no-cache && apk add --no-cache build-base ca-certificates openssl yaml-dev perl pkgconf bison flex krb5-dev openldap-dev
+RUN apk upgrade --no-cache && apk add --no-cache build-base linux-headers ca-certificates openssl yaml-dev perl pkgconf bison flex krb5-dev openldap-dev
 COPY native-client-runtime.json ./
 COPY scripts/build_native_client.py scripts/package_native_client.py ./scripts/
 RUN python -I scripts/build_native_client.py && python -I scripts/package_native_client.py
