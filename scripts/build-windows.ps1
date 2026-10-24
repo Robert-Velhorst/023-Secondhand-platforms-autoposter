@@ -35,12 +35,24 @@ if (-not (Test-Path -LiteralPath $requestedPython)) {
 $pythonPath = (Resolve-Path -LiteralPath $requestedPython).Path
 Assert-StableBuildPython $pythonPath
 
+& $pythonPath -I (Join-Path $root "scripts/setup_sqlite_runtime.py")
+if ($LASTEXITCODE -ne 0) {
+    throw "Project-local SQLite provisioning failed; no executable was built."
+}
+
 & $pythonPath -m pip install --require-hashes -r (Join-Path $root "requirements-build.lock.txt")
 if ($LASTEXITCODE -ne 0) {
     throw "Windows build dependency installation failed integrity verification."
 }
-& $pythonPath -m PyInstaller --noconfirm --clean (Join-Path $root "packaging\autoposter.spec")
-if ($LASTEXITCODE -ne 0) {
+$previousPythonPath = $env:PYTHONPATH
+try {
+    $env:PYTHONPATH = (Join-Path $root "runtime_bootstrap") + [IO.Path]::PathSeparator + $root
+    & $pythonPath -m PyInstaller --noconfirm --clean (Join-Path $root "packaging\autoposter.spec")
+    $buildExit = $LASTEXITCODE
+} finally {
+    $env:PYTHONPATH = $previousPythonPath
+}
+if ($buildExit -ne 0) {
     throw "Windows executable build failed."
 }
 

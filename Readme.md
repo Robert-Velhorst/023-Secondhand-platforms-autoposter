@@ -269,10 +269,12 @@ The review branch can advance. After cloning and entering the repository directo
 ```powershell
 git clone --branch agent/production-launch-hardening https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter.git
 Set-Location 023-Secondhand-platforms-autoposter
-py -3.12 -m venv .venv
+py -3.15 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install --require-hashes -r requirements-dev.lock.txt
+python -I scripts/setup_sqlite_runtime.py
+$env:PYTHONPATH = "$PWD/runtime_bootstrap;$PWD"
 Copy-Item .env.example .env
 ```
 
@@ -292,10 +294,12 @@ Open <http://127.0.0.1:8000>.
 ```bash
 git clone --branch agent/production-launch-hardening https://github.com/Robert-Velhorst/023-Secondhand-platforms-autoposter.git
 cd 023-Secondhand-platforms-autoposter
-python3.12 -m venv .venv
+python3.15 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install --require-hashes -r requirements-dev.lock.txt
+python -I scripts/setup_sqlite_runtime.py
+export PYTHONPATH="$PWD/runtime_bootstrap:$PWD"
 cp .env.example .env
 ```
 

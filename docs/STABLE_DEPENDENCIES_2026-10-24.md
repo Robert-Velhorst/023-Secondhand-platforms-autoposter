@@ -60,7 +60,8 @@ launcher, child-process, recovery, signing or installer acceptance.
 - The inspected interpreter actually embeds SQLite **3.53.1**, below the
   current 3.54.1 target. No database was opened by that version probe. The
   native library upgrade and migration/backup/recovery qualification remain
-  required; the Python update alone does not satisfy them.
+  required for that earlier head; the native candidate below addresses the
+  active engine separately. The Python update alone did not satisfy them.
 - Full application/PostgreSQL integration CI, Windows executable behavior,
   installed image inventories and scans, browser behavior, live provider
   integrations and deployment acceptance remain unqualified for this head.
@@ -82,3 +83,13 @@ setup-python 7.0.0 SHA. That fixture now requires the verified 7.1.0 commit;
 immutable pin and least-privilege checks remain. The subsequent head needs its
 own CI result. These job results do not qualify the bundled SQLite upgrade,
 executable behavior, browser, provider or live deployment.
+
+## Native SQLite follow-up
+
+At `3469b80`, all nine reported hosted checks passed after correcting the
+action-pin fixture. The subsequent native candidate adds project-local
+SQLite 3.54.1 provisioning and early bootstrap, a frozen-executable identity
+probe, signed local system packaging for the Alpine image, and an independent
+exact-image inventory/scan gate. Local Windows source startup now reports
+the verified 3.54.1 engine. The global SDK remains unchanged. See
+[native runtime scope and remaining qualification](SQLITE_RUNTIME.md).

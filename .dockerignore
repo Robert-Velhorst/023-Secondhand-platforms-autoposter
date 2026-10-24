@@ -3,6 +3,8 @@
 .venv
 .venv-build
 .venv-stable
+.autoposter-runtime
+.qualification
 .tmp
 .pytest_cache
 __pycache__
@@ -17,5 +19,8 @@ uploads
 legacy
 tests
 docs
-scripts
+scripts/*
+!scripts/setup_sqlite_runtime.py
+!scripts/build_sqlite_apk.py
+!scripts/probe_native_runtime.py
 requirements-legacy.txt

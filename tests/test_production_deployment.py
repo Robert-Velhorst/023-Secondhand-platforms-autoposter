@@ -75,4 +75,7 @@ def test_container_build_context_excludes_local_state_and_runs_unprivileged():
     assert "COPY . ." not in dockerfile
     assert "COPY --chown=autoposter:autoposter app ./app" in dockerfile
     assert "USER autoposter" in dockerfile
-    assert "FROM python:3.15-slim@sha256:" in dockerfile
+    assert (
+        "FROM python:3.15.1-alpine3.24@sha256:"
+        "54448f67d7c31c39e5cdd3ea2d6382395ce142806c284425f8e897d78a0465b3"
+    ) in dockerfile

@@ -1,6 +1,7 @@
 """Windows-friendly launcher for the API, worker, and local data directory."""
 
 import argparse
+import json
 import os
 import re
 import secrets
@@ -93,10 +94,16 @@ def _run_api(listener: socket.socket) -> None:
 
     from app.main import app
 
-    server = uvicorn.Server(uvicorn.Config(
-        app, host="127.0.0.1", port=listener.getsockname()[1],
-        proxy_headers=True, forwarded_allow_ips="127.0.0.1", access_log=False,
-    ))
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=listener.getsockname()[1],
+            proxy_headers=True,
+            forwarded_allow_ips="127.0.0.1",
+            access_log=False,
+        )
+    )
     with listener.dup() as server_socket:
         server.run(sockets=[server_socket])
 
@@ -108,7 +115,7 @@ def _open_when_ready(url: str) -> None:
                 if response.status == 200:
                     webbrowser.open(url)
                     return
-        except (OSError, urllib.error.URLError):
+        except OSError, urllib.error.URLError:
             time.sleep(0.5)
 
 
@@ -186,6 +193,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", default="127.0.0.1", choices=["127.0.0.1", "localhost"])
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument(
+        "--native-runtime-info", action="store_true", help="Report native versions without starting services"
+    )
     parser.add_argument("--worker-child", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--worker-id", default="", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
@@ -193,6 +203,23 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--port must be between 1 and 65535")
     if args.worker_id and (not args.worker_child or not re.fullmatch(r"worker-[0-9a-f]{32}", args.worker_id)):
         parser.error("--worker-id requires worker child mode and a generated worker identity")
+    if args.native_runtime_info:
+        if args.worker_child:
+            parser.error("--native-runtime-info cannot start a worker")
+        from app.sqlite_runtime import runtime_evidence
+
+        print(
+            json.dumps(
+                {
+                    "python": sys.version,
+                    "sqlite": runtime_evidence(),
+                    "frozen": bool(getattr(sys, "frozen", False)),
+                    "operator_database_opened": False,
+                    "services_started": False,
+                }
+            )
+        )
+        return 0
     if args.worker_child:
         configure_standalone_environment(args.port)
         from app.worker import run_forever
